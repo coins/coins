@@ -1,0 +1,9 @@
+[package]
+name = "coins-types"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+coins-crypto = { path = "../coins-crypto" }
+serde = { version = "1", features = ["derive"] }
+bincode = { version = "2.0.1", features = ["serde"] }

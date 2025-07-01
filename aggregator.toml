@@ -1,0 +1,9 @@
+# esplora = "https://blockstream.info/api"
+esplora = "https://mempool.space/signet/api"
+spacechain = "spacechain.bin"
+keyfile = "aggregator_sk.hex"
+interval = 30
+# network = "bitcoin" 
+network = "signet"
+genesis_pk = "43878a2a65c154d604cbe7d974d5dad1c63ce4dc2a68f697c45a4a3ef9ab8a21"
+genesis_balance = 1000000000000

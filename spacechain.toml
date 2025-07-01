@@ -1,0 +1,4 @@
+count = 10000
+value = 1000
+network = "signet"
+output = "spacechain.bin" 

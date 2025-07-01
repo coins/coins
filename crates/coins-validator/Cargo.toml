@@ -1,0 +1,13 @@
+[package]
+name = "coins-validator"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+coins-types = { path = "../coins-types" }
+coins-crypto = { path = "../coins-crypto" }
+coins-state = { path = "../coins-state" }
+thiserror = "2.0.12"
+
+[dev-dependencies]
+tempfile = "3" 

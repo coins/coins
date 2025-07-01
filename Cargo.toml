@@ -1,0 +1,17 @@
+[package]
+name = "coins"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+
+# --- Workspace definition ---
+[workspace]
+members = [
+    "crates/coins-crypto",
+    "crates/coins-types",
+    "crates/coins-state",
+    "crates/coins-validator",
+    "crates/coins-aggregator",
+    "crates/coins-spacechain", "crates/coins-client",
+]
