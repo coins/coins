@@ -187,8 +187,8 @@ impl SecretKey {
         rand_sk(&mut OsRng)
     }
 
-    pub fn public_key(&self ) -> [] {
-        G1::from_affine((G1Projective::generator() * self.0).into_affine()).0
+    pub fn public_key(&self ) -> [u8; 32] {
+        G1::from_affine(&(G1Projective::generator() * self.0).into_affine()).0
     }
 }
 

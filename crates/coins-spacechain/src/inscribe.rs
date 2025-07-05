@@ -33,6 +33,7 @@
 
 use bitcoin::blockdata::script::Instruction;
 use bitcoin::key::{Keypair, Secp256k1};
+use bitcoin::PrivateKey;
 use bitcoin::{
     Address, Network, OutPoint, Sequence, Transaction, TxIn, TxOut, Witness,
     script::Builder, opcodes::{OP_FALSE, OP_TRUE}, Amount,
@@ -120,12 +121,8 @@ pub fn compile_commit_and_reveal(
     };
 
     let commit_out = OutPoint::new(commit_tx.compute_txid(), 0);
-
-    // set witness for anchor spend: P2WSH(OP_TRUE)
-    {
-        let wscript = Builder::new().push_opcode(OP_TRUE).into_script();
-        commit_tx.input[0].witness = Witness::from_slice(&[wscript.as_bytes()]);
-    }
+    commit_tx.input[0].witness = Witness::default();
+    
 
     // ----- reveal transaction -----
     let mut reveal_tx = Transaction {
@@ -135,7 +132,7 @@ pub fn compile_commit_and_reveal(
             previous_output: commit_out,
             script_sig: bitcoin::ScriptBuf::new(),
             sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
-            witness: Witness::from_slice(&[&[][..], wscript.as_bytes()]),
+            witness: Witness::default(), // populated after signing below
         }],
         // reveals are zero-value anyone-can-spend to keep chain moving
         output: vec![TxOut { value: Amount::from_sat(0), script_pubkey: Builder::new().push_opcode(OP_TRUE).into_script() }],
@@ -144,7 +141,8 @@ pub fn compile_commit_and_reveal(
     // sign reveal input
     {
         let mut cache = SighashCache::new(&mut reveal_tx);
-        let sighash = cache.p2wpkh_signature_hash(0, &wscript, value_sat, EcdsaSighashType::All).expect("sighash");
+        // The inscription output is P2WSH, therefore we need a P2WSH sighash.
+        let sighash = cache.p2wsh_signature_hash(0, &wscript, value_sat, EcdsaSighashType::All).expect("sighash");
         let msg = Message::from_digest_slice(&sighash[..]).expect("32 bytes");
         let sig = secp.sign_ecdsa(&msg, fee_sk);
         let mut sig_der = sig.serialize_der().to_vec();
@@ -186,9 +184,9 @@ pub fn compile_commit_and_reveal_with_fee(
     fee_sat: u64,
 ) -> (Transaction, Transaction) {
     let secp = Secp256k1::new();
-    let fee_raw_pk = SecpPublicKey::from_secret_key(&secp, fee_sk);
-    let fee_pk_inner = PublicKey { compressed: true, inner: fee_raw_pk };
-    let fee_pk = CompressedPublicKey::try_from(fee_pk_inner).expect("compressed");
+    let fee_priv_key = PrivateKey::new(*fee_sk, network);
+    let fee_pk = CompressedPublicKey::from_private_key(&secp, &fee_priv_key).expect("Invalid secret key");
+
     let fee_spk = Address::p2wpkh(&fee_pk, network).script_pubkey();
     let fee_prev_txout = TxOut { value: Amount::from_sat(fee_value_sat), script_pubkey: fee_spk.clone() };
 
@@ -223,9 +221,10 @@ pub fn compile_commit_and_reveal_with_fee(
 
     // set witness for anchor spend: P2WSH(OP_TRUE)
     {
-        let wscript = Builder::new().push_opcode(OP_TRUE).into_script();
-        let empty: &[u8] = &[];
-        commit_tx.input[0].witness = Witness::from_slice(&[empty, wscript.as_bytes()]);
+        // The anchor output is P2WSH(OP_TRUE). Spending it only requires
+        // the redeem script itself (no additional stack elements).
+        
+        commit_tx.input[0].witness = Witness::default()
     }
 
     let inscription_outpoint = OutPoint::new(commit_tx.compute_txid(), 0);
@@ -244,7 +243,7 @@ pub fn compile_commit_and_reveal_with_fee(
     }
 
     let mut reveal_tx = Transaction {
-        version: Version(3),
+        version: Version::TWO,
         lock_time: bitcoin::absolute::LockTime::ZERO,
         input: vec![TxIn {
             previous_output: inscription_outpoint,
@@ -258,6 +257,7 @@ pub fn compile_commit_and_reveal_with_fee(
     // sign input 0 of reveal_tx against wscript
     {
         let mut cache = SighashCache::new(&mut reveal_tx);
+        // The inscription output is P2WSH, therefore we need a P2WSH sighash.
         let sighash = cache.p2wsh_signature_hash(0, &wscript, Amount::from_sat(value_sat), EcdsaSighashType::All).expect("sighash");
         let msg = Message::from_digest_slice(&sighash[..]).expect("32 bytes");
         let sig = secp.sign_ecdsa(&msg, fee_sk);
@@ -303,8 +303,7 @@ fn compile_commit_and_reveal_with_fee_split(
         ],
         output: vec![TxOut { value: Amount::from_sat(inscription_value), script_pubkey: inscription_spk.clone() }],
     };
-    // anchor witness empty+script
-    commit_tx.input[0].witness = Witness::from_slice(&[wscript.as_bytes()]);
+
 
     // sign fee input
     let fee_addr = Address::p2wpkh(&fee_pk, network);

@@ -6,6 +6,9 @@ use bitcoin::Transaction;
 use esplora_client::{AsyncClient, Builder};
 use esplora_client::r#async::DefaultSleeper;
 
+use reqwest::Client as HttpClient;
+use serde_json::json;
+
 #[async_trait]
 pub trait Broadcaster: Send + Sync {
     async fn broadcast_raw(&self, tx: &Transaction) -> Result<()>;
@@ -55,7 +58,36 @@ impl Broadcaster for RestBroadcaster {
     }
 
     async fn broadcast_package(&self, txs: &[Transaction]) -> Result<()> {
-        self.client.broadcast_package(txs).await?;
+        // Build raw-hex list
+        let hexes: Vec<String> = txs.iter().map(|tx| {
+            let raw = bitcoin::consensus::encode::serialize(tx);
+            hex::encode(raw)
+        }).collect();
+
+        // JSON-RPC payload for submitpackage
+        let payload = json!({
+            "jsonrpc": "1.0",
+            "id": "coins-spacechain",
+            "method": "submitpackage",
+            "params": [ hexes ]
+        });
+
+        // Endpoint and HARD-CODED credentials (for local Umbrel node)
+        let rpc_url  = std::env::var("BTC_RPC_URL").unwrap_or_else(|_| "http://umbrel.local:8332".to_string());
+        let rpc_user = "umbrel";
+        let rpc_pass = "ETtbJUgMFi4mc7tWYLc6MPK_ApUCO1eWw4wF5q2mPmA=";
+
+        let resp = HttpClient::new()
+            .post(&rpc_url)
+            .basic_auth(rpc_user, Some(rpc_pass))
+            .json(&payload)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            anyhow::bail!("package relay failed: {}", text);
+        }
         Ok(())
     }
 }

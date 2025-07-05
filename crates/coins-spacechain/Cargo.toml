@@ -20,3 +20,7 @@ esplora-client = { git = "https://github.com/BitVM/rust-esplora-client", branch 
 [[bin]]
 name = "spacechain-setup"
 path = "src/main.rs" 
+
+[[bin]]
+name = "package-relay-test"
+path = "src/package_relay_test.rs" 

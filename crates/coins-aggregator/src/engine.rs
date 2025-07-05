@@ -13,6 +13,8 @@ use coins_crypto::{G1, G2};
 use bincode;
 use coins_spacechain::inscribe::{inscribe_blob};
 use ark_ec::Group;
+use reqwest::Client as HttpClient;
+use serde_json::json;
 
 /// Wrapper for esplora-client UTXO (txid,vout,value)
 #[derive(Debug, Clone)]
@@ -117,6 +119,42 @@ impl Engine {
 
     /// Broadcast raw tx hex
     pub async fn broadcast(&self, tx: &bitcoin::Transaction) -> Result<()> {
+        // --- try RPC first ---
+        let hex_str = hex::encode(bitcoin::consensus::encode::serialize(tx));
+        println!("Hex: {}", hex_str);
+        let payload = json!({
+            "jsonrpc": "1.0",
+            "id": "coins-aggregator",
+            "method": "sendrawtransaction",
+            "params": [ hex_str ]
+        });
+
+        let rpc_url = std::env::var("BTC_RPC_URL").unwrap_or_else(|_| "http://umbrel.local:8332".to_string());
+        let rpc_user = "umbrel";
+        let rpc_pass = "ETtbJUgMFi4mc7tWYLc6MPK_ApUCO1eWw4wF5q2mPmA=";
+
+        let resp = HttpClient::new()
+            .post(&rpc_url)
+            .basic_auth(rpc_user, Some(rpc_pass))
+            .json(&payload)
+            .send()
+            .await;
+
+        match resp {
+            Ok(r) if r.status().is_success() => {
+                println!("RPC broadcast ok: {}", tx.compute_txid());
+                return Ok(());
+            }
+            Ok(r) => {
+                let err_txt = &r.text().await.unwrap_or_default();
+                println!("RPC broadcast failed : {} – falling back to Esplora",  err_txt);
+            }
+            Err(e) => {
+                println!("RPC broadcast error: {} – falling back to Esplora", e);
+            }
+        }
+
+        // fallback: Esplora
         self.client.broadcast(tx).await?;
         Ok(())
     }
@@ -124,7 +162,40 @@ impl Engine {
     /// Broadcast a parent/child package via esplora-client's native helper.
     async fn broadcast_package(&self, txs: &[bitcoin::Transaction]) -> Result<()> {
         // The upstream esplora-client crate now supports package relay directly.
-        self.client.broadcast_package(txs).await?;
+        // Build hex list for parent & child
+        let hexes: Vec<String> = txs.iter().map(|tx| {
+            let raw = bitcoin::consensus::encode::serialize(tx);
+            hex::encode(raw)
+        }).collect();
+
+        // JSON-RPC payload
+        let payload = json!({
+            "jsonrpc": "1.0",
+            "id": "coins-aggregator",
+            "method": "submitpackage",
+            "params": [ hexes ]
+        });
+
+        let rpc_url = std::env::var("BTC_RPC_URL").unwrap_or_else(|_| "http://umbrel.local:8332".to_string());
+        let rpc_user = "umbrel";
+        let rpc_pass = "ETtbJUgMFi4mc7tWYLc6MPK_ApUCO1eWw4wF5q2mPmA=";
+
+        let resp = HttpClient::new()
+            .post(&rpc_url)
+            .basic_auth(rpc_user, Some(rpc_pass))
+            .json(&payload)
+            .send()
+            .await?;
+
+        
+
+        if !resp.status().is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            anyhow::bail!("package relay failed: {}", text);
+        }
+        println!("Package relay response: {}", resp.text().await.unwrap_or_default());
+
+        println!("Txs: {:?}", hexes);
         Ok(())
     }
 
@@ -158,7 +229,7 @@ impl Engine {
         }
 
         let fee_utxo = self.fee_utxos[0].clone();
-        let fee_rate = FeeRate::from_sat_per_vb(1).unwrap();
+        let fee_rate = FeeRate::from_sat_per_vb(4).unwrap();
         
         let txs = self.sc.reconstruct_txs();
 
@@ -187,12 +258,31 @@ impl Engine {
             self.broadcast(&connector_tx).await?;
             self.broadcast(&commit_tx).await?;
         } else {
-            println!("Package broadcasted successfully: connector {} commit_tx {}", connector_tx.compute_txid(), commit_tx.compute_txid());
+            println!("Package broadcasted successfully: anchor_tx {} commit_tx {}", connector_tx.compute_txid(), commit_tx.compute_txid());
         }
 
-        // broadcast reveal transaction individually
-        self.broadcast(&reveal_tx).await?;
-        println!("Broadcasted reveal tx: {}", reveal_tx.compute_txid());
+        // broadcast reveal transaction – retry in case parents not yet visible
+        let reveal_txid = reveal_tx.compute_txid();
+        const MAX_RETRIES: usize = 10;
+        const RETRY_DELAY_MS: u64 = 10000;
+        let mut attempt = 0;
+        loop {
+            match self.broadcast(&reveal_tx).await {
+                Ok(_) => {
+                    println!("Broadcasted reveal tx: {} (attempt {})", reveal_txid, attempt + 1);
+                    break;
+                }
+                Err(e) if attempt < MAX_RETRIES => {
+                    println!("Reveal broadcast failed (attempt {}): {} – retrying after {} ms", attempt + 1, e, RETRY_DELAY_MS);
+                    attempt += 1;
+                    tokio::time::sleep(std::time::Duration::from_millis(RETRY_DELAY_MS)).await;
+                }
+                Err(e) => {
+                    println!("Reveal broadcast failed after {} attempts: {}", attempt + 1, e);
+                    return Err(e);
+                }
+            }
+        }
 
         // The new anchor is the first output of the reveal_tx transaction
         self.current_anchor = OutPoint::new(reveal_tx.compute_txid(), 0);

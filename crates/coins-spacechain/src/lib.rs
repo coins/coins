@@ -39,9 +39,12 @@ pub struct Spacechain {
 impl Spacechain {
     /// Build an unsigned anchor transaction spending `prev_out` and forwarding `value_sat` sat to the
     /// space-chain successor output. Creates a zero-sat anchor output (P2WSH OP_TRUE).
-    fn build_anchor_tx(prev_out: OutPoint, value_sat: Amount, pk_script: ScriptBuf, network: Network) -> Transaction {
-        let wscript_anchor = Builder::new().push_opcode(OP_TRUE).into_script();
-        let anchor_spk = Address::p2wsh(&wscript_anchor, network).script_pubkey();
+    fn build_anchor_tx(prev_out: OutPoint, value_sat: Amount, pk_script: ScriptBuf) -> Transaction {
+        // Pay-to-Anchor (BIP-431): OP_1 OP_PUSHBYTES_2 0x4e 0x73  – zero-value, empty witness
+        let anchor_spk = Builder::new()
+            .push_opcode(bitcoin::opcodes::all::OP_PUSHNUM_1) // OP_1 (witness-version 1)
+            .push_slice(&[0x4e, 0x73])                        // "Ns" tag
+            .into_script();
 
         Transaction {
             version: Version(3),
@@ -77,16 +80,20 @@ impl Spacechain {
         let mut prev_out = first_out;
 
         for _ in 0..n {
-            let tx = Self::build_anchor_tx(prev_out, value_sat, script_pubkey.clone(), network);
+            let tx = Self::build_anchor_tx(prev_out, value_sat, script_pubkey.clone());
 
             // ---- sign input 0 ----
             let mut tx_clone = tx.clone();
-            let cache = SighashCache::new(&mut tx_clone);
-            let sighash = cache.legacy_signature_hash(
-                0,
-                &script_pubkey,
-                EcdsaSighashType::All as u32,
-            ).expect("sighash");
+            let mut cache = SighashCache::new(&mut tx_clone);
+            // Witness spend: use BIP-143 style sighash for P2WPKH
+            let sighash = cache
+                .p2wpkh_signature_hash(
+                    0,
+                    &script_pubkey,
+                    value_sat,
+                    EcdsaSighashType::All,
+                )
+                .expect("sighash");
 
             let msg = Message::from_digest_slice(&sighash[..]).expect("32 bytes");
             let sig = secp.sign_ecdsa(&msg, &sk.inner);
@@ -149,7 +156,7 @@ impl Spacechain {
         let mut prev_out = self.first_out;
         let mut txs = Vec::with_capacity(self.sigs.len());
         for sig in &self.sigs {
-            let mut tx = Self::build_anchor_tx(prev_out, self.value_sat, script_pubkey.clone(), self.network);
+            let mut tx = Self::build_anchor_tx(prev_out, self.value_sat, script_pubkey.clone());
             let pkb = self.pubkey.to_bytes();
             tx.input[0].witness = Witness::from_slice(&[sig.as_slice(), pkb.as_slice()]);
             let txid = tx.compute_txid();
