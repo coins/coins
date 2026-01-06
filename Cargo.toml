@@ -6,7 +6,7 @@ members = [
     "crates/coins-validator",
     "crates/coins-indexer",
     "crates/coins-aggregator",
-    "crates/coins-spacechain",
+    "crates/coins-subchain",
     "crates/coins-client",
 ]
 

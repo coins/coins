@@ -1,0 +1,11 @@
+# Subchain generation configuration for regtest
+# This file is generated from config/subchain-regtest.toml
+
+# Number of pre-signed connector transactions
+count = 10000
+
+# Bitcoin network
+network = "regtest"
+
+# Output file path (relative to project root)
+output = ".data/subchains/subchain_regtest.bin"

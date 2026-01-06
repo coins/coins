@@ -1,4 +1,4 @@
-//! coins-spacechain – trusted setup generator for successor/anchor chain.
+//! coins-subchain – trusted setup generator for successor/anchor chain.
 //!
 //! This crate is **offline-only**: it produces a JSON file that contains a
 //! sequence of pre-signed *connector* transactions.  Each connector has
@@ -28,7 +28,7 @@ pub mod client;
 mod annex_test;
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Spacechain {
+pub struct Subchain {
     /// First UTXO to spend.
     pub first_out: OutPoint,
     /// Amount forwarded in each successor output.
@@ -41,7 +41,7 @@ pub struct Spacechain {
     pub sigs: Vec<Vec<u8>>,
 }
 
-impl Spacechain {
+impl Subchain {
     /// Build an unsigned anchor transaction spending `prev_out` and forwarding `value_sat` sat to the
     /// space-chain successor output. Creates a zero-sat anchor output (P2WSH OP_TRUE).
     fn build_anchor_tx(prev_out: OutPoint, value_sat: Amount, pk_script: ScriptBuf) -> Transaction {

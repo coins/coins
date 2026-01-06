@@ -3,14 +3,14 @@ use std::sync::Arc;
 use anyhow::Result;
 use bitcoin::{Address, Amount, Network, OutPoint, PrivateKey, Txid, CompressedPublicKey, FeeRate};
 use bitcoin::secp256k1::{Secp256k1, SecretKey};
-use coins_spacechain::Spacechain;
+use coins_subchain::Subchain;
 use std::str::FromStr;
 use crate::api::AppState;
 use crate::blockchain_backend::BlockchainBackend;
 use coins_types::SubBlock;
 use coins_crypto::{G1, SecretKey as BLSSecretKey, aggregate};
 use coins_validator::validate_subblock;
-use coins_spacechain::inscribe::inscribe_blob;
+use coins_subchain::inscribe::inscribe_blob;
 use ark_ff::PrimeField;
 use ark_bn254::Fr;
 use ark_serialize::CanonicalSerialize;
@@ -24,7 +24,7 @@ pub struct FeeUtxo {
 
 pub struct Engine {
     pub backend: Arc<dyn BlockchainBackend>,
-    pub sc: Spacechain,
+    pub sc: Subchain,
     pub fee_sk: SecretKey,
     pub fee_addr: Address,
     pub fee_utxos: Vec<FeeUtxo>,
@@ -38,11 +38,11 @@ pub struct Engine {
 }
 
 impl Engine {
-    /// Initialize from backend, spacechain path, optional fee key path.
-    pub async fn new(backend: Arc<dyn BlockchainBackend>, spacechain_path: PathBuf, network: Network, key_file: Option<PathBuf>, app_state: AppState) -> Result<Self> {
-        // ---------- load spacechain ----------
-        let sc_bytes = std::fs::read(&spacechain_path)?;
-        let sc = Spacechain::decode(&sc_bytes).ok_or_else(|| anyhow::anyhow!("invalid spacechain file"))?;
+    /// Initialize from backend, subchain path, optional fee key path.
+    pub async fn new(backend: Arc<dyn BlockchainBackend>, subchain_path: PathBuf, network: Network, key_file: Option<PathBuf>, app_state: AppState) -> Result<Self> {
+        // ---------- load subchain ----------
+        let sc_bytes = std::fs::read(&subchain_path)?;
+        let sc = Subchain::decode(&sc_bytes).ok_or_else(|| anyhow::anyhow!("invalid subchain file"))?;
 
         // ---------- fee secret key ----------
         let fee_sk = match key_file {
@@ -125,7 +125,7 @@ impl Engine {
                 self.connector_idx += 1;
                 let txs = self.sc.reconstruct_txs();
                 if self.connector_idx >= txs.len() {
-                    anyhow::bail!("spacechain exhausted");
+                    anyhow::bail!("subchain exhausted");
                 }
                 let next = &txs[self.connector_idx];
                 self.current_anchor = OutPoint::new(next.compute_txid(), 1);
@@ -272,7 +272,7 @@ impl Engine {
     pub async fn ibd(&mut self) -> Result<()> {
         let txs = self.sc.reconstruct_txs();
         if txs.is_empty() {
-            tracing::info!("IBD: Spacechain is empty, starting from genesis");
+            tracing::info!("IBD: Subchain is empty, starting from genesis");
             return Ok(());
         }
 

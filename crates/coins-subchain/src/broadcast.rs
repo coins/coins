@@ -67,7 +67,7 @@ impl Broadcaster for RestBroadcaster {
         // JSON-RPC payload for submitpackage
         let payload = json!({
             "jsonrpc": "1.0",
-            "id": "coins-spacechain",
+            "id": "coins-subchain",
             "method": "submitpackage",
             "params": [ hexes ]
         });

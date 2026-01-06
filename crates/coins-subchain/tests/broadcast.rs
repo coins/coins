@@ -1,10 +1,10 @@
-use coins_spacechain::{Spacechain, inscribe, broadcast::Broadcaster};
+use coins_subchain::{Subchain, inscribe, broadcast::Broadcaster};
 use bitcoin::{Amount, Network, OutPoint, Txid, PrivateKey, CompressedPublicKey, Address};
 use async_trait::async_trait;
 use std::sync::{Arc, Mutex};
 use std::env;
 use hex;
-use coins_spacechain::broadcast::RestBroadcaster;
+use coins_subchain::broadcast::RestBroadcaster;
 use std::str::FromStr;
 use bitcoin::secp256k1::Secp256k1;
 
@@ -33,9 +33,9 @@ impl Broadcaster for MockBroadcaster {
 
 #[tokio::test]
 async fn build_and_broadcast_package() {
-    // build a minimal spacechain with one anchor
+    // build a minimal subchain with one anchor
     let first_out = OutPoint::null();
-    let (sc, sk) = Spacechain::generate(1, first_out, Amount::from_sat(546), Network::Regtest);
+    let (sc, sk) = Subchain::generate(1, first_out, Amount::from_sat(546), Network::Regtest);
 
     // reconstruct anchor tx
     let anchor_tx = sc.reconstruct_txs().pop().expect("anchor");
@@ -109,7 +109,7 @@ async fn inscribe_on_real_signet_utxo() -> anyhow::Result<()> {
     // ──────────────────────────────────────────────────────────────
     // 3. build a 1-anchor space-chain and compile commit/reveal
     // ──────────────────────────────────────────────────────────────
-    let (sc, _) = Spacechain::generate(
+    let (sc, _) = Subchain::generate(
         1,
         bitcoin::OutPoint::null(),
         Amount::from_sat(546),

@@ -1,4 +1,4 @@
-use coins_spacechain::{Spacechain, inscribe, broadcast::{RestBroadcaster, Broadcaster}};
+use coins_subchain::{Subchain, inscribe, broadcast::{RestBroadcaster, Broadcaster}};
 use bitcoin::{Amount, Network, OutPoint, Address, PrivateKey, CompressedPublicKey};
 use bitcoin::secp256k1::Secp256k1;
 
@@ -28,7 +28,7 @@ async fn real_utxo_flow() -> anyhow::Result<()> {
         .expect("no confirmed UTXO for fee address; fund it on Signet first");
 
     // build minimal chain
-    let (sc, _) = Spacechain::generate(1, OutPoint::null(), Amount::from_sat(546), Network::Signet);
+    let (sc, _) = Subchain::generate(1, OutPoint::null(), Amount::from_sat(546), Network::Signet);
     let anchor_tx = sc.reconstruct_txs()[0].clone();
 
     // compile commit/reveal

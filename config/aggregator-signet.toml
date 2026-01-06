@@ -4,8 +4,8 @@
 # Esplora API endpoint (required for signet/mainnet)
 esplora = "https://mempool.space/signet/api"
 
-# Spacechain file (relative to project root)
-spacechain = ".data/spacechains/spacechain_signet.bin"
+# Subchain file (relative to project root)
+subchain = ".data/subchains/subchain_signet.bin"
 
 # Bitcoin secret key for fee payments (will be created if doesn't exist)
 keyfile = ".data/keys/aggregator_sk.hex"

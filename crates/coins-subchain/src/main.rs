@@ -1,18 +1,18 @@
 use std::{fs, path::PathBuf, str::FromStr};
 
 use clap::Parser;
-use coins_spacechain::Spacechain;
+use coins_subchain::Subchain;
 use bitcoin::{Amount, Network, OutPoint, PrivateKey, Txid};
 use serde::Deserialize;
 use anyhow::{anyhow, Result};
 use std::io::{self, Write};
 
-/// spacechain-setup: interactive trusted setup generator for anchor transactions.
+/// subchain-setup: interactive trusted setup generator for anchor transactions.
 #[derive(Debug, Parser)]
-#[command(name = "spacechain-setup", version, author, about = "Trusted setup generator for Coins spacechain anchor transactions")]
+#[command(name = "subchain-setup", version, author, about = "Trusted setup generator for Coins subchain anchor transactions")]
 struct Opts {
     /// Path to the configuration file
-    #[arg(short, long, default_value = "config/spacechain.toml")]
+    #[arg(short, long, default_value = "config/subchain.toml")]
     config: PathBuf,
 }
 
@@ -55,7 +55,7 @@ async fn main() -> Result<()> {
     let network = parse_network(&config.network).expect("invalid network");
 
     // always create new key
-    let (sk, _pk, addr) = Spacechain::new_key(network);
+    let (sk, _pk, addr) = Subchain::new_key(network);
     println!("Generated one-time address: {}", addr);
 
     println!("\nSend funds to {} then wait for the UTXO to appear …", addr);
@@ -76,9 +76,9 @@ async fn main() -> Result<()> {
     let value_sat: u64 = value_input.trim().parse().map_err(|_| anyhow!("value must be a number"))?;
     let value = Amount::from_sat(value_sat);
 
-    println!("\nBuilding spacechain…");
+    println!("\nBuilding subchain…");
     let pk = PrivateKey::new(sk, network);
-    let sc = Spacechain::generate_with_private_key(config.count, outpoint, value, network, &pk);
+    let sc = Subchain::generate_with_private_key(config.count, outpoint, value, network, &pk);
 
     let blob = sc.encode();
     fs::write(&config.output, &blob)?;

@@ -580,8 +580,8 @@ dependencies = [
  "clap",
  "coins-crypto",
  "coins-indexer",
- "coins-spacechain",
  "coins-state",
+ "coins-subchain",
  "coins-types",
  "coins-validator",
  "esplora-client",
@@ -652,7 +652,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "coins-spacechain"
+name = "coins-state"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "coins-crypto",
+ "coins-types",
+ "sled",
+ "tempfile",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "coins-subchain"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -669,18 +681,6 @@ dependencies = [
  "tempfile",
  "tokio",
  "toml",
-]
-
-[[package]]
-name = "coins-state"
-version = "0.1.0"
-dependencies = [
- "bincode",
- "coins-crypto",
- "coins-types",
- "sled",
- "tempfile",
- "thiserror 1.0.69",
 ]
 
 [[package]]

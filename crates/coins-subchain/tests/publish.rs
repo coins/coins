@@ -1,6 +1,6 @@
 // Integration tests for publish.rs helpers
 
-use coins_spacechain::publish::{publish_blob, parse_blob_from_publish};
+use coins_subchain::publish::{publish_blob, parse_blob_from_publish};
 use bitcoin::{Amount, Network, OutPoint, ScriptBuf, Transaction, TxOut};
 use bitcoin::secp256k1::{Secp256k1, SecretKey, schnorr::Signature, Message, XOnlyPublicKey};
 use bitcoin::key::Keypair;

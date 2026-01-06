@@ -1,6 +1,6 @@
 use bitcoin::transaction::Version;
 use bitcoin::key::rand::rngs::OsRng;
-use coins_spacechain::inscribe::{inscribe_blob, parse_blob_from_reveal};
+use coins_subchain::inscribe::{inscribe_blob, parse_blob_from_reveal};
 use bitcoin::{Amount, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut};
 use bitcoin::Network;
 use bitcoin::blockdata::script::Builder;

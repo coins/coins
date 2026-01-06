@@ -1,4 +1,4 @@
-//! Integration tests for `SpacechainClient` requiring a running bitcoind
+//! Integration tests for `SubchainClient` requiring a running bitcoind
 //! in *regtest* mode that is reachable via JSON-RPC.
 //!
 //! By default these tests are **ignored** so that `cargo test` still works
@@ -8,16 +8,16 @@
 //! BTC_RPC_URL=http://localhost:18443 \
 //! BTC_RPC_USER=alice \
 //! BTC_RPC_PASS=secret \
-//! cargo test -p coins-spacechain -- --ignored
+//! cargo test -p coins-subchain -- --ignored
 //! ```
 //!
 //! The tests will
 //! 1. connect to the node,
 //! 2. create/load dedicated wallets (`test-hot`, `test-watch`), and
-//! 3. instantiate a [`SpacechainClient`].
+//! 3. instantiate a [`SubchainClient`].
 //!
 //! They do **not** attempt to *publish* data because that would require a
-//! pre-existing live spacechain on-chain.  Instead we just exercise the wallet
+//! pre-existing live subchain on-chain.  Instead we just exercise the wallet
 //! setup code and run an initial block download.
 
 // Constants for regtest RPC credentials – modify once here if needed.
@@ -27,8 +27,8 @@ const RPC_PASS: &str = "password";
 
 use bitcoin::{Amount, Network, OutPoint, Txid, hashes::Hash};
 use bitcoincore_rpc::{Auth, Client as RpcClient, RpcApi};
-use coins_spacechain::{Spacechain};
-use coins_spacechain::client::{ClientConfig, SpacechainClient};
+use coins_subchain::{Subchain};
+use coins_subchain::client::{ClientConfig, SubchainClient};
 use tempfile::TempDir;
 use anyhow::anyhow;
 
@@ -51,13 +51,13 @@ fn init_client_and_ibd() {
     };
     assert_eq!(info.chain, Network::Regtest, "node must run in regtest mode");
 
-    // --- Build dummy spacechain descriptor ---
+    // --- Build dummy subchain descriptor ---
     let first_out = OutPoint::new(Txid::from_raw_hash(bitcoin::hashes::sha256d::Hash::all_zeros()), 0);
-    let (sc, fee_sk) = Spacechain::generate(0, first_out, Amount::from_sat(1_000), Network::Regtest);
+    let (sc, fee_sk) = Subchain::generate(0, first_out, Amount::from_sat(1_000), Network::Regtest);
 
     // Write to temporary file so `ClientConfig` can reference it
     let tmp_dir: TempDir = TempDir::new().expect("tempdir");
-    let sc_path = tmp_dir.path().join("spacechain.bin");
+    let sc_path = tmp_dir.path().join("subchain.bin");
     std::fs::write(&sc_path, sc.encode()).expect("write");
 
     // --- Build client config ---
@@ -67,7 +67,7 @@ fn init_client_and_ibd() {
     let fee_wif = bitcoin::PrivateKey::new(fee_sk, Network::Regtest).to_wif();
 
     let cfg = ClientConfig {
-        spacechain_file: sc_path,
+        subchain_file: sc_path,
         private_key_wif: fee_wif,
         rpc_url: url,
         rpc_user: user,
@@ -77,7 +77,7 @@ fn init_client_and_ibd() {
     };
 
     // --- Instantiate client ---
-    let client = match SpacechainClient::new(cfg) {
+    let client = match SubchainClient::new(cfg) {
         Ok(c) => c,
         Err(e) => { eprintln!("Skipping test – cannot set up client: {e}"); return; }
     };
@@ -88,10 +88,10 @@ fn init_client_and_ibd() {
     assert!(count > 0, "regtest chain should have at least one block");
 }
 
-// New integration test: mine coins on regtest, fund a short spacechain, then run IBD.
+// New integration test: mine coins on regtest, fund a short subchain, then run IBD.
 #[test]
 #[ignore]
-fn mine_and_create_spacechain() {
+fn mine_and_create_subchain() {
     let rpc = rpc_client();
 
     // Try to get blockchain info to confirm connectivity.
@@ -119,8 +119,8 @@ fn mine_and_create_spacechain() {
     // Mine 101 blocks so coinbase outputs mature
     rpc.generate_to_address(101, miner_addr_unchecked.assume_checked_ref()).expect("mine blocks");
 
-    // --- Step 2: create one-time key/address for spacechain funding ---
-    let (_sk_fund, _pk_fund, addr_fund) = Spacechain::new_key(Network::Regtest);
+    // --- Step 2: create one-time key/address for subchain funding ---
+    let (_sk_fund, _pk_fund, addr_fund) = Subchain::new_key(Network::Regtest);
 
     // Send some btc to funding address
     let send_amt = Amount::from_sat(50_000); // 0.0005 BTC
@@ -141,8 +141,8 @@ fn mine_and_create_spacechain() {
         .expect("fund output");
     let first_out = bitcoin::OutPoint::new(txid, vout_idx as u32);
 
-    // --- Step 3: build short spacechain (length 2) ---
-    let (_sc, fee_sk) = Spacechain::generate(2, first_out, send_amt, Network::Regtest);
+    // --- Step 3: build short subchain (length 2) ---
+    let (_sc, fee_sk) = Subchain::generate(2, first_out, send_amt, Network::Regtest);
     // Note: we don't need the result further; just ensure it works.
 
     // Sanity: check utxo still exists
@@ -160,7 +160,7 @@ fn mine_and_create_spacechain() {
     let anchor_txs   = _sc.reconstruct_txs();          // keep the Vec alive
     let last_anchor  = anchor_txs
         .last()
-        .expect("spacechain contains no anchor transactions");
+        .expect("subchain contains no anchor transactions");
 
     // Broadcast anchors in order, mining a block after each so its output exists
     for tx in &anchor_txs {
@@ -197,9 +197,9 @@ fn mine_and_create_spacechain() {
     let fee_outpoint = bitcoin::OutPoint::new(fee_txid, fee_vout as u32);
 
     // Build publish_tx embedding blob
-    let blob = b"hello spacechain";
+    let blob = b"hello subchain";
     // Use the **latest** anchor built from the descriptor.
-    let (_anchor_out, publish_tx) = coins_spacechain::publish::publish_blob(
+    let (_anchor_out, publish_tx) = coins_subchain::publish::publish_blob(
         blob,
         last_anchor,
         fee_outpoint,
@@ -214,8 +214,8 @@ fn mine_and_create_spacechain() {
 
     // verify
     let fetched: bitcoin::Transaction = rpc.get_raw_transaction(&txid, None).expect("fetch publish");
-    let blob = coins_spacechain::publish::parse_blob_from_publish(&fetched).expect("parse blob");
-    assert_eq!(blob, b"hello spacechain");
+    let blob = coins_subchain::publish::parse_blob_from_publish(&fetched).expect("parse blob");
+    assert_eq!(blob, b"hello subchain");
 
     // Done.
 } 

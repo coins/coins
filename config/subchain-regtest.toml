@@ -1,5 +1,5 @@
-# Spacechain generation configuration for regtest
-# Copy to ../spacechain.toml and adjust as needed
+# Subchain generation configuration for regtest
+# Copy to ../subchain.toml and adjust as needed
 
 # Number of pre-signed connector transactions
 # More transactions = longer chain = more sub-blocks before exhaustion
@@ -9,4 +9,4 @@ count = 10000
 network = "regtest"
 
 # Output file path (relative to project root)
-output = ".data/spacechains/spacechain_regtest.bin"
+output = ".data/subchains/subchain_regtest.bin"

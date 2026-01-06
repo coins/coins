@@ -7,8 +7,8 @@ rpc_user = "user"
 rpc_pass = "password"
 rpc_wallet = "coins-aggregator"  # Watch-only wallet name
 
-# Spacechain file (relative to project root)
-spacechain = ".data/spacechains/spacechain_regtest.bin"
+# Subchain file (relative to project root)
+subchain = ".data/subchains/subchain_regtest.bin"
 
 # Bitcoin secret key for fee payments (will be created if doesn't exist)
 keyfile = ".data/keys/aggregator_sk.hex"

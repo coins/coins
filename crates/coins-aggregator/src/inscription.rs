@@ -1,10 +1,10 @@
 use bitcoin::{Network, OutPoint, Transaction};
 use bitcoin::secp256k1::SecretKey;
-use coins_spacechain::inscribe::{inscribe_blob, parse_blob_from_reveal};
+use coins_subchain::inscribe::{inscribe_blob, parse_blob_from_reveal};
 use coins_types::SubBlock;
 
 /// Build commit/reveal transactions that embed the given `subblock` in a Taproot-style
-/// inscription. Internally delegates to `coins_spacechain::inscribe::inscribe_blob`.
+/// inscription. Internally delegates to `coins_subchain::inscribe::inscribe_blob`.
 pub fn inscribe_subblock(
     subblock: &SubBlock,
     connector_tx: &Transaction,

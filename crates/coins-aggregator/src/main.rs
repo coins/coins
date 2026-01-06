@@ -40,7 +40,7 @@ struct Config {
     rpc_wallet: String,
 
     // Common config
-    spacechain: PathBuf,
+    subchain: PathBuf,
     keyfile: PathBuf,
     interval: u64,
     network: Network,
@@ -153,7 +153,7 @@ async fn main() -> anyhow::Result<()> {
     // ===== ENGINE INITIALIZATION =====
     let mut engine = Engine::new(
         backend,
-        config.spacechain.clone(),
+        config.subchain.clone(),
         config.network,
         Some(config.keyfile.clone()),
         app_state
