@@ -1,0 +1,12 @@
+# Spacechain generation configuration for signet
+# Copy to ../spacechain.toml and adjust as needed
+
+# Number of pre-signed connector transactions
+# More transactions = longer chain = more sub-blocks before exhaustion
+count = 10000
+
+# Bitcoin network
+network = "signet"
+
+# Output file path (relative to project root)
+output = ".data/spacechains/spacechain_signet.bin"

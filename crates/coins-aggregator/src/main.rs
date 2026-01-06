@@ -19,7 +19,7 @@ use hex;
 #[command(name="coins-aggregator", about="Run the Coins aggregator service")]
 struct Opts {
     /// Path to the configuration file
-    #[arg(short, long, default_value = "aggregator.toml")]
+    #[arg(short, long, default_value = "config/aggregator.toml")]
     config: PathBuf,
 }
 

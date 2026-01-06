@@ -71,34 +71,32 @@ cargo build --release --bin spacechain-setup
 
 ### 3. Configure Aggregator
 
-Edit `aggregator.toml`:
+Copy the regtest configuration templates:
 
-```toml
-# Bitcoin RPC configuration (for regtest)
-rpc_url = "http://localhost:18443"
-rpc_user = "user"
-rpc_pass = "pass"
-rpc_wallet = "coins-aggregator"  # Optional, defaults to "coins-aggregator"
-
-spacechain = "spacechain_regtest.bin"
-keyfile = "aggregator_sk.hex"
-interval = 30  # Mining interval in seconds
-network = "regtest"
-genesis_pk = "<your-genesis-public-key-hex>"
-genesis_balance = 1000000000000
+```bash
+cp config/aggregator-regtest.toml config/aggregator.toml
+cp config/spacechain-regtest.toml config/spacechain.toml
 ```
 
-**Note:** For regtest, the aggregator uses Bitcoin Core RPC directly. For signet/mainnet, use `esplora` instead of RPC settings (see Configuration Files section).
+The configuration will use these paths:
+- Spacechain: `.data/spacechains/spacechain_regtest.bin`
+- Keys: `.data/keys/aggregator_sk.hex`
+- Databases: `.data/db/state.db/` and `.data/db/indexer.db/`
+
+**Note:** For regtest, the aggregator uses Bitcoin Core RPC directly. For signet/mainnet, use the signet templates (see Configuration Files section).
 
 ### 4. Run Aggregator
 
 ```bash
-# Build and run the aggregator
-cargo run --bin coins-aggregator -- --config aggregator.toml
+# Build and run the aggregator (uses config/aggregator.toml by default)
+cargo run --bin coins-aggregator
+
+# Or specify a different config:
+cargo run --bin coins-aggregator -- --config config/aggregator.toml
 
 # The aggregator will:
-# - Initialize persistent state (./state.db)
-# - Initialize indexer (./indexer.db)
+# - Initialize persistent state (.data/db/state.db/)
+# - Initialize indexer (.data/db/indexer.db/)
 # - Start HTTP API on http://localhost:8080
 # - Begin mining sub-blocks every 30 seconds
 ```
@@ -208,15 +206,24 @@ RUST_LOG=coins_aggregator=debug cargo run --bin coins-aggregator
 RUST_LOG=coins=trace cargo run --bin coins-aggregator
 ```
 
-## Database Files
+## Generated Files
 
-The aggregator creates several database files:
+The aggregator creates files in the `.data/` directory:
 
-- **state.db/**: Persistent account state (sled database)
-- **indexer.db/**: Indexed sub-blocks with finality tracking
-- **aggregator_sk.hex**: Bitcoin ECDSA secret key (fee payments)
-- **aggregator_bls_sk.hex**: BLS secret key (sub-block signing)
-- **spacechain_regtest.bin**: Pre-signed connector transactions
+```
+.data/
+├── keys/
+│   ├── aggregator_sk.hex      # Bitcoin ECDSA secret key (fee payments)
+│   ├── aggregator_bls_sk.hex  # BLS secret key (sub-block signing)
+│   └── client_sk.hex          # Client wallet key
+├── spacechains/
+│   └── spacechain_regtest.bin # Pre-signed connector transactions
+└── db/
+    ├── state.db/              # Persistent account state (sled database)
+    └── indexer.db/            # Indexed sub-blocks with finality tracking
+```
+
+All files in `.data/` are gitignored and created automatically when needed.
 
 ## Security Warnings
 
@@ -238,44 +245,31 @@ The aggregator creates several database files:
 
 ## Configuration Files
 
-### aggregator.toml
+Configuration templates are located in the `config/` directory:
 
-**For regtest (Bitcoin RPC backend):**
-```toml
-rpc_url = "http://localhost:18443"
-rpc_user = "user"
-rpc_pass = "pass"
-rpc_wallet = "coins-aggregator"
-spacechain = "spacechain_regtest.bin"
-keyfile = "aggregator_sk.hex"
-interval = 30
-network = "regtest"
-genesis_pk = "..."
-genesis_balance = 1000000000000
+- **`config/aggregator-regtest.toml`** - Regtest configuration (Bitcoin RPC)
+- **`config/aggregator-signet.toml`** - Signet configuration (Esplora API)
+- **`config/spacechain-regtest.toml`** - Spacechain for regtest
+- **`config/spacechain-signet.toml`** - Spacechain for signet
+
+### Quick Setup
+
+```bash
+# For regtest
+cp config/aggregator-regtest.toml config/aggregator.toml
+cp config/spacechain-regtest.toml config/spacechain.toml
+
+# For signet
+cp config/aggregator-signet.toml config/aggregator.toml
+cp config/spacechain-signet.toml config/spacechain.toml
 ```
 
-**For signet/mainnet (Esplora backend):**
-```toml
-esplora = "https://mempool.space/signet/api"
-spacechain = "spacechain_signet.bin"
-keyfile = "aggregator_sk.hex"
-interval = 30
-network = "signet"
-genesis_pk = "..."
-genesis_balance = 1000000000000
-```
+### Backend Auto-Selection
 
-**Backend auto-selection:**
 - `network = "regtest"` → Uses Bitcoin RPC (requires `rpc_url`, `rpc_user`, `rpc_pass`)
 - `network = "signet"` or `"bitcoin"` → Uses Esplora (requires `esplora` URL)
 
-### spacechain.toml
-
-```toml
-count = 10000              # Number of connector transactions
-network = "regtest"        # Bitcoin network
-output = "spacechain_regtest.bin"  # Output file
-```
+See `config/README.md` for detailed documentation.
 
 ## Troubleshooting
 
@@ -293,7 +287,11 @@ Bitcoin node doesn't support package relay. The aggregator will fall back to ind
 
 ### State database corruption
 
-Delete `state.db/` and `indexer.db/` directories to reset. You'll lose all state - only do this on regtest/testnet.
+Delete `.data/db/` directory to reset. You'll lose all state - only do this on regtest/testnet:
+
+```bash
+rm -rf .data/db/
+```
 
 ## Development
 
@@ -322,8 +320,20 @@ coins/
 ├── Cargo.toml                 # Workspace root
 ├── README.md                  # This file
 ├── spec.md                    # Technical specification
-├── aggregator.toml            # Aggregator configuration
-├── spacechain.toml            # Spacechain generation config
+├── config/                    # Configuration files
+│   ├── README.md
+│   ├── aggregator.toml        # Active config (gitignored)
+│   ├── spacechain.toml        # Active config (gitignored)
+│   ├── aggregator-regtest.toml  # Template
+│   ├── aggregator-signet.toml   # Template
+│   ├── spacechain-regtest.toml  # Template
+│   └── spacechain-signet.toml   # Template
+├── .data/                     # Generated files (gitignored)
+│   ├── keys/                  # Bitcoin & BLS keys
+│   ├── spacechains/           # Pre-signed chains
+│   └── db/                    # Databases
+├── test-data/                 # Test fixtures (gitignored)
+│   └── keys/
 ├── crates/
 │   ├── coins-crypto/         # BLS signatures (BN-254)
 │   ├── coins-types/          # Data structures

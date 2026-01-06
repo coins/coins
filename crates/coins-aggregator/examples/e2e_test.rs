@@ -104,7 +104,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Step 2: Setup accounts in state database
     println!("Step 2: Creating accounts in state database...");
-    let state_path = PathBuf::from("./state.db");
+    let state_path = PathBuf::from(".data/db/state.db");
     let state = State::open(&state_path)?;
 
     // Create Alice's account

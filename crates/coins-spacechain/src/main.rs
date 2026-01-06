@@ -12,7 +12,7 @@ use std::io::{self, Write};
 #[command(name = "spacechain-setup", version, author, about = "Trusted setup generator for Coins spacechain anchor transactions")]
 struct Opts {
     /// Path to the configuration file
-    #[arg(short, long, default_value = "spacechain.toml")]
+    #[arg(short, long, default_value = "config/spacechain.toml")]
     config: PathBuf,
 }
 

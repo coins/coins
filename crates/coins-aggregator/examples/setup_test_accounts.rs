@@ -25,7 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let bob_pk = G1(bob_pk_arr);
 
     // Open state database
-    let state_path = PathBuf::from("./state.db");
+    let state_path = PathBuf::from(".data/db/state.db");
     let state = State::open(&state_path)?;
 
     // Check if accounts already exist

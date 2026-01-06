@@ -85,8 +85,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Load keys
     println!("Step 1: Loading keypairs...");
-    let alice_sk = load_or_generate_key("alice_sk.hex")?;
-    let bob_sk = load_or_generate_key("bob_sk.hex")?;
+    let alice_sk = load_or_generate_key("test-data/keys/alice_sk.hex")?;
+    let bob_sk = load_or_generate_key("test-data/keys/bob_sk.hex")?;
 
     let alice_pk_bytes = alice_sk.public_key();
     let bob_pk_bytes = bob_sk.public_key();

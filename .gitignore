@@ -3,11 +3,12 @@ target
 # macOS
 .DS_Store
 
-# Generated files
-spacechain.bin
-*.hex
-*.bin
+# Generated data directory (keys, databases, spacechains)
+.data/
 
-# Database directories
-state.db/
-indexer.db/
+# Test data
+test-data/
+
+# Active configuration files (use templates in config/ instead)
+config/aggregator.toml
+config/spacechain.toml

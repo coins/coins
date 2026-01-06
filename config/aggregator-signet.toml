@@ -1,0 +1,24 @@
+# Aggregator configuration for signet (public testnet)
+# Copy to ../aggregator.toml and adjust as needed
+
+# Esplora API endpoint (required for signet/mainnet)
+esplora = "https://mempool.space/signet/api"
+
+# Spacechain file (relative to project root)
+spacechain = ".data/spacechains/spacechain_signet.bin"
+
+# Bitcoin secret key for fee payments (will be created if doesn't exist)
+keyfile = ".data/keys/aggregator_sk.hex"
+
+# Mining interval in seconds
+interval = 30
+
+# Bitcoin network
+network = "signet"
+
+# Genesis account public key (hex-encoded 32-byte G1 point)
+# Generate your own keypair with: cargo run --bin coins-client init
+genesis_pk = "YOUR_GENESIS_PUBLIC_KEY_HERE"
+
+# Genesis account initial balance
+genesis_balance = 1000000000000

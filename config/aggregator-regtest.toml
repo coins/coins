@@ -1,0 +1,26 @@
+# Aggregator configuration for regtest (local testing)
+# Copy to ../aggregator.toml and adjust as needed
+
+# Bitcoin RPC configuration (required for regtest)
+rpc_url = "http://localhost:18443"
+rpc_user = "user"
+rpc_pass = "password"
+rpc_wallet = "coins-aggregator"  # Watch-only wallet name
+
+# Spacechain file (relative to project root)
+spacechain = ".data/spacechains/spacechain_regtest.bin"
+
+# Bitcoin secret key for fee payments (will be created if doesn't exist)
+keyfile = ".data/keys/aggregator_sk.hex"
+
+# Mining interval in seconds
+interval = 30
+
+# Bitcoin network
+network = "regtest"
+
+# Genesis account public key (hex-encoded 32-byte G1 point)
+genesis_pk = "43878a2a65c154d604cbe7d974d5dad1c63ce4dc2a68f697c45a4a3ef9ab8a21"
+
+# Genesis account initial balance
+genesis_balance = 1000000000000
