@@ -35,6 +35,8 @@ impl From<DecodeError> for StateError {
 }
 
 pub struct State {
+    /// Database handle (kept alive to maintain connection)
+    #[allow(dead_code)]
     db: Db,
     accounts: Tree,
     pk_index: Tree,

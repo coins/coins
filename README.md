@@ -1,0 +1,352 @@
+# Coins Protocol
+
+A compact Layer-2 Bitcoin token protocol using BLS signatures and embedded consensus.
+
+## Overview
+
+Coins is an embedded-consensus token system built on Bitcoin that uses:
+- **BLS signatures** on the BN-254 curve for compact multi-signature aggregation
+- **Space-chain** architecture: pre-signed Bitcoin transaction chains for anchoring
+- **6-block finality**: Sub-blocks achieve finality after 6 Bitcoin confirmations
+- **Minimal on-chain footprint**: 64-byte aggregate signatures for entire blocks
+
+## Architecture
+
+### Components
+
+- **coins-crypto**: BLS signature primitives (BN-254 curve) - *demo quality*
+- **coins-types**: Core protocol data structures (Transaction, Account, SubBlock)
+- **coins-state**: Persistent account state using sled database
+- **coins-validator**: State transition validation with BLS signature verification
+- **coins-indexer**: Chain indexing with 6-block finality tracking
+- **coins-aggregator**: Sub-block aggregation service with dual blockchain backend support:
+  - **RPC backend**: Bitcoin Core RPC for regtest (fast, local testing)
+  - **Esplora backend**: Public Esplora API for signet/mainnet (no node required)
+- **coins-spacechain**: Pre-signed UTXO chain generation and management
+- **coins-client**: User-facing wallet CLI
+
+### How It Works
+
+1. **Users** create 41-byte transactions and sign them with BLS signatures
+2. **Aggregator** collects transactions, aggregates signatures into sub-blocks
+3. **Sub-blocks** are inscribed to Bitcoin via pre-signed connector transactions
+4. **Validators** verify aggregate signatures and update account state
+5. **Finality** is achieved after 6 Bitcoin block confirmations (~1 hour)
+
+## Quick Start (Regtest)
+
+### Prerequisites
+
+- Rust toolchain (2024 edition)
+- Bitcoin Core (for regtest)
+
+### 1. Start Bitcoin Core (Regtest)
+
+```bash
+# Start Bitcoin Core in regtest mode
+bitcoind -regtest -daemon -rpcuser=user -rpcpassword=pass
+
+# Create a wallet
+bitcoin-cli -regtest -rpcuser=user -rpcpassword=pass createwallet "test"
+
+# Generate some blocks and get an address for mining
+ADDR=$(bitcoin-cli -regtest -rpcuser=user -rpcpassword=pass getnewaddress)
+bitcoin-cli -regtest -rpcuser=user -rpcpassword=pass generatetoaddress 101 $ADDR
+```
+
+### 2. Generate Spacechain
+
+```bash
+# Build the spacechain setup tool
+cargo build --release --bin spacechain-setup
+
+# Generate spacechain (10,000 pre-signed transactions)
+./target/release/spacechain-setup \
+    --count 10000 \
+    --network regtest \
+    --output spacechain_regtest.bin
+
+# This creates spacechain_regtest.bin (~795 KB)
+```
+
+### 3. Configure Aggregator
+
+Edit `aggregator.toml`:
+
+```toml
+# Bitcoin RPC configuration (for regtest)
+rpc_url = "http://localhost:18443"
+rpc_user = "user"
+rpc_pass = "pass"
+rpc_wallet = "coins-aggregator"  # Optional, defaults to "coins-aggregator"
+
+spacechain = "spacechain_regtest.bin"
+keyfile = "aggregator_sk.hex"
+interval = 30  # Mining interval in seconds
+network = "regtest"
+genesis_pk = "<your-genesis-public-key-hex>"
+genesis_balance = 1000000000000
+```
+
+**Note:** For regtest, the aggregator uses Bitcoin Core RPC directly. For signet/mainnet, use `esplora` instead of RPC settings (see Configuration Files section).
+
+### 4. Run Aggregator
+
+```bash
+# Build and run the aggregator
+cargo run --bin coins-aggregator -- --config aggregator.toml
+
+# The aggregator will:
+# - Initialize persistent state (./state.db)
+# - Initialize indexer (./indexer.db)
+# - Start HTTP API on http://localhost:8080
+# - Begin mining sub-blocks every 30 seconds
+```
+
+### 5. Use the Client
+
+```bash
+# Initialize your wallet (generates BLS keypair)
+cargo run --bin coins-client init
+
+# This creates client_sk.hex with your secret key
+# Your public key is displayed - fund this account first!
+
+# Check your balance
+cargo run --bin coins-client balance
+
+# Send tokens
+cargo run --bin coins-client send \
+    --recipient-pk <recipient-hex-public-key> \
+    --amount 100
+```
+
+## API Endpoints
+
+The aggregator exposes a REST API on port 8080:
+
+### `GET /account/:pk`
+
+Query account balance and nonce by public key (hex-encoded).
+
+**Example:**
+```bash
+curl http://localhost:8080/account/<32-byte-hex-pk>
+```
+
+**Response:**
+```json
+{
+  "id": 0,
+  "pk": "...",
+  "balance": 1000000,
+  "nonce": 5
+}
+```
+
+### `POST /tx`
+
+Submit a signed transaction to the mempool.
+
+**Body:**
+```json
+{
+  "tx": "<41-byte-transaction-hex>",
+  "sig": "<64-byte-signature-hex>"
+}
+```
+
+## Transaction Format
+
+Transactions are 41 bytes:
+
+| Field | Size | Description |
+|-------|------|-------------|
+| sender_id | 4 bytes | Sender account ID |
+| recipient_pk | 32 bytes | Recipient public key (G1) |
+| amount | 4 bytes | Amount to transfer |
+| fee | 1 byte | Transaction fee |
+
+Message to sign: `tx_bytes || nonce` (45 bytes total)
+
+## Finality
+
+Sub-blocks achieve **finality after 6 Bitcoin confirmations**:
+- ~1 hour on mainnet
+- ~60 seconds on regtest (with fast mining)
+- ~10 minutes on testnet
+
+The indexer tracks confirmation counts and only serves finalized data.
+
+## Testing
+
+```bash
+# Run all unit tests
+cargo test
+
+# Run specific crate tests
+cargo test -p coins-crypto
+cargo test -p coins-validator
+cargo test -p coins-indexer
+
+# Run with logging
+RUST_LOG=debug cargo test
+```
+
+## Logging
+
+The aggregator uses structured logging via `tracing`:
+
+```bash
+# Info level (default)
+cargo run --bin coins-aggregator
+
+# Debug level
+RUST_LOG=coins_aggregator=debug cargo run --bin coins-aggregator
+
+# Trace level for all coins crates
+RUST_LOG=coins=trace cargo run --bin coins-aggregator
+```
+
+## Database Files
+
+The aggregator creates several database files:
+
+- **state.db/**: Persistent account state (sled database)
+- **indexer.db/**: Indexed sub-blocks with finality tracking
+- **aggregator_sk.hex**: Bitcoin ECDSA secret key (fee payments)
+- **aggregator_bls_sk.hex**: BLS secret key (sub-block signing)
+- **spacechain_regtest.bin**: Pre-signed connector transactions
+
+## Security Warnings
+
+⚠️ **THIS IS DEMO-QUALITY CODE - NOT PRODUCTION READY**
+
+**Known limitations:**
+1. **Hash-to-curve**: Uses simplified Blake2s approach, NOT RFC 9380 compliant
+2. **No subgroup checks**: Curve points not explicitly validated
+3. **No DoS protection**: Mempool and API have no rate limiting
+4. **Simplified key management**: Keys stored in plain hex files
+5. **No network p2p**: Single aggregator, no peer discovery
+6. **Limited reorg handling**: Basic reorganization detection only
+
+**DO NOT use this code:**
+- On Bitcoin mainnet
+- With real funds
+- In production environments
+- Without comprehensive security audit
+
+## Configuration Files
+
+### aggregator.toml
+
+**For regtest (Bitcoin RPC backend):**
+```toml
+rpc_url = "http://localhost:18443"
+rpc_user = "user"
+rpc_pass = "pass"
+rpc_wallet = "coins-aggregator"
+spacechain = "spacechain_regtest.bin"
+keyfile = "aggregator_sk.hex"
+interval = 30
+network = "regtest"
+genesis_pk = "..."
+genesis_balance = 1000000000000
+```
+
+**For signet/mainnet (Esplora backend):**
+```toml
+esplora = "https://mempool.space/signet/api"
+spacechain = "spacechain_signet.bin"
+keyfile = "aggregator_sk.hex"
+interval = 30
+network = "signet"
+genesis_pk = "..."
+genesis_balance = 1000000000000
+```
+
+**Backend auto-selection:**
+- `network = "regtest"` → Uses Bitcoin RPC (requires `rpc_url`, `rpc_user`, `rpc_pass`)
+- `network = "signet"` or `"bitcoin"` → Uses Esplora (requires `esplora` URL)
+
+### spacechain.toml
+
+```toml
+count = 10000              # Number of connector transactions
+network = "regtest"        # Bitcoin network
+output = "spacechain_regtest.bin"  # Output file
+```
+
+## Troubleshooting
+
+### "Spacechain exhausted"
+
+The pre-signed transaction chain has been fully used. Generate a new spacechain with more transactions (`--count` parameter).
+
+### "No fee UTXOs available"
+
+The aggregator's Bitcoin wallet has no confirmed UTXOs. Send Bitcoin to the fee address displayed at startup.
+
+### "Package relay failed"
+
+Bitcoin node doesn't support package relay. The aggregator will fall back to individual transaction broadcasts.
+
+### State database corruption
+
+Delete `state.db/` and `indexer.db/` directories to reset. You'll lose all state - only do this on regtest/testnet.
+
+## Development
+
+```bash
+# Build all crates
+cargo build --all
+
+# Build specific binary
+cargo build --bin coins-aggregator
+cargo build --bin coins-client
+cargo build --bin spacechain-setup
+
+# Run with specific features
+cargo build --release
+cargo build --bin coins-aggregator --release
+
+# Check code
+cargo clippy --all
+cargo fmt --all
+```
+
+## Project Structure
+
+```
+coins/
+├── Cargo.toml                 # Workspace root
+├── README.md                  # This file
+├── spec.md                    # Technical specification
+├── aggregator.toml            # Aggregator configuration
+├── spacechain.toml            # Spacechain generation config
+├── crates/
+│   ├── coins-crypto/         # BLS signatures (BN-254)
+│   ├── coins-types/          # Data structures
+│   ├── coins-state/          # Persistent state (sled)
+│   ├── coins-validator/      # Transaction validation
+│   ├── coins-indexer/        # Chain indexing & finality
+│   ├── coins-aggregator/     # Aggregator service
+│   ├── coins-spacechain/     # Spacechain setup
+│   └── coins-client/         # Wallet CLI
+└── target/                    # Build outputs
+```
+
+## License
+
+[Add your license here]
+
+## Contributing
+
+This is demo code for educational purposes. Contributions are welcome but please note this is not intended for production use.
+
+## References
+
+- [BLS Signatures](https://en.wikipedia.org/wiki/BLS_digital_signature)
+- [BN-254 Curve](https://hackmd.io/@jpw/bn254)
+- [Bitcoin Inscriptions](https://docs.ordinals.com/inscriptions.html)
+- [Embedded Consensus Systems](https://bitcoin.stackexchange.com/questions/109513/what-is-an-embedded-consensus-system)

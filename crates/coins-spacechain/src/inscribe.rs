@@ -11,7 +11,7 @@
 //! Limitations / assumptions
 //! -------------------------
 //! * Anchor output (`connector_tx.output[1]`) is assumed to be spendable
-//!   without signature (e.g. `OP_TRUE`).
+//!   without signature.
 //! * We operate on regtest / testnet – zero-satoshi outputs are accepted.
 //! * Fee handling: a P2WPKH fee-UTXO funds the package; the user specifies a
 //!   fee rate in sat/vbyte and the helper auto-calculates the absolute fee.
@@ -34,17 +34,17 @@
 use bitcoin::absolute::LockTime;
 use bitcoin::{PrivateKey, ScriptBuf};
 use bitcoin::blockdata::script::Instruction;
-use bitcoin::key::{Keypair, Secp256k1};
+use bitcoin::key::Secp256k1;
 use bitcoin::opcodes::all::{OP_ENDIF, OP_IF};
 use bitcoin::script::PushBytesBuf;
-use bitcoin::secp256k1::{Message, PublicKey as SecpPublicKey, SecretKey};
+use bitcoin::secp256k1::{Message, SecretKey};
 use bitcoin::sighash::{EcdsaSighashType, SighashCache};
 use bitcoin::{
     Address, Amount, Network, OutPoint, Sequence, Transaction, TxIn, TxOut, Witness,
-    opcodes::{OP_FALSE, OP_TRUE},
+    opcodes::OP_FALSE,
     script::Builder,
 };
-use bitcoin::{PublicKey, key::CompressedPublicKey, transaction::Version};
+use bitcoin::{key::CompressedPublicKey, transaction::Version};
 use core::convert::TryFrom;
 
 /// Maximum bytes that can be pushed onto the stack in a single opcode.

@@ -3,7 +3,7 @@ use bitcoin::{Amount, Network, OutPoint, ScriptBuf, Sequence, Transaction, TxIn,
 use bitcoin::blockdata::script::Builder;
 use bitcoin::opcodes::OP_TRUE;
 use coins_types::{SubBlock, Transaction as CoinsTx};
-use coins_crypto::{SecretKey as CoinsSecret, G2};
+use coins_crypto::{SecretKey as CoinsSecret, G1, G2};
 use coins_aggregator::inscription::{inscribe_subblock, parse_subblock_from_reveal};
 use rand::rngs::OsRng;
 
@@ -28,8 +28,8 @@ fn dummy_connector(value_sat: u64) -> Transaction {
 fn subblock_roundtrip() {
     // Construct dummy SubBlock with one tx
     let sigma = G2([0u8; 64]);
-    let agg_pk = CoinsSecret::random().public_key();
-    let tx = CoinsTx { sender_id: 1, recipient_pk: CoinsSecret::random().public_key(), amount: 42, fee: 1 };
+    let agg_pk = G1(CoinsSecret::random().public_key());
+    let tx = CoinsTx { sender_id: 1, recipient_pk: G1(CoinsSecret::random().public_key()), amount: 42, fee: 1 };
     let sb = SubBlock { sigma, aggregator_pk: agg_pk, txs: vec![tx] };
 
     // connector tx and fee utxo

@@ -1,27 +1,22 @@
 use axum::{Router, routing::get, routing::post, Json, extract::{Path, State}};
-use serde::{Serialize, Deserialize};
+use serde::Deserialize;
 use std::sync::{Arc,Mutex};
 use axum::response::IntoResponse;
 use axum::http::StatusCode;
-use coins_types::{Account, Transaction};
+use coins_types::Transaction;
 use coins_crypto::{G1, G2};
+use coins_state::State as CoinState;
+use coins_indexer::Indexer;
 use hex;
-use bincode::serde::decode_from_slice;
-use bincode::config::standard as bincode_config;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub accounts: Arc<Mutex<Vec<Account>>>,   // simple Vec for demo
-    pub mempool: Arc<Mutex<Vec<(Transaction, G2)>>>,   // raw tx bytes for now
+    pub state: Arc<CoinState>,
+    pub indexer: Arc<Indexer>,
+    pub mempool: Arc<Mutex<Vec<(Transaction, G2)>>>,
 }
 
-impl Default for AppState {
-    fn default() -> Self {
-        Self { accounts: Arc::new(Mutex::new(Vec::new())), mempool: Arc::new(Mutex::new(Vec::new())) }
-    }
-}
-
-async fn get_account_by_pk(Path(pk_hex): Path<String>, State(state): State<AppState>) -> impl IntoResponse {
+async fn get_account_by_pk(Path(pk_hex): Path<String>, State(app_state): State<AppState>) -> impl IntoResponse {
     let pk_bytes = match hex::decode(pk_hex) {
         Ok(bytes) => bytes,
         Err(_) => return (StatusCode::BAD_REQUEST, "invalid hex public key").into_response(),
@@ -33,11 +28,11 @@ async fn get_account_by_pk(Path(pk_hex): Path<String>, State(state): State<AppSt
     };
     let pk = G1(pk_arr);
 
-    let accs = state.accounts.lock().unwrap();
-    if let Some(acc) = accs.iter().find(|a| a.pk == pk).cloned() {
-        Json(acc).into_response()
-    } else {
-        StatusCode::NOT_FOUND.into_response()
+    // Query from persistent state
+    match app_state.state.get_by_pk(&pk) {
+        Ok(Some(acc)) => Json(acc).into_response(),
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
 }
 

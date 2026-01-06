@@ -7,23 +7,31 @@ edition = "2024"
 coins-spacechain = { path = "../coins-spacechain" }
 bitcoin = { version = "0.32", features=["serde"] }
 esplora-client = { git = "https://github.com/BitVM/rust-esplora-client", branch = "master" }
-tokio = { version = "1", features=["rt-multi-thread","macros","time"] }
+tokio = { version = "1", features=["rt-multi-thread","macros","time","sync"] }
 clap = { version = "4", features=["derive"] }
 serde = { version = "1", features=["derive"] }
 anyhow = "1"
+async-trait = "0.1"
+bitcoincore-rpc = "0.19.0"
 axum = { version = "0.7", features=["json","macros"] }
 serde_json = "1"
 hex = "0.4"
 coins-types = { path = "../coins-types" }
 coins-state = { path = "../coins-state" }
 coins-validator = { path = "../coins-validator" }
+coins-indexer = { path = "../coins-indexer" }
 thiserror = "1"
 rand = "0.8"
 toml = "0.8"
 coins-crypto = { path = "../coins-crypto" }
-bincode = "2.0.0-rc.3"
+bincode = { version = "2.0.1", features = ["serde"] }
 ark-ec = "0.4.2"
-reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+ark-ff = "0.4"
+ark-bn254 = "0.4"
+ark-serialize = "0.4"
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "blocking"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
 [[bin]]
 name = "coins-aggregator"

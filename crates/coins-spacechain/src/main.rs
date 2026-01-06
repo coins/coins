@@ -2,10 +2,10 @@ use std::{fs, path::PathBuf, str::FromStr};
 
 use clap::Parser;
 use coins_spacechain::Spacechain;
-use bitcoin::{Amount, Network, OutPoint, PrivateKey, Txid, Address};
+use bitcoin::{Amount, Network, OutPoint, PrivateKey, Txid};
 use serde::Deserialize;
 use anyhow::{anyhow, Result};
-use esplora_client::{AsyncClient, Builder};
+use std::io::{self, Write};
 
 /// spacechain-setup: interactive trusted setup generator for anchor transactions.
 #[derive(Debug, Parser)]
@@ -60,34 +60,23 @@ async fn main() -> Result<()> {
 
     println!("\nSend funds to {} then wait for the UTXO to appear …", addr);
 
-    // --- Esplora client ---
-    let default_esplora = match network {
-        Network::Bitcoin=>"https://mempool.space/api".to_string(),
-        Network::Testnet=>"https://blockstream.info/testnet/api".to_string(),
-        Network::Signet=>"https://mempool.space/signet/api".to_string(),
-        Network::Regtest=>{eprintln!("No default esplora URL for regtest – set ESPLORA_URL env var");std::process::exit(1);}
-        _ => todo!(),
-    };
+    // --- User input for funding outpoint ---
+    println!("\nEnter the funding outpoint as <txid>:<vout> then press ENTER:");
+    print!("> ");
+    io::stdout().flush().unwrap();
+    let mut outpoint_input = String::new();
+    io::stdin().read_line(&mut outpoint_input)?;
+    let outpoint = parse_outpoint(outpoint_input.trim()).map_err(|e| anyhow!(e))?;
 
-    let esplora_url = std::env::var("ESPLORA_URL").unwrap_or(default_esplora);
-    let client: AsyncClient<esplora_client::r#async::DefaultSleeper> =
-        AsyncClient::from_builder(Builder::new(&esplora_url))
-            .expect("create esplora client");
-
-    println!("Waiting for confirmed UTXO at {addr} … (polling Esplora {})", esplora_url);
-    let funding_utxo = loop {
-        let utxos = client.get_address_utxo(addr.clone()).await?;
-        if let Some(u) = utxos.first() {
-            break u.clone();
-        }
-        println!("No UTXO yet – sleeping 30s …");
-        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
-    };
-
-    let outpoint = OutPoint::new(funding_utxo.txid, funding_utxo.vout as u32);
+    println!("Enter the value (in satoshis) contained in the outpoint:");
+    print!("> ");
+    io::stdout().flush().unwrap();
+    let mut value_input = String::new();
+    io::stdin().read_line(&mut value_input)?;
+    let value_sat: u64 = value_input.trim().parse().map_err(|_| anyhow!("value must be a number"))?;
+    let value = Amount::from_sat(value_sat);
 
     println!("\nBuilding spacechain…");
-    let value = funding_utxo.value;
     let pk = PrivateKey::new(sk, network);
     let sc = Spacechain::generate_with_private_key(config.count, outpoint, value, network, &pk);
 

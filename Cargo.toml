@@ -12,6 +12,8 @@ members = [
     "crates/coins-types",
     "crates/coins-state",
     "crates/coins-validator",
+    "crates/coins-indexer",
     "crates/coins-aggregator",
-    "crates/coins-spacechain", "crates/coins-client",
+    "crates/coins-spacechain",
+    "crates/coins-client",
 ]

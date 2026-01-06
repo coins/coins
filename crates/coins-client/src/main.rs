@@ -2,7 +2,7 @@ use clap::{Parser, Subcommand};
 use coins_crypto::{G1, sign, SecretKey, rand_sk};
 use rand::rngs::OsRng;
 use ark_bn254::{Fr, G1Projective};
-use ark_ff::{PrimeField, UniformRand, BigInteger};
+use ark_ff::{PrimeField, BigInteger};
 use std::fs;
 use std::path::Path;
 use hex;

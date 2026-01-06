@@ -12,7 +12,7 @@
 //! taproot logic from `publisher.rs` will follow in a later phase.
 
 use bitcoin::{
-    opcodes::OP_TRUE, script::Builder, secp256k1::{rand::rngs::OsRng, Message, Secp256k1, SecretKey}, transaction::Version, Address, Amount, CompressedPublicKey, Network, OutPoint, PrivateKey, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Witness
+    script::Builder, secp256k1::{rand::rngs::OsRng, Message, Secp256k1, SecretKey}, transaction::Version, Address, Amount, CompressedPublicKey, Network, OutPoint, PrivateKey, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Witness
 };
 use bitcoin::sighash::{SighashCache, EcdsaSighashType};
 use serde::{Serialize, Deserialize};
@@ -21,6 +21,11 @@ use bincode::config::{standard, Config};
 
 pub mod inscribe;
 pub mod broadcast;
+pub mod publish;
+pub mod client;
+
+#[cfg(test)]
+mod annex_test;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Spacechain {

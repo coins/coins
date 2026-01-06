@@ -1,5 +1,5 @@
 use coins_state::State;
-use coins_crypto::SecretKey;
+use coins_crypto::{SecretKey, G1};
 use tempfile::tempdir;
 
 #[test]
@@ -9,7 +9,7 @@ fn persistent_roundtrip() {
 
     // create account
     let sk = SecretKey::random();
-    let acct = state.create_account(sk.public_key()).unwrap();
+    let acct = state.create_account(G1(sk.public_key())).unwrap();
     assert_eq!(acct.balance, 0);
 
     // reopen DB

@@ -1,4 +1,11 @@
 target
 .DS_Store
+
+# Generated files
 spacechain.bin
 *.hex
+*.bin
+
+# Database directories
+state.db/
+indexer.db/

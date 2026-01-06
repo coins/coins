@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use coins_types::{Account, AccountId, Transaction, Amount, Fee};
+use coins_types::{Account, AccountId, Transaction};
 use coins_state::State;
 
 #[derive(thiserror::Error, Debug)]

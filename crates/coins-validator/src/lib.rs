@@ -3,7 +3,7 @@
 //! Implements the state transition function as described in §6 of the spec.
 
 use coins_crypto as crypto;
-use coins_state::{State, StateError};
+use coins_state::State;
 use coins_types::{SubBlock, Account, AccountId};
 use std::collections::HashMap;
 
@@ -33,11 +33,14 @@ pub fn validate_subblock(sb: &SubBlock, state: &State) -> Result<(), ValidationE
     let mut pairs = Vec::with_capacity(sb.txs.len());
 
     for tx in &sb.txs {
-        // fetch sender account
-        let mut acct = state
-            .get_account(AccountId(tx.sender_id))
-            .map_err(|_| ValidationError::UnknownSender(tx.sender_id))?
-            .ok_or(ValidationError::UnknownSender(tx.sender_id))?;
+        // fetch sender account - check updates first to handle multiple txs from same sender
+        let mut acct = match updates.get(&tx.sender_id) {
+            Some(a) => a.clone(),
+            None => state
+                .get_account(AccountId(tx.sender_id))
+                .map_err(|_| ValidationError::UnknownSender(tx.sender_id))?
+                .ok_or(ValidationError::UnknownSender(tx.sender_id))?,
+        };
 
         let spend = tx.amount as u64 + tx.fee as u64;
         if acct.balance < spend {
@@ -54,10 +57,14 @@ pub fn validate_subblock(sb: &SubBlock, state: &State) -> Result<(), ValidationE
         updates.insert(acct.id.0, acct);
 
         // credit recipient
-        let mut recv = match state.get_by_pk(&tx.recipient_pk).map_err(|_| ValidationError::Db)? {
+        let recv_from_state = match state.get_by_pk(&tx.recipient_pk).map_err(|_| ValidationError::Db)? {
             Some(a) => a,
             None => state.create_account(tx.recipient_pk).map_err(|_| ValidationError::Db)?
         };
+
+        // Check if recipient was already updated in this batch
+        let mut recv = updates.get(&recv_from_state.id.0).cloned().unwrap_or(recv_from_state);
+
         recv.balance = recv.balance.checked_add(tx.amount as u64).ok_or(ValidationError::Overflow)?;
         updates.insert(recv.id.0, recv);
 

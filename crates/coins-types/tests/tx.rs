@@ -1,10 +1,10 @@
 use coins_types::{Transaction, TX_SIZE};
-use coins_crypto::SecretKey;
+use coins_crypto::{SecretKey, G1};
 
 #[test]
 fn wire_roundtrip() {
     let sk = SecretKey::random();
-    let pk = sk.public_key();
+    let pk = G1(sk.public_key());
     let tx = Transaction {
         sender_id: 42,
         recipient_pk: pk,
@@ -23,7 +23,7 @@ fn wire_roundtrip() {
 #[test]
 fn message_to_sign_layout() {
     let sk = SecretKey::random();
-    let pk = sk.public_key();
+    let pk = G1(sk.public_key());
     let tx = Transaction {
         sender_id: 1,
         recipient_pk: pk,

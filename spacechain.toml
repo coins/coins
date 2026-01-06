@@ -1,3 +1,3 @@
 count = 10000
-network = "signet"
-output = "spacechain.bin"
+network = "regtest"
+output = "spacechain_regtest.bin"

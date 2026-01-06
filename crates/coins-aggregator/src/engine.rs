@@ -1,20 +1,19 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 use anyhow::Result;
-use bitcoin::{Address, Amount, Network, OutPoint, PrivateKey, Txid, CompressedPublicKey, Transaction, FeeRate};
+use bitcoin::{Address, Amount, Network, OutPoint, PrivateKey, Txid, CompressedPublicKey, FeeRate};
 use bitcoin::secp256k1::{Secp256k1, SecretKey};
-use esplora_client::{AsyncClient, Builder};
-use esplora_client::r#async::DefaultSleeper;
 use coins_spacechain::Spacechain;
 use std::str::FromStr;
-use rand::rngs::OsRng;
 use crate::api::AppState;
+use crate::blockchain_backend::BlockchainBackend;
 use coins_types::SubBlock;
-use coins_crypto::{G1, G2};
-use bincode;
-use coins_spacechain::inscribe::{inscribe_blob};
-use ark_ec::Group;
-use reqwest::Client as HttpClient;
-use serde_json::json;
+use coins_crypto::{G1, SecretKey as BLSSecretKey, aggregate};
+use coins_validator::validate_subblock;
+use coins_spacechain::inscribe::inscribe_blob;
+use ark_ff::PrimeField;
+use ark_bn254::Fr;
+use ark_serialize::CanonicalSerialize;
 
 /// Wrapper for esplora-client UTXO (txid,vout,value)
 #[derive(Debug, Clone)]
@@ -24,7 +23,7 @@ pub struct FeeUtxo {
 }
 
 pub struct Engine {
-    pub client: AsyncClient<DefaultSleeper>,
+    pub backend: Arc<dyn BlockchainBackend>,
     pub sc: Spacechain,
     pub fee_sk: SecretKey,
     pub fee_addr: Address,
@@ -34,11 +33,13 @@ pub struct Engine {
     pub last_synced: Option<Txid>,
     pub app_state: AppState,
     pub base_url: String,
+    pub aggregator_sk: BLSSecretKey,
+    pub aggregator_pk: G1,
 }
 
 impl Engine {
-    /// Initialize from cli opts: esplora url, spacechain path, optional fee key path.
-    pub async fn new(esplora: &str, spacechain_path: PathBuf, network: Network, key_file: Option<PathBuf>, app_state: AppState) -> Result<Self> {
+    /// Initialize from backend, spacechain path, optional fee key path.
+    pub async fn new(backend: Arc<dyn BlockchainBackend>, spacechain_path: PathBuf, network: Network, key_file: Option<PathBuf>, app_state: AppState) -> Result<Self> {
         // ---------- load spacechain ----------
         let sc_bytes = std::fs::read(&spacechain_path)?;
         let sc = Spacechain::decode(&sc_bytes).ok_or_else(|| anyhow::anyhow!("invalid spacechain file"))?;
@@ -67,14 +68,28 @@ impl Engine {
         let fee_pk = CompressedPublicKey::from_private_key(&secp, &pk).expect("private key");
         let fee_addr = Address::p2wpkh(&fee_pk, network);
 
-        // ---------- Esplora client ----------
-        let client: AsyncClient<DefaultSleeper> = AsyncClient::from_builder(Builder::new(esplora))?;
+        // ---------- aggregator BLS secret key ----------
+        let aggregator_key_file = PathBuf::from("aggregator_bls_sk.hex");
+        let aggregator_sk = if aggregator_key_file.exists() {
+            let hex = std::fs::read_to_string(&aggregator_key_file)?;
+            let bytes = hex::decode(hex.trim())?;
+            let fr = Fr::from_le_bytes_mod_order(&bytes);
+            BLSSecretKey(fr)
+        } else {
+            let sk = BLSSecretKey::random();
+            // Save it for next time
+            let mut bytes = Vec::new();
+            sk.0.serialize_uncompressed(&mut bytes).expect("serialize Fr");
+            std::fs::write(&aggregator_key_file, hex::encode(&bytes))?;
+            sk
+        };
+        let aggregator_pk = G1(aggregator_sk.public_key());
 
         // current anchor (connector.output[1]) for idx 0 initially
         let current_anchor = sc.first_out;
 
         let mut eng = Self {
-            client,
+            backend,
             sc,
             fee_sk,
             fee_addr,
@@ -83,18 +98,20 @@ impl Engine {
             connector_idx: 0,
             last_synced: None,
             app_state,
-            base_url: esplora.trim_end_matches('/').to_string(),
+            base_url: String::new(), // Not needed anymore, but kept for compatibility
+            aggregator_sk,
+            aggregator_pk,
         };
         eng.refresh_fee_utxos().await?;
         Ok(eng)
     }
 
-    /// Query esplora for all UTXOs belonging to `fee_addr`.
+    /// Query backend for all UTXOs belonging to `fee_addr`.
     pub async fn refresh_fee_utxos(&mut self) -> Result<()> {
-        let utxos = self.client.get_address_utxo(self.fee_addr.clone()).await?;
+        let utxos = self.backend.get_address_utxos(&self.fee_addr).await?;
         self.fee_utxos = utxos.into_iter()
-            .filter(|u| u.status.confirmed)
-            .map(|u| FeeUtxo { outpoint: OutPoint::new(u.txid, u.vout as u32), value: u.value })
+            .filter(|u| u.confirmed)
+            .map(|u| FeeUtxo { outpoint: u.outpoint, value: u.value })
             .collect();
         Ok(())
     }
@@ -102,7 +119,7 @@ impl Engine {
     /// Check if current anchor is still unspent; if spent, advance to next connector.
     pub async fn refresh_anchor(&mut self) -> Result<()> {
         let txid32 = Txid::from_str(&self.current_anchor.txid.to_string())?;
-        let status_opt = self.client.get_output_status(&txid32, self.current_anchor.vout as u64).await?;
+        let status_opt = self.backend.get_output_status(&txid32, self.current_anchor.vout).await?;
         if let Some(status) = status_opt {
             if status.spent {
                 self.connector_idx += 1;
@@ -117,85 +134,17 @@ impl Engine {
         Ok(())
     }
 
-    /// Broadcast raw tx hex
+    /// Broadcast raw tx via backend
     pub async fn broadcast(&self, tx: &bitcoin::Transaction) -> Result<()> {
-        // --- try RPC first ---
-        let hex_str = hex::encode(bitcoin::consensus::encode::serialize(tx));
-        println!("Hex: {}", hex_str);
-        let payload = json!({
-            "jsonrpc": "1.0",
-            "id": "coins-aggregator",
-            "method": "sendrawtransaction",
-            "params": [ hex_str ]
-        });
-
-        let rpc_url = std::env::var("BTC_RPC_URL").unwrap_or_else(|_| "http://umbrel.local:8332".to_string());
-        let rpc_user = "umbrel";
-        let rpc_pass = "ETtbJUgMFi4mc7tWYLc6MPK_ApUCO1eWw4wF5q2mPmA=";
-
-        let resp = HttpClient::new()
-            .post(&rpc_url)
-            .basic_auth(rpc_user, Some(rpc_pass))
-            .json(&payload)
-            .send()
-            .await;
-
-        match resp {
-            Ok(r) if r.status().is_success() => {
-                println!("RPC broadcast ok: {}", tx.compute_txid());
-                return Ok(());
-            }
-            Ok(r) => {
-                let err_txt = &r.text().await.unwrap_or_default();
-                println!("RPC broadcast failed : {} – falling back to Esplora",  err_txt);
-            }
-            Err(e) => {
-                println!("RPC broadcast error: {} – falling back to Esplora", e);
-            }
-        }
-
-        // fallback: Esplora
-        self.client.broadcast(tx).await?;
+        self.backend.broadcast(tx).await?;
+        tracing::info!(txid = %tx.compute_txid(), "Transaction broadcast successful");
         Ok(())
     }
 
-    /// Broadcast a parent/child package via esplora-client's native helper.
+    /// Broadcast a parent/child package via backend
     async fn broadcast_package(&self, txs: &[bitcoin::Transaction]) -> Result<()> {
-        // The upstream esplora-client crate now supports package relay directly.
-        // Build hex list for parent & child
-        let hexes: Vec<String> = txs.iter().map(|tx| {
-            let raw = bitcoin::consensus::encode::serialize(tx);
-            hex::encode(raw)
-        }).collect();
-
-        // JSON-RPC payload
-        let payload = json!({
-            "jsonrpc": "1.0",
-            "id": "coins-aggregator",
-            "method": "submitpackage",
-            "params": [ hexes ]
-        });
-
-        let rpc_url = std::env::var("BTC_RPC_URL").unwrap_or_else(|_| "http://umbrel.local:8332".to_string());
-        let rpc_user = "umbrel";
-        let rpc_pass = "ETtbJUgMFi4mc7tWYLc6MPK_ApUCO1eWw4wF5q2mPmA=";
-
-        let resp = HttpClient::new()
-            .post(&rpc_url)
-            .basic_auth(rpc_user, Some(rpc_pass))
-            .json(&payload)
-            .send()
-            .await?;
-
-        
-
-        if !resp.status().is_success() {
-            let text = resp.text().await.unwrap_or_default();
-            anyhow::bail!("package relay failed: {}", text);
-        }
-        println!("Package relay response: {}", resp.text().await.unwrap_or_default());
-
-        println!("Txs: {:?}", hexes);
+        self.backend.broadcast_package(txs).await?;
+        tracing::debug!(tx_count = txs.len(), "Package broadcast successful");
         Ok(())
     }
 
@@ -208,23 +157,30 @@ impl Engine {
             mempool.drain(..).collect::<Vec<_>>()
         };
 
-        println!("Mining sub-block with {} transactions...", txs.len());
+        tracing::info!(tx_count = txs.len(), "Mining sub-block");
 
         let (transactions, signatures): (Vec<_>, Vec<_>) = txs.into_iter().unzip();
 
-        // For now, we'll use a dummy aggregated signature
-        let aggregated_signature = G2::default();
+        // Aggregate BLS signatures
+        let aggregated_signature = aggregate(signatures.iter());
 
         let sub_block = SubBlock {
             txs: transactions,
             sigma: aggregated_signature,
-            aggregator_pk: G1::default(), // Placeholder
+            aggregator_pk: self.aggregator_pk,
         };
+
+        // Validate sub-block before broadcasting
+        if let Err(e) = validate_subblock(&sub_block, &self.app_state.state) {
+            tracing::error!(error = ?e, "Sub-block validation failed");
+            return Err(anyhow::anyhow!("Sub-block validation failed: {:?}", e));
+        }
+        tracing::debug!("Sub-block validated successfully");
 
         let sub_block_bytes = sub_block.serialize();
 
         if self.fee_utxos.is_empty() {
-            println!("Cannot mine sub-block: No fee UTXOs available.");
+            tracing::warn!("Cannot mine sub-block: No fee UTXOs available");
             return Ok(());
         }
 
@@ -254,11 +210,15 @@ impl Engine {
 
         // Package relay: parent = connector_tx, child = commit_tx
         if let Err(e) = self.broadcast_package(&[connector_tx.clone(), commit_tx.clone()]).await {
-            println!("Package relay failed: {}. Falling back to individual broadcasts.", e);
+            tracing::warn!(error = %e, "Package relay failed, falling back to individual broadcasts");
             self.broadcast(&connector_tx).await?;
             self.broadcast(&commit_tx).await?;
         } else {
-            println!("Package broadcasted successfully: anchor_tx {} commit_tx {}", connector_tx.compute_txid(), commit_tx.compute_txid());
+            tracing::info!(
+                anchor_txid = %connector_tx.compute_txid(),
+                commit_txid = %commit_tx.compute_txid(),
+                "Package broadcasted successfully"
+            );
         }
 
         // broadcast reveal transaction – retry in case parents not yet visible
@@ -269,16 +229,21 @@ impl Engine {
         loop {
             match self.broadcast(&reveal_tx).await {
                 Ok(_) => {
-                    println!("Broadcasted reveal tx: {} (attempt {})", reveal_txid, attempt + 1);
+                    tracing::info!(txid = %reveal_txid, attempt = attempt + 1, "Broadcasted reveal transaction");
                     break;
                 }
                 Err(e) if attempt < MAX_RETRIES => {
-                    println!("Reveal broadcast failed (attempt {}): {} – retrying after {} ms", attempt + 1, e, RETRY_DELAY_MS);
+                    tracing::warn!(
+                        attempt = attempt + 1,
+                        error = %e,
+                        retry_delay_ms = RETRY_DELAY_MS,
+                        "Reveal broadcast failed, retrying"
+                    );
                     attempt += 1;
                     tokio::time::sleep(std::time::Duration::from_millis(RETRY_DELAY_MS)).await;
                 }
                 Err(e) => {
-                    println!("Reveal broadcast failed after {} attempts: {}", attempt + 1, e);
+                    tracing::error!(attempt = attempt + 1, error = %e, "Reveal broadcast failed after retries");
                     return Err(e);
                 }
             }
@@ -287,7 +252,19 @@ impl Engine {
         // The new anchor is the first output of the reveal_tx transaction
         self.current_anchor = OutPoint::new(reveal_tx.compute_txid(), 0);
 
-        println!("Successfully mined new sub-block!");
+        // Index the sub-block
+        // TODO: Get actual Bitcoin height from esplora
+        let btc_height = 0u32; // Placeholder - would query from Bitcoin node
+        let reveal_txid = reveal_tx.compute_txid();
+
+        if let Err(e) = self.app_state.indexer.index_block(reveal_txid, btc_height, sub_block) {
+            tracing::warn!(error = ?e, "Failed to index sub-block");
+        }
+
+        tracing::info!(
+            anchor = %self.current_anchor.txid,
+            "Successfully mined new sub-block"
+        );
 
         Ok(())
     }
@@ -295,16 +272,16 @@ impl Engine {
     pub async fn ibd(&mut self) -> Result<()> {
         let txs = self.sc.reconstruct_txs();
         if txs.is_empty() {
-            println!("IBD: Spacechain is empty, starting from genesis.");
+            tracing::info!("IBD: Spacechain is empty, starting from genesis");
             return Ok(());
         }
 
         let addr = Address::p2wpkh(&self.sc.pubkey, self.sc.network);
-        let utxos = self.client.get_address_utxo(addr).await?;
+        let utxos = self.backend.get_address_utxos(&addr).await?;
 
         for (idx, tx) in txs.iter().enumerate().rev() {
             let txid = tx.compute_txid();
-            if utxos.iter().any(|u| u.txid == txid) {
+            if utxos.iter().any(|u| u.outpoint.txid == txid) {
                 self.connector_idx = idx + 1;
                 if self.connector_idx < txs.len() {
                     let next = &txs[self.connector_idx];
@@ -313,12 +290,12 @@ impl Engine {
                     // all connectors spent, we are at the tip
                 }
                 self.last_synced = Some(txid);
-                println!("IBD: Synced to connector {}", idx);
+                tracing::info!(connector_idx = idx, "IBD: Synced to connector");
                 return Ok(());
             }
         }
 
-        println!("IBD: No spent connectors found, starting from genesis.");
+        tracing::info!("IBD: No spent connectors found, starting from genesis");
         Ok(())
     }
 } 
