@@ -1,11 +1,3 @@
-[package]
-name = "coins"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-
-# --- Workspace definition ---
 [workspace]
 members = [
     "crates/coins-crypto",
@@ -17,3 +9,7 @@ members = [
     "crates/coins-spacechain",
     "crates/coins-client",
 ]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"

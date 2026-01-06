@@ -1,4 +1,6 @@
 target
+
+# macOS
 .DS_Store
 
 # Generated files
