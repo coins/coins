@@ -13,12 +13,9 @@ test-data/
 config/aggregator.toml
 config/subchain.toml
 
-# Runtime databases
+# Runtime databases (allow in test-data/)
 state.db/
 indexer.db/
-
-# Runtime keys
-aggregator_bls_sk.hex
 
 # Old subchain bin file
 subchain_regtest.bin

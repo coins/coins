@@ -8,7 +8,7 @@
 //! Trade-offs:
 //! - ✅ Standard transaction (fast propagation)
 //! - ✅ No custom mining pools needed
-//! - ✅ Only 2 TXs per block (connector + data_tx)
+//! - ✅ Only 2 TXs per block (anchor + data_tx)
 //! - ❌ 4x higher fees than witness-based methods
 //! - ⚠️  28% of nodes (Bitcoin Knots) may reject large OP_RETURN
 
@@ -91,7 +91,7 @@ fn compile_op_return_tx(
     }
 
     let mut tx = Transaction {
-        version: Version::TWO,
+        version: Version(3), // V3 for TRUC/BIP-431 compatibility
         lock_time: LockTime::ZERO,
         input: vec![
             // Anchor input (anyone-can-spend)
@@ -148,7 +148,7 @@ fn weight_to_vbytes(w: u64) -> u64 {
 /// - data_tx: The transaction containing the OP_RETURN data
 pub fn publish_op_return(
     blob: &[u8],
-    connector_tx: &Transaction,
+    anchor_tx: &Transaction,
     fee_outpoint: OutPoint,
     fee_value_sat: u64,
     fee_sk: &SecretKey,
@@ -164,7 +164,7 @@ pub fn publish_op_return(
         return Err("blob exceeds 100KB OP_RETURN limit");
     }
 
-    let anchor_out = OutPoint::new(connector_tx.compute_txid(), 1);
+    let anchor_out = OutPoint::new(anchor_tx.compute_txid(), 1);
 
     // Build with zero fee to estimate weight
     let tx_estimate = compile_op_return_tx(
@@ -177,9 +177,11 @@ pub fn publish_op_return(
         0,
     );
 
-    let weight = tx_estimate.weight().to_wu();
-    let vbytes = weight_to_vbytes(weight);
-    let fee_sat = vbytes * fee_rate_sat_per_vb;
+    // CPFP: data_tx must pay fees for BOTH anchor and data_tx
+    let anchor_vbytes = weight_to_vbytes(anchor_tx.weight().to_wu());
+    let data_vbytes = weight_to_vbytes(tx_estimate.weight().to_wu());
+    let total_vbytes = anchor_vbytes + data_vbytes;
+    let fee_sat = total_vbytes * fee_rate_sat_per_vb;
 
     if fee_sat > fee_value_sat {
         return Err("fee exceeds UTXO value");
@@ -271,8 +273,8 @@ mod tests {
         let fee_sk = SecretKey::new(&mut rng);
         let network = Network::Regtest;
 
-        // Create dummy connector tx
-        let connector_tx = Transaction {
+        // Create dummy anchor tx
+        let anchor_tx = Transaction {
             version: Version::TWO,
             lock_time: LockTime::ZERO,
             input: vec![],
@@ -293,7 +295,7 @@ mod tests {
 
         let result = publish_op_return(
             &data,
-            &connector_tx,
+            &anchor_tx,
             fee_outpoint,
             fee_value,
             &fee_sk,
@@ -316,7 +318,7 @@ mod tests {
         let data = vec![0u8; 100_001]; // 1 byte over limit
         let fee_sk = SecretKey::new(&mut rng);
 
-        let connector_tx = Transaction {
+        let anchor_tx = Transaction {
             version: Version::TWO,
             lock_time: LockTime::ZERO,
             input: vec![],
@@ -328,7 +330,7 @@ mod tests {
 
         let result = publish_op_return(
             &data,
-            &connector_tx,
+            &anchor_tx,
             OutPoint::null(),
             100_000,
             &fee_sk,

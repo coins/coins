@@ -75,7 +75,7 @@ fn default_indexer_db() -> PathBuf {
 }
 
 fn default_bls_keyfile() -> PathBuf {
-    PathBuf::from("./aggregator_bls_sk.hex")
+    PathBuf::from(".data/keys/aggregator_bls_sk.hex")
 }
 
 #[tokio::main]

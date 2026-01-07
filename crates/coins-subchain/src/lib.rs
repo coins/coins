@@ -1,7 +1,7 @@
 //! coins-subchain – trusted setup generator for successor/anchor chain.
 //!
 //! This crate is **offline-only**: it produces a JSON file that contains a
-//! sequence of pre-signed *connector* transactions.  Each connector has
+//! sequence of pre-signed *anchor* transactions.  Each anchor has
 //!  - input:   the previous successor UTXO (taproot key-path spend)
 //!  - output0: the next successor UTXO (pays back to the same address)
 //!  - output1: a 0-sat OP_TRUE anchor which aggregators can spend to attach a
@@ -31,7 +31,7 @@ pub struct Subchain {
     pub pubkey: bitcoin::CompressedPublicKey,
     /// Bitcoin network the address belongs to (only used for (de)serializing).
     pub network: Network,
-    /// DER-encoded ECDSA signatures (including sighash byte), one per connector tx.
+    /// DER-encoded ECDSA signatures (including sighash byte), one per anchor tx.
     pub sigs: Vec<Vec<u8>>,
 }
 
@@ -149,7 +149,7 @@ impl Subchain {
         bincode_deserialize(data, bin_config()).ok().map(|(sc, _)| sc)
     }
 
-    /// Reconstruct all connector transactions from stored signatures.
+    /// Reconstruct all anchor transactions from stored signatures.
     pub fn reconstruct_txs(&self) -> Vec<Transaction> {
         let script_pubkey = Address::p2wpkh(&self.pubkey, self.network).script_pubkey();
         let mut prev_out = self.first_out;

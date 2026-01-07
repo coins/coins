@@ -29,7 +29,7 @@ pub struct Engine {
     pub fee_addr: Address,
     pub fee_utxos: Vec<FeeUtxo>,
     pub current_anchor: OutPoint,
-    pub connector_idx: usize,
+    pub anchor_idx: usize,
     pub last_synced: Option<Txid>,
     pub app_state: AppState,
     pub base_url: String,
@@ -84,7 +84,7 @@ impl Engine {
         };
         let aggregator_pk = G1(aggregator_sk.public_key());
 
-        // current anchor (connector.output[1]) for idx 0 initially
+        // current anchor (anchor.output[1]) for idx 0 initially
         let current_anchor = sc.first_out;
 
         let mut eng = Self {
@@ -94,7 +94,7 @@ impl Engine {
             fee_addr,
             fee_utxos: Vec::new(),
             current_anchor,
-            connector_idx: 0,
+            anchor_idx: 0,
             last_synced: None,
             app_state,
             base_url: String::new(), // Not needed anymore, but kept for compatibility
@@ -115,18 +115,18 @@ impl Engine {
         Ok(())
     }
 
-    /// Check if current anchor is still unspent; if spent, advance to next connector.
+    /// Check if current anchor is still unspent; if spent, advance to next anchor.
     pub async fn refresh_anchor(&mut self) -> Result<()> {
         let txid32 = Txid::from_str(&self.current_anchor.txid.to_string())?;
         let status_opt = self.backend.get_output_status(&txid32, self.current_anchor.vout).await?;
         if let Some(status) = status_opt {
             if status.spent {
-                self.connector_idx += 1;
+                self.anchor_idx += 1;
                 let txs = self.sc.reconstruct_txs();
-                if self.connector_idx >= txs.len() {
+                if self.anchor_idx >= txs.len() {
                     anyhow::bail!("subchain exhausted");
                 }
-                let next = &txs[self.connector_idx];
+                let next = &txs[self.anchor_idx];
                 self.current_anchor = OutPoint::new(next.compute_txid(), 1);
             }
         }
@@ -188,14 +188,14 @@ impl Engine {
 
         let txs = self.sc.reconstruct_txs();
 
-        // Ensure all connector transactions up to the current index are on-chain.
+        // Ensure all anchor transactions up to the current index are on-chain.
         // We broadcast them best-effort; if they are already in the chain/mempool
         // the node will just return an error which we can safely ignore.
-        for idx in 0..=self.connector_idx {
+        for idx in 0..=self.anchor_idx {
             let _ = self.broadcast(&txs[idx]).await;
         }
 
-        let connector_tx = &txs[self.connector_idx];
+        let anchor_tx = &txs[self.anchor_idx];
 
         // Compress sub-block before publishing (reduces size by 50-80%)
         let compressed_bytes = compress(&sub_block_bytes)
@@ -211,7 +211,7 @@ impl Engine {
         // Publish using OP_RETURN (Bitcoin Core v30: up to 100KB standard)
         let (new_anchor, data_tx) = publish_op_return(
             &compressed_bytes,
-            connector_tx,
+            anchor_tx,
             fee_utxo.outpoint,
             fee_utxo.value.to_sat(),
             &self.fee_sk,
@@ -219,14 +219,14 @@ impl Engine {
             self.sc.network,
         ).map_err(|e| anyhow::anyhow!("OP_RETURN publish failed: {}", e))?;
 
-        // Package relay: connector_tx + data_tx (only 2 TXs now!)
-        if let Err(e) = self.broadcast_package(&[connector_tx.clone(), data_tx.clone()]).await {
+        // Package relay: anchor_tx + data_tx (only 2 TXs now!)
+        if let Err(e) = self.broadcast_package(&[anchor_tx.clone(), data_tx.clone()]).await {
             tracing::warn!(error = %e, "Package relay failed, falling back to individual broadcasts");
-            self.broadcast(&connector_tx).await?;
+            self.broadcast(&anchor_tx).await?;
             self.broadcast(&data_tx).await?;
         } else {
             tracing::info!(
-                connector_txid = %connector_tx.compute_txid(),
+                anchor_txid = %anchor_tx.compute_txid(),
                 data_txid = %data_tx.compute_txid(),
                 "Package broadcasted successfully (2 TXs)"
             );
@@ -266,15 +266,15 @@ impl Engine {
         for (idx, tx) in txs.iter().enumerate().rev() {
             let txid = tx.compute_txid();
             if utxos.iter().any(|u| u.outpoint.txid == txid) {
-                self.connector_idx = idx + 1;
-                if self.connector_idx < txs.len() {
-                    let next = &txs[self.connector_idx];
+                self.anchor_idx = idx + 1;
+                if self.anchor_idx < txs.len() {
+                    let next = &txs[self.anchor_idx];
                     self.current_anchor = OutPoint::new(next.compute_txid(), 1);
                 } else {
-                    // all connectors spent, we are at the tip
+                    // all anchors spent, we are at the tip
                 }
                 self.last_synced = Some(txid);
-                tracing::info!(connector_idx = idx, "IBD: Synced to connector");
+                tracing::info!(anchor_idx = idx, "IBD: Synced to anchor");
                 break;
             }
         }
@@ -296,33 +296,33 @@ impl Engine {
         let txs = self.sc.reconstruct_txs();
         let mut indexed_count = 0;
 
-        // For each connector transaction, check if its anchor was spent
-        for (idx, connector_tx) in txs.iter().enumerate() {
-            let connector_txid = connector_tx.compute_txid();
-            let anchor_outpoint = OutPoint::new(connector_txid, 1);
+        // For each anchor transaction, check if its anchor was spent
+        for (idx, anchor_tx) in txs.iter().enumerate() {
+            let anchor_txid = anchor_tx.compute_txid();
+            let anchor_outpoint = OutPoint::new(anchor_txid, 1);
 
             tracing::debug!(
-                connector_idx = idx,
-                connector_txid = %connector_txid,
-                "Checking connector anchor..."
+                anchor_idx = idx,
+                anchor_txid = %anchor_txid,
+                "Checking anchor..."
             );
 
-            // Check if anchor output exists (connector was broadcast)
-            let anchor_status = self.backend.get_output_status(&connector_txid, 1).await?;
+            // Check if anchor output exists (anchor was broadcast)
+            let anchor_status = self.backend.get_output_status(&anchor_txid, 1).await?;
 
             if anchor_status.is_none() {
                 tracing::debug!(
-                    connector_idx = idx,
-                    "Connector not broadcast yet (anchor output doesn't exist)"
+                    anchor_idx = idx,
+                    "Anchor not broadcast yet (anchor output doesn't exist)"
                 );
-                continue; // Connector not yet broadcast
+                continue; // Anchor not yet broadcast
             }
 
             // Check if anchor is spent
             if let Some(status) = anchor_status {
                 if !status.spent {
                     tracing::debug!(
-                        connector_idx = idx,
+                        anchor_idx = idx,
                         "Anchor not spent yet, no sub-block here"
                     );
                     continue; // Anchor not spent yet, no sub-block here
@@ -331,8 +331,8 @@ impl Engine {
 
             // Anchor is spent! Find the spending transaction (data_tx)
             tracing::debug!(
-                connector_idx = idx,
-                anchor_txid = %connector_txid,
+                anchor_idx = idx,
+                anchor_txid = %anchor_txid,
                 "Anchor spent, searching for data_tx..."
             );
 
@@ -341,7 +341,7 @@ impl Engine {
                 self.backend.get_spending_tx(&anchor_outpoint).await?
             {
                 tracing::debug!(
-                    connector_idx = idx,
+                    anchor_idx = idx,
                     data_txid = %data_txid,
                     btc_height = btc_height,
                     "Found data_tx"
@@ -359,12 +359,12 @@ impl Engine {
                         if let Err(e) = validate_subblock(&sub_block, &self.app_state.state) {
                             tracing::error!(
                                 error = ?e,
-                                connector_idx = idx,
+                                anchor_idx = idx,
                                 "Historical sub-block validation failed during IBD"
                             );
                         } else {
                             tracing::debug!(
-                                connector_idx = idx,
+                                anchor_idx = idx,
                                 tx_count = sub_block.txs.len(),
                                 "Applied historical transactions to state"
                             );
@@ -379,29 +379,29 @@ impl Engine {
 
                         indexed_count += 1;
                         tracing::info!(
-                            connector_idx = idx,
+                            anchor_idx = idx,
                             btc_txid = %data_txid,
                             btc_height = btc_height,
                             "Indexed historical sub-block"
                         );
                     } else {
                         tracing::warn!(
-                            connector_idx = idx,
+                            anchor_idx = idx,
                             data_txid = %data_txid,
                             "Failed to parse sub-block from OP_RETURN data"
                         );
                     }
                 } else {
                     tracing::warn!(
-                        connector_idx = idx,
+                        anchor_idx = idx,
                         data_txid = %data_txid,
                         "Data TX has no OP_RETURN output"
                     );
                 }
             } else {
                 tracing::warn!(
-                    connector_idx = idx,
-                    anchor_txid = %connector_txid,
+                    anchor_idx = idx,
+                    anchor_txid = %anchor_txid,
                     "Anchor is marked as spent but couldn't find spending TX"
                 );
             }
