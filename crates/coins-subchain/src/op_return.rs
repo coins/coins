@@ -22,6 +22,7 @@ use bitcoin::{
     Witness, transaction::Version, PrivateKey, key::CompressedPublicKey,
 };
 use core::convert::TryFrom;
+use std::io::{Read, Write};
 
 /// Bitcoin dust limit in satoshis (minimum output value)
 const DUST_LIMIT_SAT: u64 = 546;
