@@ -63,9 +63,14 @@ async fn submit_tx(State(state): State<AppState>, Json(body): Json<TxSubmission>
         Err(_) => return (StatusCode::BAD_REQUEST, "invalid signature length").into_response(),
     };
     let signature = G2(sig_arr);
-    
-    state.mempool.lock().unwrap().push((tx, signature));
-    (StatusCode::OK, "accepted").into_response()
+
+    match state.mempool.lock() {
+        Ok(mut mempool) => {
+            mempool.push((tx, signature));
+            (StatusCode::OK, "accepted").into_response()
+        }
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "mempool lock failed").into_response(),
+    }
 }
 
 pub fn router(state: AppState) -> Router {
