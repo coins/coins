@@ -197,7 +197,10 @@ impl Engine {
 
         let anchor_tx = &txs[self.anchor_idx];
 
-        // Compress sub-block before publishing (reduces size by 50-80%)
+        // Compress sub-block before publishing using zstd level 3
+        // Note: Most data (BLS signatures, public keys) is cryptographically random and won't compress.
+        // Realistic compression: 10-30% depending on transaction patterns (repeated amounts/fees).
+        // Best case ~30-40% with highly uniform transaction values.
         let compressed_bytes = compress(&sub_block_bytes)
             .map_err(|e| anyhow::anyhow!("Compression failed: {}", e))?;
 
