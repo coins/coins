@@ -6,7 +6,6 @@ edition = "2024"
 [dependencies]
 coins-subchain = { path = "../coins-subchain" }
 bitcoin = { version = "0.32", features=["serde"] }
-esplora-client = { git = "https://github.com/BitVM/rust-esplora-client", branch = "master" }
 tokio = { version = "1", features=["rt-multi-thread","macros","time","sync"] }
 clap = { version = "4", features=["derive"] }
 serde = { version = "1", features=["derive"] }

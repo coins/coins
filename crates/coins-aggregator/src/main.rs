@@ -6,7 +6,6 @@ use coins_aggregator::engine::Engine;
 use coins_aggregator::api::{router, AppState};
 use coins_aggregator::blockchain_backend::BlockchainBackend;
 use coins_aggregator::rpc_backend::RpcBackend;
-use coins_aggregator::esplora_backend::EsploraBackend;
 use coins_crypto::G1;
 use coins_core::State;
 use coins_indexer::Indexer;
@@ -25,11 +24,7 @@ struct Opts {
 
 #[derive(Deserialize)]
 struct Config {
-    // Esplora config (for signet/mainnet)
-    #[serde(default)]
-    esplora: Option<String>,
-
-    // RPC config (for regtest)
+    // Bitcoin Core RPC config (regtest only)
     #[serde(default)]
     rpc_url: Option<String>,
     #[serde(default)]
@@ -159,21 +154,12 @@ async fn main() -> anyhow::Result<()> {
             Arc::new(rpc_backend) as Arc<dyn BlockchainBackend>
         }
 
-        Network::Signet | Network::Bitcoin | Network::Testnet => {
-            // Validate Esplora config exists
-            let esplora_url = config.esplora
-                .ok_or_else(|| anyhow::anyhow!("esplora URL required for network={:?}", config.network))?;
-
-            tracing::info!(
-                esplora_url = %esplora_url,
-                "Using Esplora backend"
-            );
-
-            let esplora_backend = EsploraBackend::new(&esplora_url)?;
-            Arc::new(esplora_backend) as Arc<dyn BlockchainBackend>
+        other => {
+            return Err(anyhow::anyhow!(
+                "Only regtest network is supported. Got: {:?}. Use Bitcoin Core RPC for regtest.",
+                other
+            ));
         }
-
-        other => return Err(anyhow::anyhow!("Unsupported network: {:?}", other)),
     };
 
     // ===== ENGINE INITIALIZATION =====
