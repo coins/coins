@@ -4,21 +4,47 @@ use rand::rngs::OsRng;
 use ark_bn254::{Fr, G1Projective};
 use ark_ff::{PrimeField, BigInteger};
 use std::fs;
-use std::path::Path;
+use std::path::PathBuf;
 use hex;
 use coins_types::{Account, Transaction};
 use bincode::serde::encode_to_vec;
 use ark_ec::Group;
 use std::ops::Mul;
-
-const SECRET_KEY_FILE: &str = "client_sk.hex";
-const AGGREGATOR_URL: &str = "http://127.0.0.1:8080";
+use serde::Deserialize;
 
 #[derive(Parser)]
 #[command(name = "coins-client", about = "A simple CLI client for the Coins system")]
 struct Cli {
+    /// Path to the configuration file
+    #[arg(short, long, default_value = "config/client.toml")]
+    config: PathBuf,
+
+    /// Override keyfile path from config
+    #[arg(long)]
+    keyfile: Option<PathBuf>,
+
+    /// Override aggregator URL from config
+    #[arg(long)]
+    aggregator_url: Option<String>,
+
     #[command(subcommand)]
     command: Commands,
+}
+
+#[derive(Deserialize, Default)]
+struct Config {
+    #[serde(default = "default_aggregator_url")]
+    aggregator_url: String,
+    #[serde(default = "default_keyfile")]
+    keyfile: PathBuf,
+}
+
+fn default_aggregator_url() -> String {
+    "http://127.0.0.1:8080".to_string()
+}
+
+fn default_keyfile() -> PathBuf {
+    PathBuf::from(".data/keys/client_sk.hex")
 }
 
 #[derive(Subcommand)]
@@ -42,10 +68,23 @@ enum Commands {
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
+    // Load config file or use defaults
+    let config: Config = if cli.config.exists() {
+        let config_str = fs::read_to_string(&cli.config)?;
+        toml::from_str(&config_str)?
+    } else {
+        Config::default()
+    };
+
+    // Apply CLI overrides (CLI flags take priority over config file)
+    let keyfile = cli.keyfile.unwrap_or(config.keyfile);
+    let aggregator_url = cli.aggregator_url.unwrap_or(config.aggregator_url);
+
     match cli.command {
         Commands::Init => {
-            if Path::new(SECRET_KEY_FILE).exists() {
-                println!("Secret key file already exists. Aborting.");
+            if keyfile.exists() {
+                println!("Secret key file already exists at: {}", keyfile.display());
+                println!("Aborting.");
                 return Ok(());
             }
 
@@ -54,18 +93,25 @@ async fn main() -> anyhow::Result<()> {
             let pk = G1::from_affine(&G1Projective::generator().mul(sk.0).into());
 
             let sk_bytes = sk.0.into_bigint().to_bytes_le();
-            fs::write(SECRET_KEY_FILE, hex::encode(sk_bytes))?;
 
-            println!("New secret key stored in {}", SECRET_KEY_FILE);
+            // Create parent directory if it doesn't exist
+            if let Some(parent) = keyfile.parent() {
+                fs::create_dir_all(parent)?;
+            }
+
+            fs::write(&keyfile, hex::encode(sk_bytes))?;
+
+            println!("New secret key stored in {}", keyfile.display());
             println!("Your public key is: {}", hex::encode(pk.0));
         }
         Commands::Balance => {
-            if !Path::new(SECRET_KEY_FILE).exists() {
-                println!("Secret key file not found. Please run `init` first.");
+            if !keyfile.exists() {
+                println!("Secret key file not found at: {}", keyfile.display());
+                println!("Please run `init` first.");
                 return Ok(());
             }
 
-            let sk_hex = fs::read_to_string(SECRET_KEY_FILE)?;
+            let sk_hex = fs::read_to_string(&keyfile)?;
             let sk_bytes = hex::decode(sk_hex.trim())?;
             let fr = Fr::from_le_bytes_mod_order(&sk_bytes);
             let sk = SecretKey(fr);
@@ -73,7 +119,7 @@ async fn main() -> anyhow::Result<()> {
             let pk_hex = hex::encode(pk.0);
 
             let client = reqwest::Client::new();
-            let url = format!("{}/account/{}", AGGREGATOR_URL, pk_hex);
+            let url = format!("{}/account/{}", aggregator_url, pk_hex);
             let res = client.get(&url).send().await?;
 
             if res.status().is_success() {
@@ -87,12 +133,13 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         Commands::Send { recipient_pk, amount } => {
-            if !Path::new(SECRET_KEY_FILE).exists() {
-                println!("Secret key file not found. Please run `init` first.");
+            if !keyfile.exists() {
+                println!("Secret key file not found at: {}", keyfile.display());
+                println!("Please run `init` first.");
                 return Ok(());
             }
 
-            let sk_hex = fs::read_to_string(SECRET_KEY_FILE)?;
+            let sk_hex = fs::read_to_string(&keyfile)?;
             let sk_bytes = hex::decode(sk_hex.trim())?;
             let fr = Fr::from_le_bytes_mod_order(&sk_bytes);
             let sk = SecretKey(fr);
@@ -105,7 +152,7 @@ async fn main() -> anyhow::Result<()> {
             let pk = G1::from_affine(&G1Projective::generator().mul(sk.0).into());
             let pk_hex = hex::encode(pk.0);
             let client = reqwest::Client::new();
-            let url = format!("{}/account/{}", AGGREGATOR_URL, pk_hex);
+            let url = format!("{}/account/{}", aggregator_url, pk_hex);
             let res = client.get(&url).send().await?;
 
             let sender_account: Account = if res.status().is_success() {
@@ -121,13 +168,13 @@ async fn main() -> anyhow::Result<()> {
                 amount,
                 fee: 0, // Assuming no fee for now
             };
-            
+
             let tx_bytes = encode_to_vec(&tx, bincode::config::standard())?;
 
             let signature = sign(&sk, &tx_bytes);
-            
+
             let client = reqwest::Client::new();
-            let res = client.post(format!("{}/tx", AGGREGATOR_URL))
+            let res = client.post(format!("{}/tx", aggregator_url))
                 .json(&serde_json::json!({
                     "tx": hex::encode(tx_bytes),
                     "signature": hex::encode(signature.0)

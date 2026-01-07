@@ -10,12 +10,19 @@ This directory contains configuration templates for different Bitcoin networks.
 # 1. Copy regtest templates
 cp config/aggregator-regtest.toml config/aggregator.toml
 cp config/subchain-regtest.toml config/subchain.toml
+cp config/client-regtest.toml config/client.toml
 
 # 2. Generate subchain
 cargo run --bin subchain-setup
 
 # 3. Start aggregator
 cargo run --bin coins-aggregator
+
+# 4. Initialize client
+cargo run --bin coins-client init
+
+# 5. Use client
+cargo run --bin coins-client balance
 ```
 
 ### For Signet (Public Testnet)
@@ -24,14 +31,22 @@ cargo run --bin coins-aggregator
 # 1. Copy signet templates
 cp config/aggregator-signet.toml config/aggregator.toml
 cp config/subchain-signet.toml config/subchain.toml
+cp config/client-signet.toml config/client.toml
 
 # 2. Edit config/aggregator.toml and set your genesis_pk
+# 3. Edit config/client.toml and set your aggregator_url
 
-# 3. Generate subchain
+# 4. Generate subchain
 cargo run --bin subchain-setup
 
-# 4. Start aggregator
+# 5. Start aggregator
 cargo run --bin coins-aggregator
+
+# 6. Initialize client
+cargo run --bin coins-client init
+
+# 7. Use client
+cargo run --bin coins-client balance
 ```
 
 ## Configuration Files
@@ -53,6 +68,12 @@ cargo run --bin coins-aggregator
 - **`subchain-regtest.toml`** - Generate subchain for regtest
 - **`subchain-signet.toml`** - Generate subchain for signet
 
+### Client Configurations
+
+- **`client-default.toml`** - General template with default values
+- **`client-regtest.toml`** - Client config for local regtest
+- **`client-signet.toml`** - Client config for signet testnet
+
 ## Backend Auto-Selection
 
 The aggregator automatically selects the blockchain backend based on the `network` parameter:
@@ -70,7 +91,9 @@ All generated files use the new `.data/` directory structure:
 ├── keys/
 │   ├── aggregator_sk.hex      # Bitcoin ECDSA key (fee payments)
 │   ├── aggregator_bls_sk.hex  # BLS key (sub-block signing)
-│   └── client_sk.hex          # Client wallet key
+│   ├── client_sk.hex          # Default client wallet key
+│   ├── alice_sk.hex           # Example: Alice's client key
+│   └── bob_sk.hex             # Example: Bob's client key
 ├── subchains/
 │   ├── subchain_regtest.bin # Regtest subchain
 │   └── subchain_signet.bin  # Signet subchain
@@ -79,9 +102,54 @@ All generated files use the new `.data/` directory structure:
     └── indexer.db/            # Indexed blocks database
 ```
 
+## Running Multiple Clients in Parallel
+
+The client supports running multiple instances simultaneously using different configs or CLI overrides:
+
+### Using Config Files
+
+```bash
+# Create separate config files for each client
+cp config/client-regtest.toml config/client-alice.toml
+cp config/client-regtest.toml config/client-bob.toml
+
+# Edit each config to use different keyfiles
+# client-alice.toml: keyfile = ".data/keys/alice_sk.hex"
+# client-bob.toml: keyfile = ".data/keys/bob_sk.hex"
+
+# Run clients in parallel (different terminals)
+cargo run --bin coins-client --config config/client-alice.toml balance
+cargo run --bin coins-client --config config/client-bob.toml balance
+```
+
+### Using CLI Overrides
+
+```bash
+# Override keyfile without config file
+cargo run --bin coins-client --keyfile .data/keys/alice_sk.hex init
+cargo run --bin coins-client --keyfile .data/keys/bob_sk.hex init
+
+# Override aggregator URL to test against different servers
+cargo run --bin coins-client --aggregator-url http://localhost:8081 balance
+
+# Combine overrides
+cargo run --bin coins-client \
+  --keyfile .data/keys/alice_sk.hex \
+  --aggregator-url http://signet.example.com:8080 \
+  send --recipient-pk abc123... --amount 100
+```
+
+### Priority Order
+
+Configuration values are applied in this order (later overrides earlier):
+
+1. Hardcoded defaults (`http://127.0.0.1:8080`, `.data/keys/client_sk.hex`)
+2. Config file values (if `--config` file exists)
+3. CLI flag overrides (`--keyfile`, `--aggregator-url`)
+
 ## Important Notes
 
-- **Never commit `aggregator.toml` or `subchain.toml`** to git (they are gitignored)
+- **Never commit `aggregator.toml`, `subchain.toml`, or `client.toml`** to git (they are gitignored)
 - **Never commit keys or database files** (in `.data/` - gitignored)
 - Templates are safe to commit and share
 - Production configurations should use different genesis keys and higher security
