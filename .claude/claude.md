@@ -1,0 +1,1 @@
+Always run the unit tests before committing changes to git.

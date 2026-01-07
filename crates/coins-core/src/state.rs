@@ -113,6 +113,26 @@ impl State {
 }
 
 // -----------------------------------------------------------------------------
+// SubBlockState trait implementation
+// -----------------------------------------------------------------------------
+
+impl coins_types::SubBlockState for State {
+    fn get_account_id_by_pk(&self, pk: &G1) -> Result<Option<u32>, ()> {
+        match self.get_by_pk(pk) {
+            Ok(Some(account)) => Ok(Some(account.id.0)),
+            Ok(None) => Ok(None),
+            Err(_) => Err(()),
+        }
+    }
+
+    fn get_pk_by_account_id(&self, id: u32) -> Option<G1> {
+        self.get_account(AccountId(id))
+            .ok()?
+            .map(|account| account.pk)
+    }
+}
+
+// -----------------------------------------------------------------------------
 // Helper configuration
 // -----------------------------------------------------------------------------
 

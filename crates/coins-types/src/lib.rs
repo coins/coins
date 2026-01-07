@@ -9,8 +9,11 @@ use serde::{Serialize, Deserialize};
 use bincode::serde::{encode_to_vec as bincode_serialize, decode_from_slice as bincode_deserialize};
 use bincode::config::{standard, Config};
 
-/// Wire-size constant 
-pub const TX_SIZE: usize = 41; 
+/// Wire-size constant for canonical transaction
+pub const TX_SIZE: usize = 41;
+
+/// Wire-size constant for compact transaction
+pub const COMPACT_TX_SIZE: usize = 13;
 
 pub type Amount = u32;
 pub type Fee = u8;
@@ -59,6 +62,61 @@ impl Transaction {
         v.extend_from_slice(&nonce.to_le_bytes());
         v
     }
+
+    /// Convert to compact format (requires recipient to have an account ID)
+    pub fn compact(&self, recipient_id: u32) -> CompactTransaction {
+        CompactTransaction {
+            sender_id: self.sender_id,
+            recipient_id,
+            amount: self.amount,
+            fee: self.fee,
+        }
+    }
+}
+
+/// Compact wire-format transaction (13 bytes).
+/// Uses recipient_id instead of recipient_pk to reduce size.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompactTransaction {
+    pub sender_id: u32,
+    pub recipient_id: u32,
+    pub amount: Amount,
+    pub fee: Fee,
+}
+
+impl CompactTransaction {
+    /// Serialize to 13-byte wire format
+    pub fn serialize(&self) -> [u8; COMPACT_TX_SIZE] {
+        let vec: Vec<u8> = bincode_serialize(self, bin_config()).expect("bincode serialize");
+        debug_assert_eq!(vec.len(), COMPACT_TX_SIZE, "compact tx size mismatch");
+        let mut arr = [0u8; COMPACT_TX_SIZE];
+        arr.copy_from_slice(&vec);
+        arr
+    }
+
+    /// Deserialize from 13-byte wire format
+    pub fn deserialize(data: &[u8; COMPACT_TX_SIZE]) -> Result<Self, String> {
+        let (tx, _): (Self, usize) = bincode_deserialize(data, bin_config())
+            .map_err(|e| format!("bincode deserialize: {}", e))?;
+        Ok(tx)
+    }
+
+    /// Expand to canonical Transaction by providing recipient's public key
+    pub fn expand(&self, recipient_pk: G1) -> Transaction {
+        Transaction {
+            sender_id: self.sender_id,
+            recipient_pk,
+            amount: self.amount,
+            fee: self.fee,
+        }
+    }
+}
+
+/// Hybrid transaction format - either compact or canonical
+#[derive(Debug, Clone)]
+pub enum TxFormat {
+    Compact(CompactTransaction),   // 13 bytes
+    Canonical(Transaction),         // 41 bytes
 }
 
 /// A batch of transactions together with an aggregated signature.
@@ -70,22 +128,76 @@ pub struct SubBlock {
 }
 
 impl SubBlock {
-    /// Serialize SubBlock into Vec<u8> (64-byte sigma + 32-byte publisher_pk + N×41-byte txs).
-    pub fn serialize(&self) -> Vec<u8> {
-        let mut v = Vec::with_capacity(64 + 32 + self.txs.len() * TX_SIZE);
-        v.extend_from_slice(&bincode_serialize(&self.sigma, bin_config()).expect("sigma ser"));
-        v.extend_from_slice(&bincode_serialize(&self.publisher_pk, bin_config()).expect("pk ser"));
-        for tx in &self.txs {
-            v.extend_from_slice(&tx.serialize());
+    /// Serialize SubBlock with hybrid format compression.
+    /// Uses compact format (13 bytes) when recipient has an account, canonical (41 bytes) otherwise.
+    /// Requires State to lookup account IDs for compression.
+    ///
+    /// Note: Publisher PK is NOT compressed to avoid bootstrapping issues (publisher account
+    /// doesn't exist during first sub-block, causing deserialization to fail during IBD).
+    ///
+    /// Format: [sigma: 64] [publisher_pk: 32] [count: 2] [format_bits: ceil(count/8)] [txs: variable]
+    pub fn serialize<S>(&self, state: &S) -> Vec<u8>
+    where
+        S: SubBlockState,
+    {
+        let tx_count = self.txs.len() as u16;
+        let format_bytes = (tx_count as usize + 7) / 8; // ceil(tx_count/8)
+
+        let mut v = Vec::new();
+
+        // Sigma (64 bytes)
+        v.extend_from_slice(&bincode_serialize(&self.sigma, bin_config()).expect("sigma"));
+
+        // Publisher PK (32 bytes) - always canonical to avoid bootstrapping issues
+        v.extend_from_slice(&bincode_serialize(&self.publisher_pk, bin_config()).expect("pk"));
+
+        // TX count (2 bytes)
+        v.extend_from_slice(&tx_count.to_le_bytes());
+
+        // Format bitfield (ceil(tx_count/8) bytes) - 0 = compact, 1 = canonical
+        let mut format_bits = vec![0u8; format_bytes];
+        let mut tx_formats = Vec::with_capacity(tx_count as usize);
+
+        for (i, tx) in self.txs.iter().enumerate() {
+            // Try to compress: lookup recipient account ID
+            if let Ok(Some(account_id)) = state.get_account_id_by_pk(&tx.recipient_pk) {
+                // Can compress - recipient has an account
+                tx_formats.push(TxFormat::Compact(tx.compact(account_id)));
+            } else {
+                // Cannot compress - new recipient
+                format_bits[i / 8] |= 1 << (i % 8);  // Set bit for canonical
+                tx_formats.push(TxFormat::Canonical(tx.clone()));
+            }
         }
+        v.extend_from_slice(&format_bits);
+
+        // Transactions (ordered, variable size)
+        for tx_format in &tx_formats {
+            match tx_format {
+                TxFormat::Compact(compact_tx) => {
+                    v.extend_from_slice(&compact_tx.serialize());
+                }
+                TxFormat::Canonical(canonical_tx) => {
+                    v.extend_from_slice(&canonical_tx.serialize());
+                }
+            }
+        }
+
         v
     }
 
-    /// Deserialize sub-block from bytes; returns None if size is invalid.
-    pub fn deserialize(data: &[u8]) -> Option<Self> {
-        if data.len() < 96 { return None; }
+    /// Deserialize sub-block from bytes, expanding compressed transactions.
+    /// Requires State to lookup recipient PKs from account IDs.
+    pub fn deserialize<S>(data: &[u8], state: &S) -> Option<Self>
+    where
+        S: SubBlockState,
+    {
+        if data.len() < 98 { return None; } // Minimum: 64 + 32 + 2 = 98 bytes
+
         let (sigma_bytes, rest) = data.split_at(64);
-        let (pk_bytes, tx_bytes) = rest.split_at(32);
+        let (pk_bytes, rest) = rest.split_at(32);
+        let (count_bytes, rest) = rest.split_at(2);
+
         let sigma: G2 = {
             let (s, _): (G2, usize) = bincode_deserialize(sigma_bytes, bin_config()).ok()?;
             s
@@ -94,17 +206,49 @@ impl SubBlock {
             let (pk, _): (G1, usize) = bincode_deserialize(pk_bytes, bin_config()).ok()?;
             pk
         };
-        let tx_count = (tx_bytes.len()) / TX_SIZE;
-        if tx_bytes.len() != tx_count * TX_SIZE { return None; }
+
+        let tx_count = u16::from_le_bytes([count_bytes[0], count_bytes[1]]) as usize;
+        let format_bytes = (tx_count + 7) / 8;
+
+        if rest.len() < format_bytes { return None; }
+        let (format_bits, mut tx_data) = rest.split_at(format_bytes);
+
+        // Parse transactions using format bitfield, expand all to canonical
         let mut txs = Vec::with_capacity(tx_count);
         for i in 0..tx_count {
-            let start = i * TX_SIZE;
-            let end = start + TX_SIZE;
-            let tx_slice = &tx_bytes[start..end];
-            txs.push(Transaction::deserialize(tx_slice));
+            let is_canonical = (format_bits[i / 8] >> (i % 8)) & 1 == 1;
+
+            let canonical_tx = if is_canonical {
+                if tx_data.len() < TX_SIZE { return None; }
+                let tx = Transaction::deserialize(&tx_data[..TX_SIZE]);
+                tx_data = &tx_data[TX_SIZE..];
+                tx
+            } else {
+                if tx_data.len() < COMPACT_TX_SIZE { return None; }
+                let tx_array: [u8; COMPACT_TX_SIZE] = tx_data[..COMPACT_TX_SIZE].try_into().ok()?;
+                let compact_tx = CompactTransaction::deserialize(&tx_array).ok()?;
+                tx_data = &tx_data[COMPACT_TX_SIZE..];
+
+                // Expand to canonical by looking up recipient PK
+                let recipient_pk = state.get_pk_by_account_id(compact_tx.recipient_id)?;
+                compact_tx.expand(recipient_pk)
+            };
+
+            txs.push(canonical_tx);
         }
+
         Some(Self { sigma, publisher_pk, txs })
     }
+}
+
+/// Trait for state access required by SubBlock serialization.
+/// Allows SubBlock to compress/decompress without directly depending on coins-core.
+pub trait SubBlockState {
+    /// Get account ID for a given public key (for compression)
+    fn get_account_id_by_pk(&self, pk: &G1) -> Result<Option<u32>, ()>;
+
+    /// Get public key for a given account ID (for decompression)
+    fn get_pk_by_account_id(&self, id: u32) -> Option<G1>;
 }
 
 // -----------------------------------------------------------------------------

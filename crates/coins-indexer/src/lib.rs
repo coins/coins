@@ -24,19 +24,19 @@ pub struct ChainBlock {
 
 impl ChainBlock {
     /// Serialize ChainBlock to bytes
-    fn serialize(&self) -> Vec<u8> {
+    fn serialize(&self, state: &State) -> Vec<u8> {
         let mut v = Vec::new();
         // Txid (32 bytes)
         v.extend_from_slice(self.btc_txid.as_ref());
         // Sub-block (variable length)
-        let sub_block_bytes = self.sub_block.serialize();
+        let sub_block_bytes = self.sub_block.serialize(state);
         v.extend_from_slice(&(sub_block_bytes.len() as u32).to_le_bytes());
         v.extend_from_slice(&sub_block_bytes);
         v
     }
 
     /// Deserialize ChainBlock from bytes
-    fn deserialize(data: &[u8]) -> Option<Self> {
+    fn deserialize(data: &[u8], state: &State) -> Option<Self> {
         if data.len() < 36 { return None; } // 32 + 4 minimum
 
         let txid_bytes: [u8; 32] = data[0..32].try_into().ok()?;
@@ -45,7 +45,7 @@ impl ChainBlock {
         let sub_block_len = u32::from_le_bytes(data[32..36].try_into().ok()?) as usize;
         if data.len() < 36 + sub_block_len { return None; }
 
-        let sub_block = SubBlock::deserialize(&data[36..36 + sub_block_len])?;
+        let sub_block = SubBlock::deserialize(&data[36..36 + sub_block_len], state)?;
 
         Some(Self {
             btc_txid,
@@ -79,7 +79,6 @@ pub struct Indexer {
     /// Tree: btc_txid (Txid) -> btc_height (u32)
     txid_index: sled::Tree,
     /// Reference to account state (for querying accounts by ID)
-    #[allow(dead_code)]
     state: Arc<State>,
 }
 
@@ -118,7 +117,7 @@ impl Indexer {
         };
 
         // Serialize and store
-        let block_bytes = chain_block.serialize();
+        let block_bytes = chain_block.serialize(&self.state);
 
         self.blocks.insert(&btc_height.to_le_bytes(), block_bytes)?;
 
@@ -139,7 +138,7 @@ impl Indexer {
         for item in self.blocks.iter() {
             let (key, value) = item?;
             let height = u32::from_le_bytes(key.as_ref().try_into().unwrap());
-            let chain_block = ChainBlock::deserialize(&value)
+            let chain_block = ChainBlock::deserialize(&value, &self.state)
                 .ok_or(IndexerError::Serialization)?;
 
             let confirmations = current_btc_height.saturating_sub(height) + 1;
@@ -157,7 +156,7 @@ impl Indexer {
         let key = height.to_le_bytes();
 
         if let Some(value) = self.blocks.get(&key)? {
-            let chain_block = ChainBlock::deserialize(&value)
+            let chain_block = ChainBlock::deserialize(&value, &self.state)
                 .ok_or(IndexerError::Serialization)?;
             Ok(Some(chain_block))
         } else {
@@ -169,7 +168,7 @@ impl Indexer {
     pub fn get_latest_block(&self) -> Result<Option<ChainBlock>, IndexerError> {
         if let Some(item) = self.blocks.iter().last() {
             let (_, value) = item?;
-            let chain_block = ChainBlock::deserialize(&value)
+            let chain_block = ChainBlock::deserialize(&value, &self.state)
                 .ok_or(IndexerError::Serialization)?;
             Ok(Some(chain_block))
         } else {
@@ -212,7 +211,7 @@ impl Indexer {
         for item in self.blocks.iter() {
             let (key, value) = item?;
             let height = u32::from_le_bytes(key.as_ref().try_into().unwrap());
-            let chain_block = ChainBlock::deserialize(&value)
+            let chain_block = ChainBlock::deserialize(&value, &self.state)
                 .ok_or(IndexerError::Serialization)?;
 
             // Only include finalized blocks

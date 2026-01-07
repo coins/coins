@@ -174,7 +174,7 @@ impl Engine {
         }
         tracing::debug!("Sub-block validated successfully");
 
-        let sub_block_bytes = sub_block.serialize();
+        let sub_block_bytes = sub_block.serialize(&*self.app_state.state);
 
         if self.fee_utxos.is_empty() {
             tracing::warn!("Cannot mine sub-block: No fee UTXOs available");
@@ -364,7 +364,7 @@ impl Engine {
                         .map_err(|e| anyhow::anyhow!("Decompression failed: {}", e))?;
 
                     // Parse sub-block
-                    if let Some(sub_block) = SubBlock::deserialize(&blob) {
+                    if let Some(sub_block) = SubBlock::deserialize(&blob, &*self.app_state.state) {
                         // Validate and apply to state (validate_subblock mutates state on success)
                         if let Err(e) = validate_subblock(&sub_block, &self.app_state.state) {
                             tracing::error!(
