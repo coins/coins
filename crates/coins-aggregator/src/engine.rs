@@ -293,16 +293,6 @@ impl Engine {
 
         tracing::info!("Starting Indexer IBD...");
 
-        let addr = Address::p2wpkh(&self.sc.pubkey, self.sc.network);
-
-        // Get all transactions involving the subchain address
-        let subchain_txs = self.backend.get_address_transactions(&addr).await?;
-
-        tracing::info!(
-            tx_count = subchain_txs.len(),
-            "Found subchain transactions in wallet"
-        );
-
         let txs = self.sc.reconstruct_txs();
         let mut indexed_count = 0;
 
@@ -311,70 +301,109 @@ impl Engine {
             let connector_txid = connector_tx.compute_txid();
             let anchor_outpoint = OutPoint::new(connector_txid, 1);
 
-            // Check if this connector was broadcast (appears in wallet txs)
-            if !subchain_txs.iter().any(|(txid, _)| *txid == connector_txid) {
+            tracing::debug!(
+                connector_idx = idx,
+                connector_txid = %connector_txid,
+                "Checking connector anchor..."
+            );
+
+            // Check if anchor output exists (connector was broadcast)
+            let anchor_status = self.backend.get_output_status(&connector_txid, 1).await?;
+
+            if anchor_status.is_none() {
+                tracing::debug!(
+                    connector_idx = idx,
+                    "Connector not broadcast yet (anchor output doesn't exist)"
+                );
                 continue; // Connector not yet broadcast
             }
 
             // Check if anchor is spent
-            if let Some(status) = self.backend.get_output_status(&connector_txid, 1).await? {
+            if let Some(status) = anchor_status {
                 if !status.spent {
+                    tracing::debug!(
+                        connector_idx = idx,
+                        "Anchor not spent yet, no sub-block here"
+                    );
                     continue; // Anchor not spent yet, no sub-block here
                 }
             }
 
             // Anchor is spent! Find the spending transaction (data_tx)
-            // We need to scan the chain for TXs spending this anchor
-            // For now, we'll use a simple approach: get recent blocks and scan
-
-            // Try to find the data_tx by checking mempool and recent blocks
-            // This is a simplified approach - in production, you'd want more robust scanning
-
             tracing::debug!(
                 connector_idx = idx,
                 anchor_txid = %connector_txid,
                 "Anchor spent, searching for data_tx..."
             );
 
-            // For regtest/RPC: We can scan wallet transactions
-            // Look for transactions that might be the data_tx (have OP_RETURN)
-            for (potential_txid, btc_height) in &subchain_txs {
-                if let Some(tx) = self.backend.get_transaction(potential_txid).await? {
-                    // Check if this TX has an OP_RETURN and spends our anchor
-                    let spends_anchor = tx.input.iter().any(|input| {
-                        input.previous_output == anchor_outpoint
-                    });
+            // Use get_spending_tx to find the transaction that spent this anchor
+            if let Some((data_txid, data_tx, btc_height)) =
+                self.backend.get_spending_tx(&anchor_outpoint).await?
+            {
+                tracing::debug!(
+                    connector_idx = idx,
+                    data_txid = %data_txid,
+                    btc_height = btc_height,
+                    "Found data_tx"
+                );
 
-                    if !spends_anchor {
-                        continue;
-                    }
+                // Parse the OP_RETURN from the data_tx
+                if let Some(compressed_blob) = parse_blob_from_op_return(&data_tx) {
+                    // Decompress
+                    let blob = decompress(&compressed_blob)
+                        .map_err(|e| anyhow::anyhow!("Decompression failed: {}", e))?;
 
-                    // This is the data_tx! Parse the OP_RETURN
-                    if let Some(compressed_blob) = parse_blob_from_op_return(&tx) {
-                        // Decompress
-                        let blob = decompress(&compressed_blob)
-                            .map_err(|e| anyhow::anyhow!("Decompression failed: {}", e))?;
-
-                        // Parse sub-block
-                        if let Some(sub_block) = SubBlock::deserialize(&blob) {
-                            // Index it
-                            self.app_state.indexer.index_block(
-                                *potential_txid,
-                                *btc_height,
-                                sub_block
-                            )?;
-
-                            indexed_count += 1;
-                            tracing::info!(
+                    // Parse sub-block
+                    if let Some(sub_block) = SubBlock::deserialize(&blob) {
+                        // Validate and apply to state (validate_subblock mutates state on success)
+                        if let Err(e) = validate_subblock(&sub_block, &self.app_state.state) {
+                            tracing::error!(
+                                error = ?e,
                                 connector_idx = idx,
-                                btc_txid = %potential_txid,
-                                btc_height = btc_height,
-                                "Indexed historical sub-block"
+                                "Historical sub-block validation failed during IBD"
                             );
-                            break;
+                        } else {
+                            tracing::debug!(
+                                connector_idx = idx,
+                                tx_count = sub_block.txs.len(),
+                                "Applied historical transactions to state"
+                            );
                         }
+
+                        // Index it
+                        self.app_state.indexer.index_block(
+                            data_txid,
+                            btc_height,
+                            sub_block
+                        )?;
+
+                        indexed_count += 1;
+                        tracing::info!(
+                            connector_idx = idx,
+                            btc_txid = %data_txid,
+                            btc_height = btc_height,
+                            "Indexed historical sub-block"
+                        );
+                    } else {
+                        tracing::warn!(
+                            connector_idx = idx,
+                            data_txid = %data_txid,
+                            "Failed to parse sub-block from OP_RETURN data"
+                        );
                     }
+                } else {
+                    tracing::warn!(
+                        connector_idx = idx,
+                        data_txid = %data_txid,
+                        "Data TX has no OP_RETURN output"
+                    );
                 }
+            } else {
+                tracing::warn!(
+                    connector_idx = idx,
+                    anchor_txid = %connector_txid,
+                    "Anchor is marked as spent but couldn't find spending TX"
+                );
             }
         }
 

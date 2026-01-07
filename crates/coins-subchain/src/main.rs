@@ -21,6 +21,8 @@ struct Config {
     count: usize,
     network: String,
     output: PathBuf,
+    #[serde(default)]
+    keyfile: Option<PathBuf>,
 }
 
 fn parse_network(s: &str) -> Option<Network> {
@@ -53,8 +55,35 @@ fn main() -> Result<()> {
 
     let network = parse_network(&config.network).expect("invalid network");
 
-    // always create new key
-    let (sk, _pk, addr) = Subchain::new_key(network);
+    // Load existing key or create new one
+    let keyfile = config.keyfile.as_ref().map(|p| p.as_path()).unwrap_or_else(|| {
+        std::path::Path::new(".data/keys/subchain_sk.hex")
+    });
+
+    let sk = if keyfile.exists() {
+        // Load existing key
+        let hex = fs::read_to_string(keyfile).expect("failed to read key file");
+        let bytes = hex::decode(hex.trim()).expect("invalid hex in key file");
+        bitcoin::secp256k1::SecretKey::from_slice(&bytes).expect("invalid secret key")
+    } else {
+        // Generate new key and save it
+        let (new_sk, _pk, _addr) = Subchain::new_key(network);
+
+        // Create parent directory if it doesn't exist
+        if let Some(parent) = keyfile.parent() {
+            fs::create_dir_all(parent).expect("failed to create key directory");
+        }
+
+        // Save key
+        fs::write(keyfile, hex::encode(new_sk.secret_bytes())).expect("failed to write key file");
+        new_sk
+    };
+
+    let pk = PrivateKey::new(sk, network);
+    let addr = bitcoin::Address::p2wpkh(
+        &bitcoin::CompressedPublicKey::from_private_key(&bitcoin::secp256k1::Secp256k1::new(), &pk).unwrap(),
+        network
+    );
     println!("Generated one-time address: {}", addr);
 
     println!("\nSend funds to {} then wait for the UTXO to appear …", addr);
@@ -76,7 +105,6 @@ fn main() -> Result<()> {
     let value = Amount::from_sat(value_sat);
 
     println!("\nBuilding subchain…");
-    let pk = PrivateKey::new(sk, network);
     let sc = Subchain::generate_with_private_key(config.count, outpoint, value, network, &pk);
 
     let blob = sc.encode();

@@ -103,11 +103,13 @@ impl RpcBackend {
         let addr_str = address.to_string();
 
         // Check if already imported
-        {
+        let already_imported = {
             let addrs = self.initialized_addresses.read().await;
-            if addrs.contains(&addr_str) && !rescan {
-                return Ok(());
-            }
+            addrs.contains(&addr_str)
+        };
+
+        if already_imported && !rescan {
+            return Ok(());
         }
 
         // Import address using importdescriptors for descriptor wallets
@@ -124,7 +126,9 @@ impl RpcBackend {
             .as_str()
             .ok_or_else(|| anyhow!("Missing descriptor in getdescriptorinfo response"))?;
 
-        let timestamp = if rescan { json!(0) } else { json!("now") };
+        // Use timestamp 0 (rescan) for first import OR when explicitly requested
+        // This ensures we don't miss any historical blocks
+        let timestamp = if rescan || !already_imported { json!(0) } else { json!("now") };
 
         let import_request = json!([{
             "desc": descriptor_with_checksum,
@@ -144,6 +148,35 @@ impl RpcBackend {
                     let error = first.get("error").map(|e| e.to_string()).unwrap_or_else(|| "unknown error".to_string());
                     return Err(anyhow!("Import descriptor failed: {}", error));
                 }
+            }
+        }
+
+        // If we're rescanning, wait for the rescan to complete
+        if rescan {
+            tracing::info!(address = %addr_str, "Waiting for blockchain rescan to complete...");
+
+            // Poll getwalletinfo until scanning is complete
+            loop {
+                let wallet_info: serde_json::Value = wallet_rpc
+                    .call("getwalletinfo", &[])
+                    .context("Failed to get wallet info")?;
+
+                // Check if scanning field exists and is not false
+                if let Some(scanning) = wallet_info.get("scanning") {
+                    if scanning.is_object() {
+                        // Scanning in progress, get progress if available
+                        if let Some(progress) = scanning.get("progress").and_then(|v| v.as_f64()) {
+                            tracing::debug!(progress = format!("{:.2}%", progress * 100.0), "Rescan progress");
+                        }
+                        // Wait a bit before checking again
+                        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                        continue;
+                    }
+                }
+
+                // Scanning complete
+                tracing::info!(address = %addr_str, "Rescan complete");
+                break;
             }
         }
 
@@ -196,7 +229,19 @@ impl BlockchainBackend for RpcBackend {
     }
 
     async fn get_output_status(&self, txid: &Txid, vout: u32) -> Result<Option<OutputStatus>> {
-        // gettxout returns None if spent, UTXO data if unspent
+        // First check if transaction exists at all
+        let tx_exists = matches!(
+            self.rpc.call::<Option<String>>("getrawtransaction", &[json!(txid.to_string())]),
+            Ok(Some(_))
+        );
+
+        if !tx_exists {
+            // Transaction not found (never broadcast or pruned)
+            return Ok(None);
+        }
+
+        // Transaction exists - check if output is spent or unspent
+        // gettxout returns None if spent, Some if unspent
         match self.rpc.get_tx_out(txid, vout, Some(true))? {
             None => Ok(Some(OutputStatus {
                 spent: true,
@@ -218,63 +263,27 @@ impl BlockchainBackend for RpcBackend {
 
     async fn broadcast_package(&self, txs: &[Transaction]) -> Result<()> {
         // Use submitpackage RPC for package relay (Bitcoin Core 24+)
+        // submitpackage validates the package as a whole (CPFP), so individual
+        // transactions may have 0 fees as long as the package fee rate is sufficient
         let hex_txs: Vec<String> = txs
             .iter()
             .map(|tx| bitcoin::consensus::encode::serialize_hex(tx))
             .collect();
 
-        // First, test if the package would be accepted
-        let test_result: serde_json::Value = self
-            .rpc
-            .call("testmempoolaccept", &[json!(hex_txs)])
-            .context("testmempoolaccept RPC call failed")?;
-
         tracing::debug!(
-            test_result = ?test_result,
-            "Package mempool acceptance test"
+            tx_count = txs.len(),
+            "Submitting package"
         );
 
-        // Check test results for each transaction
-        if let Some(test_array) = test_result.as_array() {
-            for (idx, test_tx) in test_array.iter().enumerate() {
-                if let Some(allowed) = test_tx.get("allowed").and_then(|v| v.as_bool()) {
-                    if !allowed {
-                        let reject_reason = test_tx
-                            .get("reject-reason")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("unknown");
-
-                        tracing::error!(
-                            tx_index = idx,
-                            txid = test_tx.get("txid").and_then(|v| v.as_str()),
-                            reject_reason = reject_reason,
-                            "Transaction would be rejected by mempool"
-                        );
-
-                        return Err(anyhow!(
-                            "Transaction {} rejected: {}",
-                            idx,
-                            reject_reason
-                        ));
-                    }
-                } else {
-                    tracing::warn!(
-                        tx_index = idx,
-                        "Missing 'allowed' field in testmempoolaccept response"
-                    );
-                }
-            }
-        }
-
-        // If tests pass, submit the package
+        // Submit the package directly (no testmempoolaccept - it tests individual TXs)
         let result: serde_json::Value = self
             .rpc
             .call("submitpackage", &[json!(hex_txs)])
             .context("submitpackage RPC call failed")?;
 
-        tracing::debug!(
+        tracing::info!(
             result = ?result,
-            "Package submission result"
+            "Package submission full result"
         );
 
         // Parse tx-results to verify all transactions were accepted
@@ -283,6 +292,16 @@ impl BlockchainBackend for RpcBackend {
             let mut ignored_count = 0;
 
             for (wtxid, tx_result) in tx_results {
+                // Check for errors
+                if let Some(error) = tx_result.get("error") {
+                    tracing::error!(
+                        wtxid = wtxid,
+                        error = ?error,
+                        "Transaction rejected in package"
+                    );
+                    return Err(anyhow!("Transaction {} rejected: {:?}", wtxid, error));
+                }
+
                 // Check if transaction was ignored (already in mempool with different witness)
                 if tx_result.get("other-wtxid").is_some() {
                     ignored_count += 1;
@@ -293,9 +312,10 @@ impl BlockchainBackend for RpcBackend {
                 } else {
                     accepted_count += 1;
                     let txid = tx_result.get("txid").and_then(|v| v.as_str());
-                    tracing::debug!(
+                    tracing::info!(
                         wtxid = wtxid,
                         txid = txid,
+                        tx_result = ?tx_result,
                         "Transaction accepted to mempool"
                     );
                 }
