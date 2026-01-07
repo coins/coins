@@ -2,26 +2,24 @@
 
 A compact Layer-2 Bitcoin token protocol using BLS signatures and embedded consensus.
 
+⚠️ **Regtest only** - This implementation currently supports Bitcoin regtest for development and testing purposes only.
+
 ## Overview
 
 Coins is an embedded-consensus token system built on Bitcoin that uses:
-- **BLS signatures** on the BN-254 curve for compact multi-signature aggregation
 - **Subchain** architecture: pre-signed Bitcoin transaction chains for anchoring
-- **6-block finality**: Sub-blocks achieve finality after 6 Bitcoin confirmations
-- **Minimal on-chain footprint**: 64-byte aggregate signatures for entire blocks
+- **Minimal on-chain footprint**: 64-byte aggregate BLS signatures for entire blocks
+- **OP_RETURN publishing**: Compressed sub-blocks published via Bitcoin Core v30's 100KB OP_RETURN limit
 
 ## Architecture
 
 ### Components
 
-- **coins-crypto**: BLS signature primitives (BN-254 curve) - *demo quality*
+- **coins-crypto**: BLS signature primitives
 - **coins-types**: Core protocol data structures (Transaction, Account, SubBlock)
-- **coins-state**: Persistent account state using sled database
-- **coins-validator**: State transition validation with BLS signature verification
+- **coins-core**: State management and transaction validation with BLS signature verification
 - **coins-indexer**: Chain indexing with 6-block finality tracking
-- **coins-aggregator**: Sub-block aggregation service with dual blockchain backend support:
-  - **RPC backend**: Bitcoin Core RPC for regtest (fast, local testing)
-  - **Esplora backend**: Public Esplora API for signet/mainnet (no node required)
+- **coins-aggregator**: Sub-block aggregation service using Bitcoin Core RPC (regtest only)
 - **coins-subchain**: Pre-signed UTXO chain generation and management
 - **coins-client**: User-facing wallet CLI
 
@@ -29,7 +27,7 @@ Coins is an embedded-consensus token system built on Bitcoin that uses:
 
 1. **Users** create 41-byte transactions and sign them with BLS signatures
 2. **Aggregator** collects transactions, aggregates signatures into sub-blocks
-3. **Sub-blocks** are inscribed to Bitcoin via pre-signed connector transactions
+3. **Sub-blocks** are compressed and published to Bitcoin via OP_RETURN in anchor transactions
 4. **Validators** verify aggregate signatures and update account state
 5. **Finality** is achieved after 6 Bitcoin block confirmations (~1 hour)
 
@@ -83,7 +81,6 @@ The configuration will use these paths:
 - Keys: `.data/keys/aggregator_sk.hex`
 - Databases: `.data/db/state.db/` and `.data/db/indexer.db/`
 
-**Note:** For regtest, the aggregator uses Bitcoin Core RPC directly. For signet/mainnet, use the signet templates (see Configuration Files section).
 
 ### 4. Run Aggregator
 
@@ -167,14 +164,6 @@ Transactions are 41 bytes:
 
 Message to sign: `tx_bytes || nonce` (45 bytes total)
 
-## Finality
-
-Sub-blocks achieve **finality after 6 Bitcoin confirmations**:
-- ~1 hour on mainnet
-- ~60 seconds on regtest (with fast mining)
-- ~10 minutes on testnet
-
-The indexer tracks confirmation counts and only serves finalized data.
 
 ## Testing
 
@@ -184,7 +173,7 @@ cargo test
 
 # Run specific crate tests
 cargo test -p coins-crypto
-cargo test -p coins-validator
+cargo test -p coins-core
 cargo test -p coins-indexer
 
 # Run with logging
@@ -217,7 +206,7 @@ The aggregator creates files in the `.data/` directory:
 │   ├── aggregator_bls_sk.hex  # BLS secret key (sub-block signing)
 │   └── client_sk.hex          # Client wallet key
 ├── subchains/
-│   └── subchain_regtest.bin # Pre-signed connector transactions
+│   └── subchain_regtest.bin # Pre-signed anchor transactions
 └── db/
     ├── state.db/              # Persistent account state (sled database)
     └── indexer.db/            # Indexed sub-blocks with finality tracking
@@ -247,27 +236,24 @@ All files in `.data/` are gitignored and created automatically when needed.
 
 Configuration templates are located in the `config/` directory:
 
-- **`config/aggregator-regtest.toml`** - Regtest configuration (Bitcoin RPC)
-- **`config/aggregator-signet.toml`** - Signet configuration (Esplora API)
-- **`config/subchain-regtest.toml`** - Subchain for regtest
-- **`config/subchain-signet.toml`** - Subchain for signet
+- **`config/aggregator-regtest.toml`** - Aggregator configuration for regtest (Bitcoin RPC)
+- **`config/subchain-regtest.toml`** - Subchain generation configuration for regtest
 
 ### Quick Setup
 
 ```bash
-# For regtest
+# Copy regtest configuration templates
 cp config/aggregator-regtest.toml config/aggregator.toml
 cp config/subchain-regtest.toml config/subchain.toml
-
-# For signet
-cp config/aggregator-signet.toml config/aggregator.toml
-cp config/subchain-signet.toml config/subchain.toml
 ```
 
-### Backend Auto-Selection
+### Configuration Options
 
-- `network = "regtest"` → Uses Bitcoin RPC (requires `rpc_url`, `rpc_user`, `rpc_pass`)
-- `network = "signet"` or `"bitcoin"` → Uses Esplora (requires `esplora` URL)
+The aggregator requires Bitcoin Core RPC configuration:
+- `rpc_url` - Bitcoin Core RPC endpoint (e.g., "http://127.0.0.1:18443")
+- `rpc_user` - RPC username
+- `rpc_pass` - RPC password
+- `network` - Must be "regtest"
 
 See `config/README.md` for detailed documentation.
 
@@ -283,7 +269,7 @@ The aggregator's Bitcoin wallet has no confirmed UTXOs. Send Bitcoin to the fee 
 
 ### "Package relay failed"
 
-Bitcoin node doesn't support package relay. The aggregator will fall back to individual transaction broadcasts.
+Bitcoin node doesn't support package relay. Update your Bitcoin node to 0.30 or later.
 
 ### State database corruption
 
@@ -325,9 +311,7 @@ coins/
 │   ├── aggregator.toml        # Active config (gitignored)
 │   ├── subchain.toml          # Active config (gitignored)
 │   ├── aggregator-regtest.toml  # Template
-│   ├── aggregator-signet.toml   # Template
-│   ├── subchain-regtest.toml    # Template
-│   └── subchain-signet.toml     # Template
+│   └── subchain-regtest.toml    # Template
 ├── .data/                     # Generated files (gitignored)
 │   ├── keys/                  # Bitcoin & BLS keys
 │   ├── subchains/             # Pre-signed chains
@@ -337,26 +321,14 @@ coins/
 ├── crates/
 │   ├── coins-crypto/         # BLS signatures (BN-254)
 │   ├── coins-types/          # Data structures
-│   ├── coins-state/          # Persistent state (sled)
-│   ├── coins-validator/      # Transaction validation
+│   ├── coins-core/           # State management & validation
 │   ├── coins-indexer/        # Chain indexing & finality
-│   ├── coins-aggregator/     # Aggregator service
+│   ├── coins-aggregator/     # Aggregator service (RPC backend)
 │   ├── coins-subchain/       # Subchain setup
 │   └── coins-client/         # Wallet CLI
 └── target/                    # Build outputs
 ```
 
-## License
-
-[Add your license here]
-
 ## Contributing
 
 This is demo code for educational purposes. Contributions are welcome but please note this is not intended for production use.
-
-## References
-
-- [BLS Signatures](https://en.wikipedia.org/wiki/BLS_digital_signature)
-- [BN-254 Curve](https://hackmd.io/@jpw/bn254)
-- [Bitcoin Inscriptions](https://docs.ordinals.com/inscriptions.html)
-- [Embedded Consensus Systems](https://bitcoin.stackexchange.com/questions/109513/what-is-an-embedded-consensus-system)
