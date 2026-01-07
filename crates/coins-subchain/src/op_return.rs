@@ -21,25 +21,9 @@ use bitcoin::{
     Address, Amount, Network, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut,
     Witness, transaction::Version, PrivateKey, key::CompressedPublicKey,
 };
-use std::io::{Read, Write};
 use core::convert::TryFrom;
 
 const DUST_LIMIT_SAT: u64 = 546;
-
-/// Compress data using zstd (level 3 is a good balance of speed/compression)
-pub fn compress(data: &[u8]) -> Result<Vec<u8>, std::io::Error> {
-    let mut encoder = zstd::Encoder::new(Vec::new(), 3)?;
-    encoder.write_all(data)?;
-    encoder.finish()
-}
-
-/// Decompress zstd-compressed data
-pub fn decompress(compressed: &[u8]) -> Result<Vec<u8>, std::io::Error> {
-    let mut decoder = zstd::Decoder::new(compressed)?;
-    let mut decompressed = Vec::new();
-    decoder.read_to_end(&mut decompressed)?;
-    Ok(decompressed)
-}
 
 /// Build a transaction that publishes `blob` via OP_RETURN output.
 ///

@@ -18,6 +18,13 @@ use bincode::serde::{encode_to_vec as bincode_serialize, decode_from_slice as bi
 use bincode::config::{standard, Config};
 
 pub mod op_return;
+pub mod compression;
+pub mod publish;
+pub mod taproot_annex;
+
+// Re-export common types for convenience
+pub use publish::{PublishFormat, PublishMode, PublishResult, publish_subblock, parse_blob_from_tx};
+pub use compression::{compress, decompress};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Subchain {

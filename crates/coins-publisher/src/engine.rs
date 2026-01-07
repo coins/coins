@@ -10,7 +10,8 @@ use crate::rpc_backend::RpcBackend;
 use coins_types::SubBlock;
 use coins_crypto::{G1, SecretKey as BLSSecretKey, aggregate};
 use coins_core::validate_subblock;
-use coins_subchain::op_return::{publish_op_return, compress};
+use coins_subchain::op_return::publish_op_return;
+use coins_subchain::{compress, decompress};
 use ark_ff::{PrimeField, BigInteger};
 use ark_bn254::Fr;
 
@@ -298,7 +299,7 @@ impl Engine {
 
     /// Scan blockchain for historical sub-blocks and index them
     async fn indexer_ibd(&mut self) -> Result<()> {
-        use coins_subchain::op_return::{parse_blob_from_op_return, decompress};
+        use coins_subchain::op_return::parse_blob_from_op_return;
         use coins_types::SubBlock;
 
         tracing::info!("Starting Indexer IBD...");
