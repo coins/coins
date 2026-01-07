@@ -12,3 +12,13 @@ test-data/
 # Active configuration files (use templates in config/ instead)
 config/aggregator.toml
 config/spacechain.toml
+
+# Runtime databases
+state.db/
+indexer.db/
+
+# Runtime keys
+aggregator_bls_sk.hex
+
+# Old spacechain bin file
+spacechain_regtest.bin

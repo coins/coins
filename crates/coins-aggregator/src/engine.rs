@@ -10,7 +10,7 @@ use crate::blockchain_backend::BlockchainBackend;
 use coins_types::SubBlock;
 use coins_crypto::{G1, SecretKey as BLSSecretKey, aggregate};
 use coins_validator::validate_subblock;
-use coins_subchain::inscribe::inscribe_blob;
+use coins_subchain::op_return::{publish_op_return, compress};
 use ark_ff::PrimeField;
 use ark_bn254::Fr;
 use ark_serialize::CanonicalSerialize;
@@ -186,78 +186,62 @@ impl Engine {
 
         let fee_utxo = self.fee_utxos[0].clone();
         let fee_rate = FeeRate::from_sat_per_vb(4).unwrap();
-        
+
         let txs = self.sc.reconstruct_txs();
 
         // Ensure all connector transactions up to the current index are on-chain.
         // We broadcast them best-effort; if they are already in the chain/mempool
         // the node will just return an error which we can safely ignore.
         for idx in 0..=self.connector_idx {
-            let _ = self.broadcast(&txs[idx]).await; // still broadcast raw connector individually in case anchor already standard
+            let _ = self.broadcast(&txs[idx]).await;
         }
 
         let connector_tx = &txs[self.connector_idx];
 
-        let (_anchor, commit_tx, reveal_tx) = inscribe_blob(
-            &sub_block_bytes,
+        // Compress sub-block before publishing (reduces size by 50-80%)
+        let compressed_bytes = compress(&sub_block_bytes)
+            .map_err(|e| anyhow::anyhow!("Compression failed: {}", e))?;
+
+        tracing::info!(
+            original_size = sub_block_bytes.len(),
+            compressed_size = compressed_bytes.len(),
+            compression_ratio = format!("{:.1}%", (1.0 - compressed_bytes.len() as f64 / sub_block_bytes.len() as f64) * 100.0),
+            "Compressed sub-block data"
+        );
+
+        // Publish using OP_RETURN (Bitcoin Core v30: up to 100KB standard)
+        let (new_anchor, data_tx) = publish_op_return(
+            &compressed_bytes,
             connector_tx,
             fee_utxo.outpoint,
             fee_utxo.value.to_sat(),
             &self.fee_sk,
             fee_rate.to_sat_per_vb_ceil(),
             self.sc.network,
-        ).map_err(|e| anyhow::anyhow!(e))?;
+        ).map_err(|e| anyhow::anyhow!("OP_RETURN publish failed: {}", e))?;
 
-        // Package relay: parent = connector_tx, child = commit_tx
-        if let Err(e) = self.broadcast_package(&[connector_tx.clone(), commit_tx.clone()]).await {
+        // Package relay: connector_tx + data_tx (only 2 TXs now!)
+        if let Err(e) = self.broadcast_package(&[connector_tx.clone(), data_tx.clone()]).await {
             tracing::warn!(error = %e, "Package relay failed, falling back to individual broadcasts");
             self.broadcast(&connector_tx).await?;
-            self.broadcast(&commit_tx).await?;
+            self.broadcast(&data_tx).await?;
         } else {
             tracing::info!(
-                anchor_txid = %connector_tx.compute_txid(),
-                commit_txid = %commit_tx.compute_txid(),
-                "Package broadcasted successfully"
+                connector_txid = %connector_tx.compute_txid(),
+                data_txid = %data_tx.compute_txid(),
+                "Package broadcasted successfully (2 TXs)"
             );
         }
 
-        // broadcast reveal transaction – retry in case parents not yet visible
-        let reveal_txid = reveal_tx.compute_txid();
-        const MAX_RETRIES: usize = 10;
-        const RETRY_DELAY_MS: u64 = 10000;
-        let mut attempt = 0;
-        loop {
-            match self.broadcast(&reveal_tx).await {
-                Ok(_) => {
-                    tracing::info!(txid = %reveal_txid, attempt = attempt + 1, "Broadcasted reveal transaction");
-                    break;
-                }
-                Err(e) if attempt < MAX_RETRIES => {
-                    tracing::warn!(
-                        attempt = attempt + 1,
-                        error = %e,
-                        retry_delay_ms = RETRY_DELAY_MS,
-                        "Reveal broadcast failed, retrying"
-                    );
-                    attempt += 1;
-                    tokio::time::sleep(std::time::Duration::from_millis(RETRY_DELAY_MS)).await;
-                }
-                Err(e) => {
-                    tracing::error!(attempt = attempt + 1, error = %e, "Reveal broadcast failed after retries");
-                    return Err(e);
-                }
-            }
-        }
-
-        // The new anchor is the first output of the reveal_tx transaction
-        self.current_anchor = OutPoint::new(reveal_tx.compute_txid(), 0);
+        // Update current anchor for next block
+        self.current_anchor = new_anchor;
 
         // Index the sub-block
         // TODO: Get actual Bitcoin height from esplora
         let btc_height = 0u32; // Placeholder - would query from Bitcoin node
-        let reveal_txid = reveal_tx.compute_txid();
+        let data_txid = data_tx.compute_txid();
 
-        if let Err(e) = self.app_state.indexer.index_block(reveal_txid, btc_height, sub_block) {
+        if let Err(e) = self.app_state.indexer.index_block(data_txid, btc_height, sub_block) {
             tracing::warn!(error = ?e, "Failed to index sub-block");
         }
 
@@ -277,8 +261,9 @@ impl Engine {
         }
 
         let addr = Address::p2wpkh(&self.sc.pubkey, self.sc.network);
-        let utxos = self.backend.get_address_utxos(&addr).await?;
 
+        // Find current anchor position
+        let utxos = self.backend.get_address_utxos(&addr).await?;
         for (idx, tx) in txs.iter().enumerate().rev() {
             let txid = tx.compute_txid();
             if utxos.iter().any(|u| u.outpoint.txid == txid) {
@@ -291,11 +276,114 @@ impl Engine {
                 }
                 self.last_synced = Some(txid);
                 tracing::info!(connector_idx = idx, "IBD: Synced to connector");
-                return Ok(());
+                break;
             }
         }
 
-        tracing::info!("IBD: No spent connectors found, starting from genesis");
+        // Indexer IBD: Scan for historical sub-blocks
+        self.indexer_ibd().await?;
+
+        tracing::info!("IBD: Complete");
+        Ok(())
+    }
+
+    /// Scan blockchain for historical sub-blocks and index them
+    async fn indexer_ibd(&mut self) -> Result<()> {
+        use coins_subchain::op_return::{parse_blob_from_op_return, decompress};
+        use coins_types::SubBlock;
+
+        tracing::info!("Starting Indexer IBD...");
+
+        let addr = Address::p2wpkh(&self.sc.pubkey, self.sc.network);
+
+        // Get all transactions involving the subchain address
+        let subchain_txs = self.backend.get_address_transactions(&addr).await?;
+
+        tracing::info!(
+            tx_count = subchain_txs.len(),
+            "Found subchain transactions in wallet"
+        );
+
+        let txs = self.sc.reconstruct_txs();
+        let mut indexed_count = 0;
+
+        // For each connector transaction, check if its anchor was spent
+        for (idx, connector_tx) in txs.iter().enumerate() {
+            let connector_txid = connector_tx.compute_txid();
+            let anchor_outpoint = OutPoint::new(connector_txid, 1);
+
+            // Check if this connector was broadcast (appears in wallet txs)
+            if !subchain_txs.iter().any(|(txid, _)| *txid == connector_txid) {
+                continue; // Connector not yet broadcast
+            }
+
+            // Check if anchor is spent
+            if let Some(status) = self.backend.get_output_status(&connector_txid, 1).await? {
+                if !status.spent {
+                    continue; // Anchor not spent yet, no sub-block here
+                }
+            }
+
+            // Anchor is spent! Find the spending transaction (data_tx)
+            // We need to scan the chain for TXs spending this anchor
+            // For now, we'll use a simple approach: get recent blocks and scan
+
+            // Try to find the data_tx by checking mempool and recent blocks
+            // This is a simplified approach - in production, you'd want more robust scanning
+
+            tracing::debug!(
+                connector_idx = idx,
+                anchor_txid = %connector_txid,
+                "Anchor spent, searching for data_tx..."
+            );
+
+            // For regtest/RPC: We can scan wallet transactions
+            // Look for transactions that might be the data_tx (have OP_RETURN)
+            for (potential_txid, btc_height) in &subchain_txs {
+                if let Some(tx) = self.backend.get_transaction(potential_txid).await? {
+                    // Check if this TX has an OP_RETURN and spends our anchor
+                    let spends_anchor = tx.input.iter().any(|input| {
+                        input.previous_output == anchor_outpoint
+                    });
+
+                    if !spends_anchor {
+                        continue;
+                    }
+
+                    // This is the data_tx! Parse the OP_RETURN
+                    if let Some(compressed_blob) = parse_blob_from_op_return(&tx) {
+                        // Decompress
+                        let blob = decompress(&compressed_blob)
+                            .map_err(|e| anyhow::anyhow!("Decompression failed: {}", e))?;
+
+                        // Parse sub-block
+                        if let Some(sub_block) = SubBlock::deserialize(&blob) {
+                            // Index it
+                            self.app_state.indexer.index_block(
+                                *potential_txid,
+                                *btc_height,
+                                sub_block
+                            )?;
+
+                            indexed_count += 1;
+                            tracing::info!(
+                                connector_idx = idx,
+                                btc_txid = %potential_txid,
+                                btc_height = btc_height,
+                                "Indexed historical sub-block"
+                            );
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        tracing::info!(
+            indexed_count = indexed_count,
+            "Indexer IBD complete"
+        );
+
         Ok(())
     }
 } 
