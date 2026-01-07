@@ -19,14 +19,7 @@ use serde::{Serialize, Deserialize};
 use bincode::serde::{encode_to_vec as bincode_serialize, decode_from_slice as bincode_deserialize};
 use bincode::config::{standard, Config};
 
-pub mod inscribe;
-pub mod broadcast;
-pub mod publish;
-pub mod client;
 pub mod op_return;
-
-#[cfg(test)]
-mod annex_test;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Subchain {
