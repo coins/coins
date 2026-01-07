@@ -75,11 +75,11 @@ output = ".data/subchains/subchain_regtest.bin"
 EOF
 
 # Step 1: Run subchain-setup to get the generated address (will error, but we capture the address)
-(echo "") | ./target/release/subchain-setup --config /tmp/subchain_config.toml 2>&1 | \
+SUBCHAIN_ADDR=$(
+    (echo "") | ./target/release/subchain-setup --config /tmp/subchain_config.toml 2>&1 | \
     grep "Generated one-time address:" | \
-    awk '{print $4}' > /tmp/subchain_address.txt
-
-SUBCHAIN_ADDR=$(cat /tmp/subchain_address.txt)
+    awk '{print $4}'
+)
 
 if [ -z "$SUBCHAIN_ADDR" ]; then
     echo -e "${RED}✗ Failed to generate subchain address${NC}"
@@ -123,9 +123,6 @@ if [ ! -f ".data/subchains/subchain_regtest.bin" ]; then
     exit 1
 fi
 
-# Save subchain address for later use
-mkdir -p .data
-echo "$SUBCHAIN_ADDR" > .data/subchain_address.txt
 echo -e "${GREEN}✓ Fresh subchain generated (100 transactions)${NC}"
 
 echo -e "${YELLOW}[1/8] Creating test configurations...${NC}"
@@ -281,10 +278,16 @@ echo "Data TXID: $DATA_TXID"
 
 # Mine a block IMMEDIATELY (within the same second) to confirm the package before it can be RBF'd
 echo -e "${YELLOW}[8/8] Mining block IMMEDIATELY to confirm package...${NC}"
-if [ -f ".data/subchain_address.txt" ]; then
-    MINING_ADDR=$(cat .data/subchain_address.txt)
+# Get address from subchain file
+if [ -f ".data/subchains/subchain_regtest.bin" ]; then
+    MINING_ADDR=$(./target/release/subchain-setup --print-address .data/subchains/subchain_regtest.bin)
 else
-    echo -e "${RED}✗ Subchain address not found. Run setup-regtest.sh first${NC}"
+    echo -e "${RED}✗ Subchain file not found${NC}"
+    exit 1
+fi
+
+if [ -z "$MINING_ADDR" ]; then
+    echo -e "${RED}✗ Failed to extract address from subchain${NC}"
     exit 1
 fi
 

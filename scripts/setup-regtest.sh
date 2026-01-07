@@ -29,7 +29,6 @@ RPC_PORT="18443"
 # Subchain configuration
 SUBCHAIN_COUNT=1000  # Number of pre-signed transactions
 SUBCHAIN_FILE="${SUBCHAIN_DIR}/subchain_regtest.bin"
-SUBCHAIN_ADDRESS_FILE="${DATA_DIR}/subchain_address.txt"
 
 cd "$PROJECT_ROOT"
 
@@ -132,15 +131,15 @@ network = "regtest"
 output = "${SUBCHAIN_FILE}"
 EOF
 
-# Step 1: Start subchain-setup to get the generated address
-echo -e "  ${BLUE}→ Running subchain-setup to generate address...${NC}"
-(
-    echo ""  # Will trigger error when it asks for outpoint, but we'll capture the address first
-) | ./target/release/subchain-setup --config /tmp/subchain_regtest.toml 2>&1 | \
+# Step 1: Run subchain-setup once to get the address (will error when asking for outpoint)
+echo -e "  ${BLUE}→ Generating subchain key and address...${NC}"
+SUBCHAIN_ADDR=$(
+    (
+        echo ""  # Will trigger error when it asks for outpoint
+    ) | ./target/release/subchain-setup --config /tmp/subchain_regtest.toml 2>&1 | \
     grep "Generated one-time address:" | \
-    awk '{print $4}' > "${SUBCHAIN_ADDRESS_FILE}"
-
-SUBCHAIN_ADDR=$(cat "${SUBCHAIN_ADDRESS_FILE}")
+    awk '{print $4}'
+)
 
 if [ -z "$SUBCHAIN_ADDR" ]; then
     echo -e "${RED}✗ Failed to get subchain address${NC}"

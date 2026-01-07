@@ -138,10 +138,9 @@ Cleanly stops:
 ```
 .data/
 ├── subchains/
-│   └── subchain_regtest.bin    # 1000 pre-signed transactions
-├── keys/
-│   └── aggregator_sk.hex        # Fee payment key
-└── subchain_address.txt         # Subchain funding address
+│   └── subchain_regtest.bin    # 1000 pre-signed transactions (contains pubkey → address)
+└── keys/
+    └── aggregator_sk.hex        # Fee payment key
 
 state.db/                         # Account state database
 indexer.db/                       # Block indexer database

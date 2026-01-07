@@ -199,6 +199,12 @@ impl Subchain {
     pub fn set_genesis_height(&mut self, height: u32) {
         self.genesis_height = Some(height);
     }
+
+    /// Get the P2WPKH address for this subchain.
+    /// This is the address that receives the successor outputs.
+    pub fn address(&self) -> Address {
+        Address::p2wpkh(&self.pubkey, self.network)
+    }
 }
 
 

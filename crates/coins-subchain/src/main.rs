@@ -14,6 +14,10 @@ struct Opts {
     /// Path to the configuration file
     #[arg(short, long, default_value = "config/subchain.toml")]
     config: PathBuf,
+
+    /// Print address from existing subchain file and exit
+    #[arg(long)]
+    print_address: Option<PathBuf>,
 }
 
 #[derive(Deserialize)]
@@ -49,6 +53,16 @@ fn parse_outpoint(s: &str) -> Result<OutPoint, String> {
 
 fn main() -> Result<()> {
     let opts = Opts::parse();
+
+    // Handle --print-address flag
+    if let Some(subchain_path) = opts.print_address {
+        let data = fs::read(&subchain_path)
+            .map_err(|e| anyhow!("Failed to read subchain file: {}", e))?;
+        let subchain = Subchain::decode(&data)
+            .ok_or_else(|| anyhow!("Failed to decode subchain file"))?;
+        println!("{}", subchain.address());
+        return Ok(());
+    }
 
     let config_str = fs::read_to_string(opts.config).expect("failed to read config file");
     let config: Config = toml::from_str(&config_str).expect("failed to parse config file");
