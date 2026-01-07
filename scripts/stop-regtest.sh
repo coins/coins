@@ -12,14 +12,15 @@ BITCOIN_DATADIR="${PROJECT_ROOT}/.data/regtest/bitcoin"
 echo -e "${YELLOW}Stopping regtest services...${NC}"
 
 # Stop publisher using PID file (network-specific)
-if [ -f /tmp/publisher_regtest.pid ]; then
-    PID=$(cat /tmp/publisher_regtest.pid)
+NETWORK_DIR="${PROJECT_ROOT}/.data/regtest"
+if [ -f "${NETWORK_DIR}/publisher.pid" ]; then
+    PID=$(cat "${NETWORK_DIR}/publisher.pid")
     if kill -9 "$PID" 2>/dev/null; then
         echo -e "${GREEN}✓ Stopped publisher (PID: $PID)${NC}"
     else
         echo "  (publisher not running)"
     fi
-    rm -f /tmp/publisher_regtest.pid
+    rm -f "${NETWORK_DIR}/publisher.pid"
 else
     # Fallback: kill any publisher (legacy)
     if pkill -9 coins-publisher 2>/dev/null; then

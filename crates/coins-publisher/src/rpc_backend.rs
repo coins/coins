@@ -436,9 +436,11 @@ impl RpcBackend {
         );
 
         // Submit the package directly (no testmempoolaccept - it tests individual TXs)
+        // maxfeerate=0 means accept any fee rate
+        // maxburnamount=21000000 (21M BTC) allows any OP_RETURN outputs
         let result: serde_json::Value = self
             .rpc
-            .call("submitpackage", &[json!(hex_txs)])
+            .call("submitpackage", &[json!(hex_txs), json!(0), json!(21000000)])
             .context("submitpackage RPC call failed")?;
 
         tracing::info!(

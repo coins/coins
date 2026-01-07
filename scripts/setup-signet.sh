@@ -14,11 +14,10 @@ echo -e "${BLUE}=======================================${NC}"
 echo ""
 
 # Configuration
-BITCOIN_DIR="${HOME}/.bitcoin"
-SIGNET_DIR="${BITCOIN_DIR}/signet"
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DATA_DIR="${PROJECT_ROOT}/.data"
 NETWORK_DIR="${DATA_DIR}/signet"  # Network-specific directory
+BITCOIN_DATADIR="${NETWORK_DIR}/bitcoin"  # Bitcoin signet data (local, isolated)
 SUBCHAIN_DIR="${NETWORK_DIR}/subchains"
 KEYS_DIR="${NETWORK_DIR}/keys"
 
@@ -47,31 +46,33 @@ echo -e "${GREEN}✓ Cleanup complete${NC}\n"
 
 echo -e "${YELLOW}[2/9] Starting Bitcoin Core (signet)...${NC}"
 
+# Clean signet data (use local datadir for isolation)
+mkdir -p "${BITCOIN_DATADIR}"
+
 # Check if bitcoind is already running on signet
-if bitcoin-cli -signet -regtest=0 -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport="${RPC_PORT}" getblockchaininfo &>/dev/null; then
+if bitcoin-cli -signet -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport="${RPC_PORT}" getblockchaininfo &>/dev/null; then
     echo -e "${BLUE}→ Bitcoin Core already running on signet${NC}"
 else
-    ulimit -n 2048 2>/dev/null || true
-
-    # Override config file settings with command line flags
-    bitcoind \
+    # Use bash wrapper for ulimit to ensure it applies to bitcoind
+    bash -c 'ulimit -n 4096; bitcoind \
         -signet \
         -daemon \
+        -datadir="'"${BITCOIN_DATADIR}"'" \
         -prune=2048 \
         -fallbackfee=0.00001 \
-        -rpcuser="${RPC_USER}" \
-        -rpcpassword="${RPC_PASS}" \
-        -rpcport="${RPC_PORT}" \
+        -datacarriersize=10000 \
+        -rpcuser="'"${RPC_USER}"'" \
+        -rpcpassword="'"${RPC_PASS}"'" \
+        -rpcport="'"${RPC_PORT}"'" \
         -maxconnections=10 \
         -dbcache=300 \
-        -regtest=0 \
-        -txindex=0 2>&1 | grep -v "file descriptors" || true
+        -txindex=0' 2>&1 | grep -v "file descriptors" || true
 
-    sleep 3
+    sleep 5
 
     echo -n "Waiting for bitcoind"
     for i in {1..30}; do
-        if bitcoin-cli -signet -regtest=0 -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport="${RPC_PORT}" getblockchaininfo &>/dev/null; then
+        if bitcoin-cli -signet -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport="${RPC_PORT}" getblockchaininfo &>/dev/null; then
             echo ""; break
         fi
         echo -n "."; sleep 1
@@ -84,7 +85,7 @@ echo -e "${YELLOW}Waiting for sync...${NC}\n"
 
 # Wait for sync
 while true; do
-    CHAIN_INFO=$(bitcoin-cli -signet -regtest=0 -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport="${RPC_PORT}" getblockchaininfo 2>/dev/null)
+    CHAIN_INFO=$(bitcoin-cli -signet -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport="${RPC_PORT}" getblockchaininfo 2>/dev/null)
     BLOCKS=$(echo "$CHAIN_INFO" | jq -r '.blocks' 2>/dev/null || echo "0")
     HEADERS=$(echo "$CHAIN_INFO" | jq -r '.headers' 2>/dev/null || echo "0")
     VERIFIED=$(echo "$CHAIN_INFO" | jq -r '.verificationprogress' 2>/dev/null || echo "0")
@@ -131,7 +132,7 @@ WAIT_COUNT=0
 MAX_WAIT=120
 
 while true; do
-    UTXO_INFO=$(bitcoin-cli -signet -regtest=0 -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport="${RPC_PORT}" \
+    UTXO_INFO=$(bitcoin-cli -signet -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport="${RPC_PORT}" \
         scantxoutset start "[\"addr(${SUBCHAIN_ADDR})\"]" 2>/dev/null | \
         jq -r '.unspents[] | select(.height > 0) | "\(.txid):\(.vout) \((.amount*100000000)|floor)"' 2>/dev/null | head -1)
 
@@ -167,9 +168,10 @@ cargo run --release --example setup_test_accounts &>/dev/null
 echo -e "${GREEN}✓ Test accounts created${NC}\n"
 
 echo -e "${YELLOW}[6/7] Starting publisher...${NC}"
-./target/release/coins-publisher --config config/publisher-signet.toml > /tmp/publisher_signet.log 2>&1 &
+mkdir -p "${NETWORK_DIR}/logs"
+./target/release/coins-publisher --config config/publisher-signet.toml > "${NETWORK_DIR}/logs/publisher.log" 2>&1 &
 PUB_PID=$!
-echo "$PUB_PID" > /tmp/publisher_signet.pid
+echo "$PUB_PID" > "${NETWORK_DIR}/publisher.pid"
 
 echo -n "Waiting for publisher"
 for i in {1..30}; do
@@ -187,10 +189,10 @@ echo -e "${GREEN}========================================${NC}\n"
 echo -e "Network:      Signet (~1 min blocks)"
 echo -e "Subchain:     $(basename ${SUBCHAIN_FILE})"
 echo -e "Link:         subchain_signet.bin -> $(basename ${SUBCHAIN_FILE})"
-echo -e "Logs:         /tmp/publisher_signet.log\n"
+echo -e "Logs:         ${NETWORK_DIR}/logs/publisher.log\n"
 echo -e "${YELLOW}NEXT STEP:${NC}"
-echo -e "${YELLOW}Check /tmp/publisher_signet.log for the publisher address${NC}"
+echo -e "${YELLOW}Check ${NETWORK_DIR}/logs/publisher.log for the publisher address${NC}"
 echo -e "${YELLOW}Fund it from https://signetfaucet.com (~0.01 BTC)${NC}\n"
 echo -e "${BLUE}List subchains: ls -lh ${SUBCHAIN_DIR}/subchain_signet_*.bin${NC}"
-echo -e "${BLUE}Monitor logs:   tail -f /tmp/publisher_signet.log${NC}"
+echo -e "${BLUE}Monitor logs:   tail -f ${NETWORK_DIR}/logs/publisher.log${NC}"
 echo -e "${BLUE}Run tests:      ./scripts/test-signet.sh${NC}\n"
