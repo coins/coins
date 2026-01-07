@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 use anyhow::Result;
-use bitcoin::{Address, Amount, Network, OutPoint, PrivateKey, Txid, CompressedPublicKey, FeeRate};
+use bitcoin::{Address, Amount, Network, OutPoint, PrivateKey, Txid, CompressedPublicKey};
 use bitcoin::secp256k1::{Secp256k1, SecretKey};
 use coins_subchain::Subchain;
 use std::str::FromStr;
@@ -10,8 +10,7 @@ use crate::rpc_backend::RpcBackend;
 use coins_types::SubBlock;
 use coins_crypto::{G1, SecretKey as BLSSecretKey, aggregate};
 use coins_core::validate_subblock;
-use coins_subchain::op_return::publish_op_return;
-use coins_subchain::{compress, decompress, PublishMode, PublishFormat};
+use coins_subchain::{compress, decompress, PublishMode, PublishFormat, publish_subblock};
 use ark_ff::{PrimeField, BigInteger};
 use ark_bn254::Fr;
 
@@ -196,7 +195,6 @@ impl Engine {
         }
 
         let fee_utxo = self.fee_utxos[0].clone();
-        let fee_rate = FeeRate::from_sat_per_vb(4).unwrap();
 
         let txs = self.sc.reconstruct_txs();
 
@@ -209,10 +207,7 @@ impl Engine {
 
         let anchor_tx = &txs[self.anchor_idx];
 
-        // Compress sub-block before publishing using zstd level 3
-        // Note: Most data (BLS signatures, public keys) is cryptographically random and won't compress.
-        // Realistic compression: 10-30% depending on transaction patterns (repeated amounts/fees).
-        // Best case ~30-40% with highly uniform transaction values.
+        // Compress sub-block before publishing
         let compressed_bytes = compress(&sub_block_bytes)
             .map_err(|e| anyhow::anyhow!("Compression failed: {}", e))?;
 
@@ -223,37 +218,59 @@ impl Engine {
             "Compressed sub-block data"
         );
 
-        // Publish using OP_RETURN (Bitcoin Core v30: up to 100KB standard)
-        let (new_anchor, data_tx) = publish_op_return(
-            &compressed_bytes,
+        // Dispatch based on publish mode
+        match &self.publish_mode {
+            PublishMode::Single(format) => {
+                self.publish_single(&compressed_bytes, anchor_tx, fee_utxo, *format, sub_block).await?;
+            }
+            PublishMode::Dual { primary, secondary } => {
+                self.publish_dual(&compressed_bytes, anchor_tx, fee_utxo, *primary, *secondary, sub_block).await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Publish a sub-block using a single format
+    async fn publish_single(
+        &mut self,
+        compressed_bytes: &[u8],
+        anchor_tx: &bitcoin::Transaction,
+        fee_utxo: FeeUtxo,
+        format: PublishFormat,
+        sub_block: SubBlock,
+    ) -> Result<()> {
+        let result = publish_subblock(
+            compressed_bytes,
             anchor_tx,
             fee_utxo.outpoint,
             fee_utxo.value.to_sat(),
             &self.fee_sk,
-            fee_rate.to_sat_per_vb_ceil(),
+            self.fee_rate,
             self.sc.network,
-        ).map_err(|e| anyhow::anyhow!("OP_RETURN publish failed: {}", e))?;
+            format,
+        ).map_err(|e| anyhow::anyhow!("Publish failed: {}", e))?;
 
-        // Package relay: anchor_tx + data_tx (only 2 TXs now!)
-        if let Err(e) = self.broadcast_package(&[anchor_tx.clone(), data_tx.clone()]).await {
+        // Package relay: anchor_tx + data_tx
+        if let Err(e) = self.broadcast_package(&[anchor_tx.clone(), result.data_tx.clone()]).await {
             tracing::warn!(error = %e, "Package relay failed, falling back to individual broadcasts");
-            self.broadcast(&anchor_tx).await?;
-            self.broadcast(&data_tx).await?;
+            self.broadcast(anchor_tx).await?;
+            self.broadcast(&result.data_tx).await?;
         } else {
             tracing::info!(
+                format = ?format,
                 anchor_txid = %anchor_tx.compute_txid(),
-                data_txid = %data_tx.compute_txid(),
-                "Package broadcasted successfully (2 TXs)"
+                data_txid = %result.data_tx.compute_txid(),
+                "Package broadcasted successfully"
             );
         }
 
         // Update current anchor for next block
-        self.current_anchor = new_anchor;
+        self.current_anchor = result.new_anchor;
 
         // Index the sub-block
-        // TODO: Query actual Bitcoin height from RPC backend
-        let btc_height = 0u32; // Placeholder - would query from Bitcoin node
-        let data_txid = data_tx.compute_txid();
+        let btc_height = 0u32; // Placeholder
+        let data_txid = result.data_tx.compute_txid();
 
         if let Err(e) = self.app_state.indexer.index_block(data_txid, btc_height, sub_block) {
             tracing::warn!(error = ?e, "Failed to index sub-block");
@@ -261,7 +278,98 @@ impl Engine {
 
         tracing::info!(
             anchor = %self.current_anchor.txid,
+            format = ?format,
             "Successfully mined new sub-block"
+        );
+
+        Ok(())
+    }
+
+    /// Publish a sub-block using dual formats (optimistic dual-broadcast)
+    async fn publish_dual(
+        &mut self,
+        compressed_bytes: &[u8],
+        anchor_tx: &bitcoin::Transaction,
+        fee_utxo_primary: FeeUtxo,
+        primary: PublishFormat,
+        secondary: PublishFormat,
+        sub_block: SubBlock,
+    ) -> Result<()> {
+        // Check if we have enough fee UTXOs for dual broadcast
+        if self.fee_utxos.len() < 2 {
+            tracing::warn!("Dual broadcast requires 2 fee UTXOs, falling back to primary only");
+            return self.publish_single(compressed_bytes, anchor_tx, fee_utxo_primary, primary, sub_block).await;
+        }
+
+        let fee_utxo_secondary = self.fee_utxos[1].clone();
+
+        // Publish primary format (critical, must succeed)
+        let result_primary = publish_subblock(
+            compressed_bytes,
+            anchor_tx,
+            fee_utxo_primary.outpoint,
+            fee_utxo_primary.value.to_sat(),
+            &self.fee_sk,
+            self.fee_rate,
+            self.sc.network,
+            primary,
+        ).map_err(|e| anyhow::anyhow!("Primary publish failed: {}", e))?;
+
+        // Broadcast primary package (critical)
+        if let Err(e) = self.broadcast_package(&[anchor_tx.clone(), result_primary.data_tx.clone()]).await {
+            tracing::warn!(error = %e, "Primary package relay failed, using individual broadcasts");
+            self.broadcast(anchor_tx).await?;
+            self.broadcast(&result_primary.data_tx).await?;
+        } else {
+            tracing::info!(
+                format = ?primary,
+                anchor_txid = %anchor_tx.compute_txid(),
+                data_txid = %result_primary.data_tx.compute_txid(),
+                "Primary package broadcasted"
+            );
+        }
+
+        // Publish secondary format (best-effort, don't fail on error)
+        if let Ok(result_secondary) = publish_subblock(
+            compressed_bytes,
+            anchor_tx,
+            fee_utxo_secondary.outpoint,
+            fee_utxo_secondary.value.to_sat(),
+            &self.fee_sk,
+            self.fee_rate,
+            self.sc.network,
+            secondary,
+        ) {
+            // Try to broadcast secondary (best-effort)
+            if let Err(e) = self.broadcast(&result_secondary.data_tx).await {
+                tracing::warn!(
+                    error = %e,
+                    format = ?secondary,
+                    "Secondary broadcast failed (non-critical)"
+                );
+            } else {
+                tracing::info!(
+                    format = ?secondary,
+                    data_txid = %result_secondary.data_tx.compute_txid(),
+                    "Secondary format broadcasted"
+                );
+            }
+        }
+
+        // Use primary anchor for tracking
+        self.current_anchor = result_primary.new_anchor;
+
+        // Index using primary
+        let btc_height = 0u32;
+        let data_txid = result_primary.data_tx.compute_txid();
+
+        if let Err(e) = self.app_state.indexer.index_block(data_txid, btc_height, sub_block) {
+            tracing::warn!(error = ?e, "Failed to index sub-block");
+        }
+
+        tracing::info!(
+            anchor = %self.current_anchor.txid,
+            "Successfully mined dual-format sub-block"
         );
 
         Ok(())
