@@ -53,27 +53,4 @@ pub trait BlockchainBackend: Send + Sync {
         }
         Ok(())
     }
-
-    /// Get all transactions involving an address (for IBD)
-    ///
-    /// Returns transactions in chronological order.
-    /// Default implementation returns empty vec (not supported).
-    /// RPC backend overrides to use wallet's transaction history.
-    async fn get_address_transactions(&self, _address: &Address) -> Result<Vec<(Txid, u32)>> {
-        // Default: not supported
-        Ok(Vec::new())
-    }
-
-    /// Get raw transaction by txid
-    async fn get_transaction(&self, _txid: &Txid) -> Result<Option<Transaction>> {
-        // Default: not supported
-        Ok(None)
-    }
-
-    /// Find transaction that spends a given outpoint (requires txindex)
-    async fn get_spending_tx(&self, _outpoint: &OutPoint) -> Result<Option<(Txid, Transaction, u32)>> {
-        // Default: not supported
-        // Returns (txid, tx, block_height)
-        Ok(None)
-    }
 }

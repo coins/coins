@@ -23,7 +23,6 @@ pub mod inscribe;
 pub mod broadcast;
 pub mod publish;
 pub mod client;
-pub mod op_return;
 
 #[cfg(test)]
 mod annex_test;

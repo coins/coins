@@ -21,9 +21,9 @@ use ark_serialize::CanonicalSerialize;
 
 const AGGREGATOR_URL: &str = "http://localhost:8080";
 
-// Alice and Bob PKs from setup_test_accounts
-const ALICE_PK: &str = "2fa09cfde49a9c593bee32d5297a413d5ee2f8956cd8a2324fb8e523b2196d8f";
-const BOB_PK: &str = "5e74734c69fbb261c4c936d375df870f2a6af117f811a5c88f8c3328f291c012";
+// Alice PK from the e2e_test run
+const ALICE_PK: &str = "ad356c746d196ec1bb636c194e23066840816a239b302372e6cdc609b33aa514";
+const BOB_PK: &str = "1d9eede5aa29cc5414012b31a9f70f71d3a7a59e553af00bc9c0dc8a037770ac";
 
 fn load_or_generate_key(path: &str) -> Result<SecretKey, Box<dyn std::error::Error>> {
     let key_path = Path::new(path);
