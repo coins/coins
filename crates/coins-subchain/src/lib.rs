@@ -29,7 +29,9 @@ pub struct Subchain {
     pub pubkey: bitcoin::CompressedPublicKey,
     /// Bitcoin network the address belongs to (only used for (de)serializing).
     pub network: Network,
-    /// DER-encoded ECDSA signatures (including sighash byte), one per anchor tx.
+    /// Compact 64-byte ECDSA signatures (r || s), one per anchor tx.
+    /// DER encoding is reconstructed on-the-fly during transaction reconstruction.
+    /// Each signature must be exactly 64 bytes.
     pub sigs: Vec<Vec<u8>>,
     /// Genesis block height where the first anchor was broadcast.
     /// Used as starting point for IBD scanning. None means scan from block 0.
@@ -98,11 +100,14 @@ impl Subchain {
 
             let msg = Message::from_digest_slice(&sighash[..]).expect("32 bytes");
             let sig = secp.sign_ecdsa(&msg, &sk.inner);
+
+            // Store in compact 64-byte format (r || s)
+            let sig_compact = sig.serialize_compact();
+            sigs.push(sig_compact.to_vec());
+
+            // Convert to DER for witness (needed for txid computation)
             let mut sig_der = sig.serialize_der().to_vec();
             sig_der.push(EcdsaSighashType::All as u8);
-
-            // store signature
-            sigs.push(sig_der.clone());
 
             // attach witness for chaining (compute txid)
             let mut tx_final = tx;
@@ -148,18 +153,40 @@ impl Subchain {
 
     /// Decode binary format produced by `encode`.
     pub fn decode(data: &[u8]) -> Option<Self> {
-        bincode_deserialize(data, bin_config()).ok().map(|(sc, _)| sc)
+        let (sc, _): (Subchain, usize) = bincode_deserialize(data, bin_config()).ok()?;
+
+        // Validate that all signatures are exactly 64 bytes (compact format)
+        if sc.sigs.iter().any(|sig| sig.len() != 64) {
+            return None;
+        }
+
+        Some(sc)
     }
 
     /// Reconstruct all anchor transactions from stored signatures.
     pub fn reconstruct_txs(&self) -> Vec<Transaction> {
+        use bitcoin::secp256k1::ecdsa::Signature;
+
         let script_pubkey = Address::p2wpkh(&self.pubkey, self.network).script_pubkey();
         let mut prev_out = self.first_out;
         let mut txs = Vec::with_capacity(self.sigs.len());
-        for sig in &self.sigs {
+
+        for sig_bytes in &self.sigs {
             let mut tx = Self::build_anchor_tx(prev_out, self.value_sat, script_pubkey.clone());
+
+            // Convert compact signature (64 bytes) back to DER format for witness
+            if sig_bytes.len() != 64 {
+                panic!("Invalid signature length: expected 64 bytes, got {}", sig_bytes.len());
+            }
+            let sig_compact: [u8; 64] = sig_bytes.as_slice().try_into()
+                .expect("64-byte signature");
+            let sig = Signature::from_compact(&sig_compact)
+                .expect("valid compact signature");
+            let mut sig_der = sig.serialize_der().to_vec();
+            sig_der.push(EcdsaSighashType::All as u8);
+
             let pkb = self.pubkey.to_bytes();
-            tx.input[0].witness = Witness::from_slice(&[sig.as_slice(), pkb.as_slice()]);
+            tx.input[0].witness = Witness::from_slice(&[sig_der.as_slice(), pkb.as_slice()]);
             let txid = tx.compute_txid();
             prev_out = OutPoint::new(txid, 0);
             txs.push(tx);
