@@ -45,8 +45,7 @@ fn parse_outpoint(s: &str) -> Result<OutPoint, String> {
     Ok(OutPoint::new(txid, vout))
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     let opts = Opts::parse();
 
     let config_str = fs::read_to_string(opts.config).expect("failed to read config file");

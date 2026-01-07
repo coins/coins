@@ -670,18 +670,13 @@ name = "coins-subchain"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "async-trait",
  "bincode",
  "bitcoin",
- "bitcoincore-rpc",
  "clap",
- "esplora-client",
  "hex",
- "reqwest 0.12.21",
  "serde",
  "serde_json",
  "tempfile",
- "tokio",
  "toml",
  "zstd",
 ]
