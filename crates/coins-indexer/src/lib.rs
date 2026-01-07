@@ -1,4 +1,4 @@
-//! Chain indexer with 6-block finality tracking and reorg handling
+//! Chain indexer tracking and reorg handling
 
 use std::path::Path;
 use std::sync::Arc;

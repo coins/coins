@@ -264,6 +264,15 @@ impl Engine {
 
         let addr = Address::p2wpkh(&self.sc.pubkey, self.sc.network);
 
+        // Import address - use genesis_height if available for faster rescan
+        if let Some(genesis_height) = self.sc.genesis_height {
+            tracing::info!(
+                genesis_height = genesis_height,
+                "IBD: Using genesis height for optimized blockchain scan"
+            );
+            self.backend.ensure_address_imported_from_height(&addr, genesis_height).await?;
+        }
+
         // Find current anchor position
         let utxos = self.backend.get_address_utxos(&addr).await?;
         for (idx, tx) in txs.iter().enumerate().rev() {

@@ -210,6 +210,103 @@ impl RpcBackend {
     async fn ensure_address_imported_with_rescan(&self, address: &Address) -> Result<()> {
         self.ensure_address_imported_internal(address, true).await
     }
+
+    /// Ensure an address has been imported starting from a specific block height
+    /// Converts block height to timestamp for wallet import
+    pub async fn ensure_address_imported_from_height(&self, address: &Address, genesis_height: u32) -> Result<()> {
+        let addr_str = address.to_string();
+
+        // Check if already imported
+        let already_imported = {
+            let addrs = self.initialized_addresses.read().await;
+            addrs.contains(&addr_str)
+        };
+
+        if already_imported {
+            return Ok(());
+        }
+
+        // Get block hash at genesis height
+        let blockhash: String = self.rpc
+            .call("getblockhash", &[json!(genesis_height)])
+            .with_context(|| format!("Failed to get block hash at height {}", genesis_height))?;
+
+        // Get block header to extract timestamp
+        let block_header: serde_json::Value = self.rpc
+            .call("getblockheader", &[json!(blockhash)])
+            .with_context(|| format!("Failed to get block header for {}", blockhash))?;
+
+        let timestamp = block_header.get("time")
+            .and_then(|v| v.as_u64())
+            .ok_or_else(|| anyhow!("Missing timestamp in block header"))?;
+
+        tracing::info!(
+            address = %addr_str,
+            genesis_height = genesis_height,
+            timestamp = timestamp,
+            "Importing address from genesis height"
+        );
+
+        // Import with specific timestamp
+        let descriptor_no_checksum = format!("addr({})", addr_str);
+        let wallet_rpc = self.wallet_rpc()?;
+
+        let desc_info: serde_json::Value = wallet_rpc
+            .call("getdescriptorinfo", &[json!(descriptor_no_checksum)])
+            .with_context(|| format!("Failed to get descriptor info for {}", addr_str))?;
+
+        let descriptor_with_checksum = desc_info["descriptor"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Missing descriptor in getdescriptorinfo response"))?;
+
+        let import_request = json!([{
+            "desc": descriptor_with_checksum,
+            "timestamp": timestamp,
+            "watchonly": true,
+            "label": "aggregator"
+        }]);
+
+        let result: serde_json::Value = wallet_rpc
+            .call("importdescriptors", &[import_request])
+            .with_context(|| format!("Failed to import address {}", addr_str))?;
+
+        // Check if import was successful
+        if let Some(first) = result.as_array().and_then(|arr| arr.first()) {
+            if let Some(success) = first.get("success").and_then(|v| v.as_bool()) {
+                if !success {
+                    let error = first.get("error").map(|e| e.to_string()).unwrap_or_else(|| "unknown error".to_string());
+                    return Err(anyhow!("Import descriptor failed: {}", error));
+                }
+            }
+        }
+
+        // Wait for rescan to complete
+        tracing::info!(address = %addr_str, "Waiting for blockchain rescan to complete...");
+        loop {
+            let wallet_info: serde_json::Value = wallet_rpc
+                .call("getwalletinfo", &[])
+                .context("Failed to get wallet info")?;
+
+            if let Some(scanning) = wallet_info.get("scanning") {
+                if scanning.is_object() {
+                    if let Some(progress) = scanning.get("progress").and_then(|v| v.as_f64()) {
+                        tracing::debug!(progress = format!("{:.2}%", progress * 100.0), "Rescan progress");
+                    }
+                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                    continue;
+                }
+            }
+
+            tracing::info!(address = %addr_str, "Rescan complete");
+            break;
+        }
+
+        // Mark as imported
+        let mut addrs = self.initialized_addresses.write().await;
+        addrs.insert(addr_str);
+
+        Ok(())
+    }
 }
 
 impl RpcBackend {

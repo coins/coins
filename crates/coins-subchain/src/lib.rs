@@ -5,11 +5,9 @@
 //!  - input:   the previous successor UTXO (taproot key-path spend)
 //!  - output0: the next successor UTXO (pays back to the same address)
 //!  - output1: a 0-sat OP_TRUE anchor which aggregators can spend to attach a
-//!              sub-block (reveal tx).
+//!              sub-block (publish tx).
 //!
-//! For now we provide a *minimal* generator that builds dummy transactions so
-//! that the crate compiles and the JSON layout is fixed.  Integrating the full
-//! taproot logic from `publisher.rs` will follow in a later phase.
+
 
 use bitcoin::{
     script::Builder, secp256k1::{rand::rngs::OsRng, Message, Secp256k1, SecretKey}, transaction::Version, Address, Amount, CompressedPublicKey, Network, OutPoint, PrivateKey, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Witness
@@ -33,6 +31,10 @@ pub struct Subchain {
     pub network: Network,
     /// DER-encoded ECDSA signatures (including sighash byte), one per anchor tx.
     pub sigs: Vec<Vec<u8>>,
+    /// Genesis block height where the first anchor was broadcast.
+    /// Used as starting point for IBD scanning. None means scan from block 0.
+    #[serde(default)]
+    pub genesis_height: Option<u32>,
 }
 
 impl Subchain {
@@ -111,7 +113,7 @@ impl Subchain {
             prev_out = OutPoint::new(txid, 0);
         }
 
-        Self { first_out, value_sat, pubkey: pk_compressed, network, sigs }
+        Self { first_out, value_sat, pubkey: pk_compressed, network, sigs, genesis_height: None }
     }
 
     /// Convenience helper: derive a new random key and run `generate_with_private_key` in one go.
@@ -163,6 +165,12 @@ impl Subchain {
             txs.push(tx);
         }
         txs
+    }
+
+    /// Set the genesis block height (block where the first anchor was broadcast).
+    /// This is used to optimize IBD scanning by starting from this height instead of block 0.
+    pub fn set_genesis_height(&mut self, height: u32) {
+        self.genesis_height = Some(height);
     }
 }
 
