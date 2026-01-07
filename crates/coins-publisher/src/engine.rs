@@ -14,9 +14,6 @@ use coins_subchain::{compress, decompress, PublishMode, PublishFormat, publish_s
 use ark_ff::{PrimeField, BigInteger};
 use ark_bn254::Fr;
 
-/// Default fee rate in sat/vbyte for sub-block transactions
-const DEFAULT_FEE_RATE_SAT_PER_VB: u64 = 4;
-
 /// Anchor output index (output[1] in anchor transactions)
 const ANCHOR_OUTPUT_INDEX: u32 = 1;
 
@@ -37,7 +34,6 @@ pub struct Engine {
     pub anchor_idx: usize,
     pub last_synced: Option<Txid>,
     pub app_state: AppState,
-    pub base_url: String,
     pub publisher_sk: BLSSecretKey,
     pub publisher_pk: G1,
     pub publish_mode: PublishMode,
@@ -112,7 +108,6 @@ impl Engine {
             anchor_idx: 0,
             last_synced: None,
             app_state,
-            base_url: String::new(), // Not needed anymore, but kept for compatibility
             publisher_sk,
             publisher_pk,
             publish_mode,
@@ -166,7 +161,8 @@ impl Engine {
 
     pub async fn try_mine_subblock(&mut self) -> Result<()> {
         let txs = {
-            let mut mempool = self.app_state.mempool.lock().unwrap();
+            let mut mempool = self.app_state.mempool.lock()
+                .map_err(|_| anyhow::anyhow!("mempool lock poisoned"))?;
             if mempool.is_empty() {
                 return Ok(());
             }

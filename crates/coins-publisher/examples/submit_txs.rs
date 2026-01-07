@@ -21,10 +21,8 @@ use ark_serialize::CanonicalSerialize;
 
 const PUBLISHER_URL: &str = "http://localhost:8080";
 
-// Alice and Bob PKs from setup_test_accounts
+// Alice PK from setup_test_accounts
 const ALICE_PK: &str = "2fa09cfde49a9c593bee32d5297a413d5ee2f8956cd8a2324fb8e523b2196d8f";
-#[allow(dead_code)]
-const BOB_PK: &str = "5e74734c69fbb261c4c936d375df870f2a6af117f811a5c88f8c3328f291c012";
 
 fn load_or_generate_key(path: &str) -> Result<SecretKey, Box<dyn std::error::Error>> {
     let key_path = Path::new(path);

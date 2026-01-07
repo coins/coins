@@ -6,17 +6,14 @@
 //!
 //! Run with: cargo test --test e2e -- --nocapture
 
-use coins_crypto::{SecretKey, G1, G2};
+use coins_crypto::{SecretKey, G1};
 use coins_types::{Transaction, Account};
 use reqwest::blocking::Client;
-use serde_json::json;
 
 const PUBLISHER_URL: &str = "http://localhost:8080";
 const GENESIS_PK_HEX: &str = "43878a2a65c154d604cbe7d974d5dad1c63ce4dc2a68f697c45a4a3ef9ab8a21";
 
 struct TestAccount {
-    #[allow(dead_code)]
-    sk: SecretKey,
     pk: G1,
     pk_hex: String,
 }
@@ -27,7 +24,7 @@ impl TestAccount {
         let pk_bytes = sk.public_key();
         let pk = G1(pk_bytes);
         let pk_hex = hex::encode(pk_bytes);
-        Self { sk, pk, pk_hex }
+        Self { pk, pk_hex }
     }
 
     fn get_account(&self) -> Result<Account, Box<dyn std::error::Error>> {
@@ -41,28 +38,6 @@ impl TestAccount {
 
         let account: Account = resp.json()?;
         Ok(account)
-    }
-
-    #[allow(dead_code)]
-    fn submit_tx(&self, tx: Transaction, sig: G2) -> Result<(), Box<dyn std::error::Error>> {
-        let client = Client::new();
-        let url = format!("{}/tx", PUBLISHER_URL);
-
-        let tx_bytes = bincode::serde::encode_to_vec(&tx, bincode::config::standard())?;
-        let sig_bytes = bincode::serde::encode_to_vec(&sig, bincode::config::standard())?;
-
-        let body = json!({
-            "tx": hex::encode(tx_bytes),
-            "signature": hex::encode(sig_bytes)
-        });
-
-        let resp = client.post(&url).json(&body).send()?;
-
-        if !resp.status().is_success() {
-            return Err(format!("Failed to submit tx: {}", resp.status()).into());
-        }
-
-        Ok(())
     }
 }
 
