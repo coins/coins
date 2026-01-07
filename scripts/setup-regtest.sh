@@ -14,12 +14,12 @@ echo -e "${BLUE}========================================${NC}"
 echo ""
 
 # Configuration
-BITCOIN_DIR="${HOME}/.bitcoin"
-REGTEST_DIR="${BITCOIN_DIR}/regtest"
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DATA_DIR="${PROJECT_ROOT}/.data"
-SUBCHAIN_DIR="${DATA_DIR}/subchains"
-KEYS_DIR="${DATA_DIR}/keys"
+NETWORK_DIR="${DATA_DIR}/regtest"  # Network-specific directory
+BITCOIN_DATADIR="${NETWORK_DIR}/bitcoin"  # Bitcoin regtest data
+SUBCHAIN_DIR="${NETWORK_DIR}/subchains"
+KEYS_DIR="${NETWORK_DIR}/keys"
 
 # RPC Configuration
 RPC_USER="user"
@@ -46,12 +46,12 @@ if pgrep bitcoind >/dev/null; then
     exit 1
 fi
 
-# Clean up old data
-rm -rf "${DATA_DIR}" 2>/dev/null || true
-rm -rf indexer.db state.db 2>/dev/null || true
+# Clean up old regtest-specific data (preserve other networks)
+rm -rf "${NETWORK_DIR}" 2>/dev/null || true
+rm -rf indexer.db state.db explorer-tx-index.db 2>/dev/null || true  # Legacy paths
 rm -f publisher_bls_sk.hex 2>/dev/null || true
 
-# Create directory structure
+# Create network-specific directory structure (all regtest data isolated)
 mkdir -p "${SUBCHAIN_DIR}"
 mkdir -p "${KEYS_DIR}"
 
@@ -59,9 +59,9 @@ echo -e "${GREEN}✓ Cleanup complete${NC}"
 echo ""
 
 echo -e "${YELLOW}[2/9] Starting Bitcoin Core (regtest)...${NC}"
-# Clean regtest data (both possible locations)
-rm -rf "${REGTEST_DIR}" 2>/dev/null || true
-rm -rf "${HOME}/Library/Application Support/Bitcoin/regtest" 2>/dev/null || true
+# Clean regtest data
+rm -rf "${BITCOIN_DATADIR}" 2>/dev/null || true
+mkdir -p "${BITCOIN_DATADIR}"
 
 # Increase file descriptor limit for bitcoind
 ulimit -n 2048 2>/dev/null || true
@@ -72,6 +72,7 @@ ulimit -n 2048 2>/dev/null || true
 bitcoind \
     -regtest \
     -daemon \
+    -datadir="${BITCOIN_DATADIR}" \
     -fallbackfee=0.00001 \
     -txindex=1 \
     -acceptnonstdtxn=1 \
@@ -186,35 +187,36 @@ SUBCHAIN_SIZE=$(du -h "${SUBCHAIN_FILE}" | awk '{print $1}')
 echo -e "${GREEN}✓ Subchain created (${SUBCHAIN_SIZE})${NC}"
 echo ""
 
-echo -e "${YELLOW}[6/9] Determining fee address and mining blocks...${NC}"
+echo -e "${YELLOW}[6/9] Determining publisher address and mining blocks...${NC}"
 # Create directories
 mkdir -p "${KEYS_DIR}"
 
-# Start publisher briefly to determine fee address
-echo -e "  ${BLUE}→ Starting publisher temporarily to get fee address...${NC}"
-./target/release/coins-publisher --config config/publisher.toml > /tmp/publisher_temp.log 2>&1 &
+# Start publisher briefly to determine publisher address
+echo -e "  ${BLUE}→ Starting publisher temporarily to get publisher address...${NC}"
+mkdir -p .data/regtest/logs
+./target/release/coins-publisher --config config/publisher.toml > .data/regtest/logs/publisher_temp.log 2>&1 &
 TEMP_PUB_PID=$!
 
-# Wait for publisher to initialize and log its fee address
+# Wait for publisher to initialize and log its address
 sleep 5
 
-# Extract fee address from log
-FEE_ADDR=$(grep "Publisher initialized" /tmp/publisher_temp.log | grep -oE 'bcrt1[a-z0-9]+' | head -1)
+# Extract publisher address from log
+FEE_ADDR=$(grep "Publisher initialized" .data/regtest/logs/publisher_temp.log | grep -oE 'bcrt1[a-z0-9]+' | head -1)
 
 # Stop temporary publisher
 kill $TEMP_PUB_PID 2>/dev/null || true
 sleep 2
 
 if [ -z "$FEE_ADDR" ]; then
-    echo -e "${RED}✗ Failed to get fee address${NC}"
-    cat /tmp/publisher_temp.log
+    echo -e "${RED}✗ Failed to get publisher address${NC}"
+    cat .data/regtest/logs/publisher_temp.log
     exit 1
 fi
 
-echo -e "  ${GREEN}✓ Fee address: ${FEE_ADDR}${NC}"
-echo -e "  ${BLUE}→ Mining 150 blocks to fee address...${NC}"
+echo -e "  ${GREEN}✓ Publisher address: ${FEE_ADDR}${NC}"
+echo -e "  ${BLUE}→ Mining 150 blocks to publisher address...${NC}"
 
-# Generate blocks to fee address
+# Generate blocks to publisher address
 # Need 100+ blocks for coinbase maturity, plus extra for testing
 bitcoin-cli -regtest -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport="${RPC_PORT}" \
     generatetoaddress 150 "${FEE_ADDR}" &>/dev/null
@@ -229,8 +231,9 @@ echo -e "${GREEN}✓ Test accounts created${NC}"
 echo ""
 
 echo -e "${YELLOW}[8/9] Starting publisher...${NC}"
-./target/release/coins-publisher --config config/publisher.toml > /tmp/publisher.log 2>&1 &
+./target/release/coins-publisher --config config/publisher.toml > .data/regtest/logs/publisher.log 2>&1 &
 PUBLISHER_PID=$!
+echo "$PUBLISHER_PID" > .data/regtest/publisher.pid
 
 # Wait for publisher to start
 echo -n "Waiting for publisher to start"
@@ -241,8 +244,8 @@ for i in {1..30}; do
     fi
     if ! kill -0 $PUBLISHER_PID 2>/dev/null; then
         echo ""
-        echo -e "${RED}✗ Publisher crashed. Check /tmp/publisher.log${NC}"
-        tail -20 /tmp/publisher.log
+        echo -e "${RED}✗ Publisher crashed. Check .data/regtest/logs/publisher.log${NC}"
+        tail -20 .data/regtest/logs/publisher.log
         exit 1
     fi
     echo -n "."
@@ -269,7 +272,7 @@ echo ""
 echo -e "Subchain: ${SUBCHAIN_FILE}"
 echo -e "Address:  ${SUBCHAIN_ADDR}"
 echo -e "Blocks:   ${BLOCK_COUNT}"
-echo -e "Logs:     /tmp/publisher.log"
+echo -e "Logs:     .data/regtest/logs/publisher.log"
 echo ""
 echo -e "${BLUE}Run tests with:${NC}"
 echo -e "  cargo run --release --example submit_txs"

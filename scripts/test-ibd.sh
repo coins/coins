@@ -21,6 +21,7 @@ RPC_USER="user"
 RPC_PASS="password"
 RPC_PORT="18443"
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+BITCOIN_DATADIR="${PROJECT_ROOT}/.data/regtest/bitcoin"
 
 cd "$PROJECT_ROOT"
 
@@ -42,10 +43,11 @@ bitcoin-cli -regtest -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_POR
 sleep 3
 
 # Remove regtest data to start fresh
-rm -rf "$HOME/Library/Application Support/Bitcoin/regtest" 2>/dev/null || true
+rm -rf "${BITCOIN_DATADIR}" 2>/dev/null || true
+mkdir -p "${BITCOIN_DATADIR}"
 
 # Restart bitcoind with non-standard tx support for Taproot annex
-bitcoind -regtest -daemon -fallbackfee=0.00001 -txindex=1 -acceptnonstdtxn=1 -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_PORT
+bitcoind -regtest -daemon -datadir="${BITCOIN_DATADIR}" -fallbackfee=0.00001 -txindex=1 -acceptnonstdtxn=1 -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_PORT
 sleep 5
 
 # Mine initial blocks and fund the subchain

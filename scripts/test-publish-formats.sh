@@ -23,6 +23,7 @@ RPC_USER="user"
 RPC_PASS="password"
 RPC_PORT="18443"
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+BITCOIN_DATADIR="${PROJECT_ROOT}/.data/regtest/bitcoin"
 
 cd "$PROJECT_ROOT"
 
@@ -202,12 +203,13 @@ pkill -f "coins-publisher" 2>/dev/null || true
 bitcoin-cli -regtest -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_PORT stop 2>/dev/null || true
 sleep 3
 
-rm -rf "$HOME/Library/Application Support/Bitcoin/regtest" 2>/dev/null || true
+rm -rf "${BITCOIN_DATADIR}" 2>/dev/null || true
+mkdir -p "${BITCOIN_DATADIR}"
 rm -rf /tmp/format_test 2>/dev/null || true
 mkdir -p /tmp/format_test
 
 # Start bitcoind with non-standard tx support
-bitcoind -regtest -daemon -fallbackfee=0.00001 -txindex=1 -acceptnonstdtxn=1 -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_PORT
+bitcoind -regtest -daemon -datadir="${BITCOIN_DATADIR}" -fallbackfee=0.00001 -txindex=1 -acceptnonstdtxn=1 -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_PORT
 sleep 5
 
 echo -e "${GREEN}✓ Test environment ready${NC}"

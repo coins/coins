@@ -5,13 +5,28 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
+# Configuration
+PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+BITCOIN_DATADIR="${PROJECT_ROOT}/.data/regtest/bitcoin"
+
 echo -e "${YELLOW}Stopping regtest services...${NC}"
 
-# Stop publisher
-if pkill -9 coins-publisher 2>/dev/null; then
-    echo -e "${GREEN}✓ Stopped publisher${NC}"
+# Stop publisher using PID file (network-specific)
+if [ -f /tmp/publisher_regtest.pid ]; then
+    PID=$(cat /tmp/publisher_regtest.pid)
+    if kill -9 "$PID" 2>/dev/null; then
+        echo -e "${GREEN}✓ Stopped publisher (PID: $PID)${NC}"
+    else
+        echo "  (publisher not running)"
+    fi
+    rm -f /tmp/publisher_regtest.pid
 else
-    echo "  (publisher not running)"
+    # Fallback: kill any publisher (legacy)
+    if pkill -9 coins-publisher 2>/dev/null; then
+        echo -e "${GREEN}✓ Stopped publisher${NC}"
+    else
+        echo "  (publisher not running)"
+    fi
 fi
 
 # Stop bitcoind gracefully first
@@ -27,11 +42,11 @@ else
 fi
 
 # Remove lock files if they exist
-if [ -f "${HOME}/.bitcoin/regtest/.lock" ]; then
-    rm -f "${HOME}/.bitcoin/regtest/.lock"
+if [ -f "${BITCOIN_DATADIR}/regtest/.lock" ]; then
+    rm -f "${BITCOIN_DATADIR}/regtest/.lock"
 fi
-if [ -f "${HOME}/.bitcoin/regtest/wallets/coins-publisher/.walletlock" ]; then
-    rm -f "${HOME}/.bitcoin/regtest/wallets/coins-publisher/.walletlock"
+if [ -f "${BITCOIN_DATADIR}/regtest/wallets/coins-publisher/.walletlock" ]; then
+    rm -f "${BITCOIN_DATADIR}/regtest/wallets/coins-publisher/.walletlock"
 fi
 
 echo -e "${GREEN}All services stopped${NC}"
