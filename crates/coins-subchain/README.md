@@ -5,7 +5,7 @@ This crate ships an executable that performs the **one-time trusted setup** for 
 1.  Generates a fresh one-time keypair.
 2.  Displays the Bech32 **address** that must receive the setup funds.
 3.  Waits for you to paste the **funding out-point** once the transaction is confirmed.
-4.  Builds the *connector transaction* chain and writes it to a compact binary file.
+4.  Builds the *anchor transaction* chain and writes it to a compact binary file.
 
 > ⚠️  Run this program **once** and **offline**. The one-time secret key lives only in RAM during
 > execution and is automatically dropped when the program terminates. Re-running the setup would
@@ -31,7 +31,7 @@ The resulting binary is at
 
 ## Running the setup
 
-Example for a regtest deployment that creates **1 000 000** connector transactions carrying the
+Example for a regtest deployment that creates **1 000 000** anchor transactions carrying the
 minimum relayable amount (546 sat) each:
 
 ```bash
@@ -61,12 +61,12 @@ minimum relayable amount (546 sat) each:
    > 1a2b…:0
    ```
 
-4. **Connector chain generation** – the program calculates signatures and stores the result in the
+4. **Anchor chain generation** – the program calculates signatures and stores the result in the
    specified file.
 
    ```text
    Building subchain…
-   Wrote 1000000 connectorTxs (75.00 MB) to subchain.bin
+   Wrote 1000000 anchorTxs (75.00 MB) to subchain.bin
    ```
 
 ---
@@ -74,7 +74,7 @@ minimum relayable amount (546 sat) each:
 ## Output format
 
 `subchain.bin` is the compact **bincode** representation of the `Subchain` struct (with
-fixed-integer encoding). It is read by `Subchain::decode()` and can reconstruct the full connector
+fixed-integer encoding). It is read by `Subchain::decode()` and can reconstruct the full anchor
 transactions on demand.
 
 ---
