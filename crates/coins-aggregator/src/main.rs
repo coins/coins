@@ -8,7 +8,7 @@ use coins_aggregator::blockchain_backend::BlockchainBackend;
 use coins_aggregator::rpc_backend::RpcBackend;
 use coins_aggregator::esplora_backend::EsploraBackend;
 use coins_crypto::G1;
-use coins_state::State;
+use coins_core::State;
 use coins_indexer::Indexer;
 use serde::Deserialize;
 use tokio::net::TcpListener;

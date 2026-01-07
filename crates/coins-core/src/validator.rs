@@ -3,8 +3,8 @@
 //! Implements the state transition function as described in §6 of the spec.
 
 use coins_crypto as crypto;
-use coins_state::State;
 use coins_types::{SubBlock, Account, AccountId};
+use crate::state::State;
 use std::collections::HashMap;
 
 #[derive(thiserror::Error, Debug)]

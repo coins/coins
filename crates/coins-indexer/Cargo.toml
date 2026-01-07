@@ -6,8 +6,7 @@ edition = "2024"
 [dependencies]
 coins-types = { path = "../coins-types" }
 coins-crypto = { path = "../coins-crypto" }
-coins-state = { path = "../coins-state" }
-coins-validator = { path = "../coins-validator" }
+coins-core = { path = "../coins-core" }
 sled = "0.34"
 bitcoin = { version = "0.32", features = ["serde"] }
 thiserror = "1"

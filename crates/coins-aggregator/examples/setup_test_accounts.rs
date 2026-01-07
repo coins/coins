@@ -5,7 +5,7 @@
 //! Usage: cargo run --example setup_test_accounts
 
 use coins_crypto::G1;
-use coins_state::State;
+use coins_core::State;
 use std::path::PathBuf;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

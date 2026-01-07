@@ -10,7 +10,7 @@ use api::{AppState, router};
 
 use coins_types::Transaction;
 use coins_crypto::{G1, SecretKey};
-use coins_state::State;
+use coins_core::State;
 use coins_indexer::Indexer;
 use hex;
 use bincode;

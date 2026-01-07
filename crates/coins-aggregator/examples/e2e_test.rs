@@ -6,7 +6,7 @@
 
 use coins_crypto::{SecretKey, G1, G2, sign};
 use coins_types::{Transaction, Account};
-use coins_state::State;
+use coins_core::State;
 use std::path::PathBuf;
 use std::thread::sleep;
 use std::time::Duration;

@@ -5,7 +5,7 @@ use axum::response::IntoResponse;
 use axum::http::StatusCode;
 use coins_types::Transaction;
 use coins_crypto::{G1, G2};
-use coins_state::State as CoinState;
+use coins_core::State as CoinState;
 use coins_indexer::Indexer;
 use hex;
 

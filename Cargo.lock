@@ -580,12 +580,11 @@ dependencies = [
  "bitcoin",
  "bitcoincore-rpc",
  "clap",
+ "coins-core",
  "coins-crypto",
  "coins-indexer",
- "coins-state",
  "coins-subchain",
  "coins-types",
- "coins-validator",
  "esplora-client",
  "hex",
  "rand 0.8.5",
@@ -621,6 +620,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "coins-core"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "coins-crypto",
+ "coins-types",
+ "rand 0.8.5",
+ "sled",
+ "tempfile",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "coins-crypto"
 version = "0.1.0"
 dependencies = [
@@ -642,27 +654,14 @@ dependencies = [
  "anyhow",
  "bincode",
  "bitcoin",
+ "coins-core",
  "coins-crypto",
- "coins-state",
  "coins-types",
- "coins-validator",
  "serde",
  "sled",
  "tempfile",
  "thiserror 1.0.69",
  "tracing",
-]
-
-[[package]]
-name = "coins-state"
-version = "0.1.0"
-dependencies = [
- "bincode",
- "coins-crypto",
- "coins-types",
- "sled",
- "tempfile",
- "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -688,18 +687,6 @@ dependencies = [
  "bincode",
  "coins-crypto",
  "serde",
-]
-
-[[package]]
-name = "coins-validator"
-version = "0.1.0"
-dependencies = [
- "coins-crypto",
- "coins-state",
- "coins-types",
- "rand 0.8.5",
- "tempfile",
- "thiserror 2.0.12",
 ]
 
 [[package]]

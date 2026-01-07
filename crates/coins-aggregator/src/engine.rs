@@ -9,7 +9,7 @@ use crate::api::AppState;
 use crate::blockchain_backend::BlockchainBackend;
 use coins_types::SubBlock;
 use coins_crypto::{G1, SecretKey as BLSSecretKey, aggregate};
-use coins_validator::validate_subblock;
+use coins_core::validate_subblock;
 use coins_subchain::op_return::{publish_op_return, compress};
 use ark_ff::PrimeField;
 use ark_bn254::Fr;

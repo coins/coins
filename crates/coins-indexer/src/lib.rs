@@ -6,7 +6,7 @@ use bitcoin::Txid;
 use bitcoin::hashes::Hash as HashTrait;
 use coins_types::{SubBlock, Transaction};
 use coins_crypto::G1;
-use coins_state::State;
+use coins_core::State;
 
 pub mod finality;
 pub mod query;

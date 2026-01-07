@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use coins_types::{Account, AccountId, Transaction};
-use coins_state::State;
+use coins_core::State;
 
 #[derive(thiserror::Error, Debug)]
 pub enum MempoolError {

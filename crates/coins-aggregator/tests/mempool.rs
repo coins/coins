@@ -1,6 +1,6 @@
 use tempfile::TempDir;
 use std::sync::Arc;
-use coins_state::State;
+use coins_core::State;
 use coins_aggregator::mempool::{Mempool, MempoolError};
 use coins_crypto::{SecretKey, G1};
 use coins_types::{Transaction};

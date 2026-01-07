@@ -2,8 +2,7 @@
 members = [
     "crates/coins-crypto",
     "crates/coins-types",
-    "crates/coins-state",
-    "crates/coins-validator",
+    "crates/coins-core",
     "crates/coins-indexer",
     "crates/coins-aggregator",
     "crates/coins-subchain",

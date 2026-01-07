@@ -17,8 +17,7 @@ axum = { version = "0.7", features=["json","macros"] }
 serde_json = "1"
 hex = "0.4"
 coins-types = { path = "../coins-types" }
-coins-state = { path = "../coins-state" }
-coins-validator = { path = "../coins-validator" }
+coins-core = { path = "../coins-core" }
 coins-indexer = { path = "../coins-indexer" }
 thiserror = "1"
 rand = "0.8"
