@@ -96,13 +96,16 @@ impl RpcBackend {
     }
 
     /// Ensure an address has been imported to the wallet
-    async fn ensure_address_imported(&self, address: &Address) -> Result<()> {
+    ///
+    /// If `rescan` is true, imports with timestamp 0 to rescan the entire blockchain.
+    /// This is needed for IBD to find historical transactions.
+    async fn ensure_address_imported_internal(&self, address: &Address, rescan: bool) -> Result<()> {
         let addr_str = address.to_string();
 
         // Check if already imported
         {
             let addrs = self.initialized_addresses.read().await;
-            if addrs.contains(&addr_str) {
+            if addrs.contains(&addr_str) && !rescan {
                 return Ok(());
             }
         }
@@ -121,9 +124,11 @@ impl RpcBackend {
             .as_str()
             .ok_or_else(|| anyhow!("Missing descriptor in getdescriptorinfo response"))?;
 
+        let timestamp = if rescan { json!(0) } else { json!("now") };
+
         let import_request = json!([{
             "desc": descriptor_with_checksum,
-            "timestamp": "now",
+            "timestamp": timestamp,
             "watchonly": true,
             "label": "aggregator"
         }]);
@@ -147,6 +152,17 @@ impl RpcBackend {
         addrs.insert(addr_str);
 
         Ok(())
+    }
+
+    /// Ensure an address has been imported to the wallet (no rescan)
+    async fn ensure_address_imported(&self, address: &Address) -> Result<()> {
+        self.ensure_address_imported_internal(address, false).await
+    }
+
+    /// Ensure an address has been imported with full blockchain rescan
+    /// This is needed for IBD to find historical transactions
+    async fn ensure_address_imported_with_rescan(&self, address: &Address) -> Result<()> {
+        self.ensure_address_imported_internal(address, true).await
     }
 }
 
@@ -207,18 +223,273 @@ impl BlockchainBackend for RpcBackend {
             .map(|tx| bitcoin::consensus::encode::serialize_hex(tx))
             .collect();
 
+        // First, test if the package would be accepted
+        let test_result: serde_json::Value = self
+            .rpc
+            .call("testmempoolaccept", &[json!(hex_txs)])
+            .context("testmempoolaccept RPC call failed")?;
+
+        tracing::debug!(
+            test_result = ?test_result,
+            "Package mempool acceptance test"
+        );
+
+        // Check test results for each transaction
+        if let Some(test_array) = test_result.as_array() {
+            for (idx, test_tx) in test_array.iter().enumerate() {
+                if let Some(allowed) = test_tx.get("allowed").and_then(|v| v.as_bool()) {
+                    if !allowed {
+                        let reject_reason = test_tx
+                            .get("reject-reason")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown");
+
+                        tracing::error!(
+                            tx_index = idx,
+                            txid = test_tx.get("txid").and_then(|v| v.as_str()),
+                            reject_reason = reject_reason,
+                            "Transaction would be rejected by mempool"
+                        );
+
+                        return Err(anyhow!(
+                            "Transaction {} rejected: {}",
+                            idx,
+                            reject_reason
+                        ));
+                    }
+                } else {
+                    tracing::warn!(
+                        tx_index = idx,
+                        "Missing 'allowed' field in testmempoolaccept response"
+                    );
+                }
+            }
+        }
+
+        // If tests pass, submit the package
         let result: serde_json::Value = self
             .rpc
             .call("submitpackage", &[json!(hex_txs)])
             .context("submitpackage RPC call failed")?;
 
-        // Check for errors in package result
-        if let Some(pkg_msg) = result.get("package_msg").and_then(|v| v.as_str()) {
-            if pkg_msg.to_lowercase().contains("error") {
-                return Err(anyhow!("Package relay failed: {}", pkg_msg));
+        tracing::debug!(
+            result = ?result,
+            "Package submission result"
+        );
+
+        // Parse tx-results to verify all transactions were accepted
+        if let Some(tx_results) = result.get("tx-results").and_then(|v| v.as_object()) {
+            let mut accepted_count = 0;
+            let mut ignored_count = 0;
+
+            for (wtxid, tx_result) in tx_results {
+                // Check if transaction was ignored (already in mempool with different witness)
+                if tx_result.get("other-wtxid").is_some() {
+                    ignored_count += 1;
+                    tracing::warn!(
+                        wtxid = wtxid,
+                        "Transaction ignored - already in mempool with different witness"
+                    );
+                } else {
+                    accepted_count += 1;
+                    let txid = tx_result.get("txid").and_then(|v| v.as_str());
+                    tracing::debug!(
+                        wtxid = wtxid,
+                        txid = txid,
+                        "Transaction accepted to mempool"
+                    );
+                }
             }
+
+            if accepted_count == 0 && ignored_count == 0 {
+                return Err(anyhow!(
+                    "Package submission returned empty tx-results: {:?}",
+                    result
+                ));
+            }
+
+            tracing::info!(
+                accepted = accepted_count,
+                ignored = ignored_count,
+                total = txs.len(),
+                "Package relay result"
+            );
+        } else {
+            tracing::warn!(
+                result = ?result,
+                "Unexpected submitpackage response format"
+            );
         }
 
         Ok(())
+    }
+
+    async fn get_address_transactions(&self, address: &Address) -> Result<Vec<(Txid, u32)>> {
+        // Ensure address is imported with full blockchain rescan
+        // This is needed for IBD to find historical transactions
+        self.ensure_address_imported_with_rescan(address).await?;
+
+        let wallet_rpc = self.wallet_rpc()?;
+
+        // Get all transactions for this address using listtransactions
+        // Label is "aggregator" from our import
+        let result: serde_json::Value = wallet_rpc
+            .call("listtransactions", &[json!("*"), json!(100000), json!(0), json!(true)])
+            .context("Failed to list transactions")?;
+
+        let mut txs = Vec::new();
+
+        if let Some(tx_array) = result.as_array() {
+            for tx_entry in tx_array {
+                // Filter for our address
+                if let Some(tx_addr) = tx_entry.get("address").and_then(|v| v.as_str()) {
+                    if tx_addr == address.to_string() {
+                        if let Some(txid_str) = tx_entry.get("txid").and_then(|v| v.as_str()) {
+                            if let Ok(txid) = txid_str.parse::<Txid>() {
+                                // Get block height (0 if unconfirmed)
+                                let height = tx_entry.get("blockheight")
+                                    .and_then(|v| v.as_u64())
+                                    .unwrap_or(0) as u32;
+
+                                txs.push((txid, height));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Sort by height for chronological order
+        txs.sort_by_key(|(_, height)| *height);
+
+        // Remove duplicates (same txid can appear multiple times)
+        txs.dedup_by_key(|(txid, _)| *txid);
+
+        Ok(txs)
+    }
+
+    async fn get_transaction(&self, txid: &Txid) -> Result<Option<Transaction>> {
+        // Use base RPC (doesn't need wallet)
+        let result: Result<String, _> = self.rpc.call("getrawtransaction", &[json!(txid.to_string())]);
+
+        match result {
+            Ok(hex_str) => {
+                // Decode hex to Transaction
+                let bytes = hex::decode(&hex_str)
+                    .context("Failed to decode transaction hex")?;
+                let tx = bitcoin::consensus::deserialize::<Transaction>(&bytes)
+                    .context("Failed to deserialize transaction")?;
+                Ok(Some(tx))
+            }
+            Err(_) => Ok(None), // TX not found
+        }
+    }
+
+    async fn get_spending_tx(&self, outpoint: &OutPoint) -> Result<Option<(Txid, Transaction, u32)>> {
+        // Use gettxout with verbose to check if spent
+        let result: Result<serde_json::Value, _> = self.rpc.call(
+            "gettxout",
+            &[
+                json!(outpoint.txid.to_string()),
+                json!(outpoint.vout),
+                json!(true), // include_mempool
+            ],
+        );
+
+        // If gettxout returns null, the output is spent
+        if result.is_ok() && !result.as_ref().unwrap().is_null() {
+            return Ok(None); // Not spent yet
+        }
+
+        // Output is spent! Now we need to find the spending TX
+        // Strategy: Get the block containing the spent output, then scan forward
+        // because the spending TX must be in the same block or a later block
+
+        let tx_result: Result<serde_json::Value, _> = self.rpc.call(
+            "getrawtransaction",
+            &[json!(outpoint.txid.to_string()), json!(true)], // verbose=true
+        );
+
+        if let Ok(tx_data) = tx_result {
+            // Get the block containing the output being spent
+            if let Some(start_blockhash) = tx_data.get("blockhash").and_then(|v| v.as_str()) {
+                let start_block_result: Result<serde_json::Value, _> =
+                    self.rpc.call("getblock", &[json!(start_blockhash)]);
+
+                if let Ok(start_block_data) = start_block_result {
+                    let start_height = start_block_data
+                        .get("height")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0) as u32;
+
+                    // Get current chain height
+                    let chain_info: serde_json::Value = self.rpc.call("getblockchaininfo", &[])?;
+                    let chain_height = chain_info
+                        .get("blocks")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0) as u32;
+
+                    // Scan from start_height to chain tip (or up to 100 blocks ahead max)
+                    let max_scan_height = std::cmp::min(chain_height, start_height + 100);
+
+                    for scan_height in start_height..=max_scan_height {
+                        // Get block hash at this height
+                        let blockhash_result: Result<String, _> =
+                            self.rpc.call("getblockhash", &[json!(scan_height)]);
+
+                        if let Ok(blockhash) = blockhash_result {
+                            // Get block with all transactions
+                            let block_result: Result<serde_json::Value, _> =
+                                self.rpc.call("getblock", &[json!(blockhash), json!(2)]); // verbosity=2
+
+                            if let Ok(block_data) = block_result {
+                                // Scan all transactions in this block
+                                if let Some(txs) = block_data.get("tx").and_then(|v| v.as_array()) {
+                                    for tx_obj in txs {
+                                        if let Some(inputs) = tx_obj.get("vin").and_then(|v| v.as_array()) {
+                                            for input in inputs {
+                                                let input_txid = input.get("txid").and_then(|v| v.as_str());
+                                                let input_vout = input.get("vout").and_then(|v| v.as_u64());
+
+                                                if let (Some(txid_str), Some(vout)) = (input_txid, input_vout) {
+                                                    if txid_str == outpoint.txid.to_string()
+                                                        && vout == outpoint.vout as u64
+                                                    {
+                                                        // Found the spending TX!
+                                                        if let Some(spending_txid_str) =
+                                                            tx_obj.get("txid").and_then(|v| v.as_str())
+                                                        {
+                                                            let spending_txid = spending_txid_str
+                                                                .parse::<Txid>()
+                                                                .context("Failed to parse spending txid")?;
+
+                                                            // Parse transaction from hex in block response (more efficient than separate RPC call)
+                                                            if let Some(hex_str) = tx_obj.get("hex").and_then(|v| v.as_str()) {
+                                                                let bytes = hex::decode(hex_str)
+                                                                    .context("Failed to decode transaction hex")?;
+                                                                let spending_tx = bitcoin::consensus::deserialize::<Transaction>(&bytes)
+                                                                    .context("Failed to deserialize transaction")?;
+
+                                                                return Ok(Some((
+                                                                    spending_txid,
+                                                                    spending_tx,
+                                                                    scan_height,
+                                                                )));
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(None)
     }
 }
