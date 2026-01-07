@@ -1,18 +1,11 @@
 //! Finality tracking for 6-block Bitcoin confirmations
 
-use crate::ChainBlock;
-
 /// Number of Bitcoin confirmations required for finality
 pub const FINALITY_DEPTH: u32 = 6;
 
 /// Check if a block is finalized given the current Bitcoin height
 pub fn is_finalized(btc_height: u32, current_height: u32) -> bool {
     current_height >= btc_height && (current_height - btc_height + 1) >= FINALITY_DEPTH
-}
-
-/// Check if a ChainBlock is finalized
-pub fn is_block_finalized(block: &ChainBlock) -> bool {
-    block.btc_confirmations >= FINALITY_DEPTH
 }
 
 /// Get finalized height given current Bitcoin tip
