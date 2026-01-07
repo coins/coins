@@ -98,15 +98,15 @@ fn default_api_port() -> u16 {
 }
 
 fn default_state_db() -> PathBuf {
-    PathBuf::from(".data/state.db")
+    PathBuf::from(".data/regtest/state.db")
 }
 
 fn default_indexer_db() -> PathBuf {
-    PathBuf::from(".data/indexer.db")
+    PathBuf::from(".data/regtest/indexer.db")
 }
 
 fn default_bls_keyfile() -> PathBuf {
-    PathBuf::from(".data/keys/publisher_bls_sk.hex")
+    PathBuf::from(".data/regtest/keys/publisher_bls_sk.hex")
 }
 
 fn default_publish_format() -> String {

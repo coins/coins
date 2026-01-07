@@ -24,10 +24,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let alice_pk = G1(alice_pk_arr);
     let bob_pk = G1(bob_pk_arr);
 
-    // Open state database (use argument or default)
+    // Open state database (use argument or default to regtest)
     let state_path = std::env::args().nth(1)
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("./state.db"));
+        .unwrap_or_else(|| PathBuf::from(".data/regtest/state.db"));
     println!("Using state database: {}", state_path.display());
     let state = State::open(&state_path)?;
 
