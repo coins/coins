@@ -58,29 +58,22 @@ cargo run --bin coins-client balance
   - Requires running `bitcoind -regtest`
   - Fast, local testing
 
-- **`aggregator-signet.toml`** - Esplora backend for signet testnet
-  - Uses public Esplora API
-  - No Bitcoin node required
-  - Good for public testing
-
 ### Subchain Configurations
 
 - **`subchain-regtest.toml`** - Generate subchain for regtest
-- **`subchain-signet.toml`** - Generate subchain for signet
 
 ### Client Configurations
 
 - **`client-default.toml`** - General template with default values
 - **`client-regtest.toml`** - Client config for local regtest
-- **`client-signet.toml`** - Client config for signet testnet
 
-## Backend Auto-Selection
+## Backend
 
-The aggregator automatically selects the blockchain backend based on the `network` parameter:
+The aggregator uses Bitcoin Core RPC backend for regtest:
 
 - `network = "regtest"` → **RPC Backend** (requires `rpc_url`, `rpc_user`, `rpc_pass`)
-- `network = "signet"` → **Esplora Backend** (requires `esplora` URL)
-- `network = "bitcoin"` → **Esplora Backend** (requires `esplora` URL)
+
+**Note:** Only regtest is currently supported. Signet and mainnet support have been removed.
 
 ## File Paths
 

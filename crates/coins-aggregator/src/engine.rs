@@ -14,7 +14,7 @@ use coins_subchain::op_return::{publish_op_return, compress};
 use ark_ff::{PrimeField, BigInteger};
 use ark_bn254::Fr;
 
-/// Wrapper for esplora-client UTXO (txid,vout,value)
+/// Fee UTXO for paying Bitcoin transaction fees.
 #[derive(Debug, Clone)]
 pub struct FeeUtxo {
     pub outpoint: OutPoint,
@@ -237,7 +237,7 @@ impl Engine {
         self.current_anchor = new_anchor;
 
         // Index the sub-block
-        // TODO: Get actual Bitcoin height from esplora
+        // TODO: Query actual Bitcoin height from RPC backend
         let btc_height = 0u32; // Placeholder - would query from Bitcoin node
         let data_txid = data_tx.compute_txid();
 

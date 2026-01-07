@@ -1,9 +1,0 @@
-# Client configuration for signet (public testnet)
-# Copy to ../client.toml and adjust as needed
-
-# Aggregator endpoint (remote signet aggregator)
-# Update this to your signet aggregator URL
-aggregator_url = "http://signet.example.com:8080"
-
-# Client secret key file (relative to project root)
-keyfile = ".data/keys/client_signet_sk.hex"
