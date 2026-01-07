@@ -43,7 +43,7 @@ echo -e "${GREEN}✓ Cleanup complete${NC}\n"
 echo -e "${YELLOW}[2/9] Starting Bitcoin Core (signet)...${NC}"
 
 # Check if bitcoind is already running on signet
-if bitcoin-cli -signet -regtest=0 -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport="${RPC_PORT}" getblockchaininfo &>/dev/null; then
+if bitcoin-cli -signet -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport="${RPC_PORT}" getblockchaininfo &>/dev/null; then
     echo -e "${BLUE}→ Bitcoin Core already running on signet${NC}"
 else
     ulimit -n 2048 2>/dev/null || true
@@ -66,7 +66,7 @@ else
 
     echo -n "Waiting for bitcoind"
     for i in {1..30}; do
-        if bitcoin-cli -signet -regtest=0 -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport="${RPC_PORT}" getblockchaininfo &>/dev/null; then
+        if bitcoin-cli -signet -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport="${RPC_PORT}" getblockchaininfo &>/dev/null; then
             echo ""; break
         fi
         echo -n "."; sleep 1
@@ -79,7 +79,7 @@ echo -e "${YELLOW}Waiting for sync...${NC}\n"
 
 # Wait for sync
 while true; do
-    CHAIN_INFO=$(bitcoin-cli -signet -regtest=0 -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport="${RPC_PORT}" getblockchaininfo 2>/dev/null)
+    CHAIN_INFO=$(bitcoin-cli -signet -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport="${RPC_PORT}" getblockchaininfo 2>/dev/null)
     BLOCKS=$(echo "$CHAIN_INFO" | jq -r '.blocks' 2>/dev/null || echo "0")
     HEADERS=$(echo "$CHAIN_INFO" | jq -r '.headers' 2>/dev/null || echo "0")
     VERIFIED=$(echo "$CHAIN_INFO" | jq -r '.verificationprogress' 2>/dev/null || echo "0")
@@ -95,7 +95,7 @@ while true; do
 done
 
 echo -e "${YELLOW}[3/9] Creating wallet...${NC}"
-bitcoin-cli -signet -regtest=0 -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport="${RPC_PORT}" \
+bitcoin-cli -signet -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport="${RPC_PORT}" \
     createwallet "coins-publisher" true false "" false true &>/dev/null || true
 echo -e "${GREEN}✓ Wallet created${NC}\n"
 
@@ -131,7 +131,7 @@ WAIT_COUNT=0
 MAX_WAIT=120
 
 while true; do
-    UTXO_INFO=$(bitcoin-cli -signet -regtest=0 -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport="${RPC_PORT}" \
+    UTXO_INFO=$(bitcoin-cli -signet -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport="${RPC_PORT}" \
         scantxoutset start "[\"addr(${SUBCHAIN_ADDR})\"]" 2>/dev/null | \
         jq -r '.unspents[] | select(.height > 0) | "\(.txid):\(.vout) \((.amount*100000000)|floor)"' 2>/dev/null | head -1)
 
@@ -186,7 +186,7 @@ echo -e "━━━━━━━━━━━━━━━━━━━━━━━�
 
 WAIT_COUNT=0
 while true; do
-    FEE_BALANCE=$(bitcoin-cli -signet -regtest=0 -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport="${RPC_PORT}" \
+    FEE_BALANCE=$(bitcoin-cli -signet -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport="${RPC_PORT}" \
         scantxoutset start "[\"addr(${FEE_ADDR})\"]" 2>/dev/null | \
         jq -r '[.unspents[] | select(.height > 0) | .amount] | add // 0' 2>/dev/null)
 

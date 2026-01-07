@@ -180,7 +180,7 @@ async fn main() -> anyhow::Result<()> {
         fee_address = %engine.fee_addr,
         total_sats = %total_sats,
         utxo_count = engine.fee_utxos.len(),
-        "Aggregator initialized"
+        "Publisher initialized"
     );
 
     loop {
