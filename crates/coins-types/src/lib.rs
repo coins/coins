@@ -4,7 +4,7 @@
 //! crates can already depend on them while the detailed serialization logic
 //! is filled in later phases.
 
-use coins_crypto::{G1, G2};
+use coins_crypto::{G1, G2, G1_SIZE, G2_SIZE};
 use serde::{Serialize, Deserialize};
 use bincode::serde::{encode_to_vec as bincode_serialize, decode_from_slice as bincode_deserialize};
 use bincode::config::{standard, Config};
@@ -14,6 +14,9 @@ pub const TX_SIZE: usize = 41;
 
 /// Wire-size constant for compact transaction
 pub const COMPACT_TX_SIZE: usize = 13;
+
+/// SubBlock header size (G2 signature + G1 publisher key)
+pub const SUBBLOCK_HEADER_SIZE: usize = G2_SIZE + G1_SIZE;
 
 pub type Amount = u32;
 pub type Fee = u8;
@@ -194,8 +197,8 @@ impl SubBlock {
     {
         if data.len() < 98 { return None; } // Minimum: 64 + 32 + 2 = 98 bytes
 
-        let (sigma_bytes, rest) = data.split_at(64);
-        let (pk_bytes, rest) = rest.split_at(32);
+        let (sigma_bytes, rest) = data.split_at(G2_SIZE);
+        let (pk_bytes, rest) = rest.split_at(G1_SIZE);
         let (count_bytes, rest) = rest.split_at(2);
 
         let sigma: G2 = {

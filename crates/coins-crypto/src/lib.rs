@@ -30,6 +30,11 @@ use bn254_hash2curve::hash2g2::HashToG2;
 // RFC 9380 compliant domain separation tag for BN254 G2
 const DST: &[u8] = b"QUUX-V01-CS02-with-BN254G2_XMD:SHA-256_SVDW_RO_";
 
+/// Compressed G1 point size in bytes (arkworks BN-254 canonical format)
+pub const G1_SIZE: usize = 32;
+/// Compressed G2 point size in bytes (arkworks BN-254 canonical format)
+pub const G2_SIZE: usize = 64;
+
 // -----------------------------------------------------------------------------
 // Wrapper types (compressed on the wire)
 // -----------------------------------------------------------------------------
@@ -37,7 +42,7 @@ const DST: &[u8] = b"QUUX-V01-CS02-with-BN254G2_XMD:SHA-256_SVDW_RO_";
 /// Compressed G1 point (32 bytes, ark canonical compressed).
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(transparent)]
-pub struct G1(pub [u8; 32]);
+pub struct G1(pub [u8; G1_SIZE]);
 
 impl Default for G1 {
     fn default() -> Self {
@@ -55,7 +60,7 @@ impl G1 {
     pub fn from_affine(p: &G1Affine) -> Self {
         let mut v = Vec::new();
         p.serialize_compressed(&mut v).expect("serialize");
-        let mut bytes = [0u8; 32];
+        let mut bytes = [0u8; G1_SIZE];
         bytes.copy_from_slice(&v);
         Self(bytes)
     }
@@ -72,7 +77,7 @@ impl serde::Serialize for G1 {
     where
         S: Serializer,
     {
-        let mut tup = serializer.serialize_tuple(32)?;
+        let mut tup = serializer.serialize_tuple(G1_SIZE)?;
         for b in &self.0 {
             tup.serialize_element(b)?;
         }
@@ -89,31 +94,31 @@ impl<'de> serde::Deserialize<'de> for G1 {
         impl<'de> Visitor<'de> for G1Visitor {
             type Value = G1;
             fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                write!(f, "32-byte compressed G1")
+                write!(f, "{}-byte compressed G1", G1_SIZE)
             }
             fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
             where
                 A: SeqAccess<'de>,
             {
-                let mut arr = [0u8; 32];
+                let mut arr = [0u8; G1_SIZE];
                 for (i, byte) in arr.iter_mut().enumerate() {
                     *byte = seq.next_element::<u8>()?.ok_or_else(|| A::Error::invalid_length(i, &self))?;
                 }
                 Ok(G1(arr))
             }
         }
-        deserializer.deserialize_tuple(32, G1Visitor)
+        deserializer.deserialize_tuple(G1_SIZE, G1Visitor)
     }
 }
 
 /// Compressed G2 point (64-byte canonical serialization from ark-serialize).
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(transparent)]
-pub struct G2(pub [u8; 64]);
+pub struct G2(pub [u8; G2_SIZE]);
 
 impl Default for G2 {
     fn default() -> Self {
-        Self([0u8; 64])
+        Self([0u8; G2_SIZE])
     }
 }
 
@@ -125,10 +130,10 @@ impl core::fmt::Debug for G2 {
 
 impl G2 {
     pub fn from_affine(p: &G2Affine) -> Self {
-        let mut v = Vec::with_capacity(64);
+        let mut v = Vec::with_capacity(G2_SIZE);
         p.serialize_compressed(&mut v).expect("serialize");
-        let mut bytes = [0u8; 64];
-        bytes.copy_from_slice(&v[..64]);
+        let mut bytes = [0u8; G2_SIZE];
+        bytes.copy_from_slice(&v[..G2_SIZE]);
         Self(bytes)
     }
 
@@ -144,7 +149,7 @@ impl serde::Serialize for G2 {
     where
         S: Serializer,
     {
-        let mut tup = serializer.serialize_tuple(64)?;
+        let mut tup = serializer.serialize_tuple(G2_SIZE)?;
         for b in &self.0 {
             tup.serialize_element(b)?;
         }
@@ -161,20 +166,20 @@ impl<'de> serde::Deserialize<'de> for G2 {
         impl<'de> Visitor<'de> for G2Visitor {
             type Value = G2;
             fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                write!(f, "64-byte compressed G2")
+                write!(f, "{}-byte compressed G2", G2_SIZE)
             }
             fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
             where
                 A: SeqAccess<'de>,
             {
-                let mut arr = [0u8; 64];
+                let mut arr = [0u8; G2_SIZE];
                 for (i, byte) in arr.iter_mut().enumerate() {
                     *byte = seq.next_element::<u8>()?.ok_or_else(|| A::Error::invalid_length(i, &self))?;
                 }
                 Ok(G2(arr))
             }
         }
-        deserializer.deserialize_tuple(64, G2Visitor)
+        deserializer.deserialize_tuple(G2_SIZE, G2Visitor)
     }
 }
 
@@ -204,8 +209,8 @@ impl SecretKey {
 
     /// Derive the public key (G₁ point) from this secret key.
     ///
-    /// Returns the compressed 32-byte representation of `sk * G₁_generator`.
-    pub fn public_key(&self ) -> [u8; 32] {
+    /// Returns the compressed G1_SIZE-byte representation of `sk * G₁_generator`.
+    pub fn public_key(&self ) -> [u8; G1_SIZE] {
         G1::from_affine(&(G1Projective::generator() * self.0).into_affine()).0
     }
 }

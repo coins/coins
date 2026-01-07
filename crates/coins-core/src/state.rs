@@ -12,6 +12,9 @@ const TREE_ACCOUNTS: &str = "accounts";     // id  -> Account (bincode)
 const TREE_PK_INDEX: &str = "pk_index";     // pk_bytes -> id (u32 LE)
 const KEY_LAST_ID: &[u8] = b"last_id";      // stored in accounts tree
 
+/// Size of AccountId in bytes (u32)
+const ACCOUNT_ID_SIZE: usize = std::mem::size_of::<u32>();
+
 #[derive(Debug, Error)]
 pub enum StateError {
     #[error("database error: {0}")]
@@ -55,7 +58,8 @@ impl State {
     fn next_id(&self) -> Result<AccountId, StateError> {
         let id = match self.accounts.get(KEY_LAST_ID)? {
             Some(bytes) => {
-                let mut arr = [0u8;4]; arr.copy_from_slice(&bytes);
+                let mut arr = [0u8; ACCOUNT_ID_SIZE];
+                arr.copy_from_slice(&bytes);
                 u32::from_le_bytes(arr) + 1
             },
             None => 0,
@@ -75,7 +79,8 @@ impl State {
     /// Fetch account by public key.
     pub fn get_by_pk(&self, pk: &G1) -> Result<Option<Account>, StateError> {
         if let Some(id_bytes) = self.pk_index.get(pk.0)? {
-            let mut arr=[0u8;4]; arr.copy_from_slice(&id_bytes);
+            let mut arr = [0u8; ACCOUNT_ID_SIZE];
+            arr.copy_from_slice(&id_bytes);
             self.get_account(AccountId(u32::from_le_bytes(arr)))
         } else { Ok(None) }
     }

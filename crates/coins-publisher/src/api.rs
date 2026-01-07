@@ -4,7 +4,7 @@ use std::sync::{Arc,Mutex};
 use axum::response::IntoResponse;
 use axum::http::StatusCode;
 use coins_types::Transaction;
-use coins_crypto::{G1, G2};
+use coins_crypto::{G1, G2, G1_SIZE, G2_SIZE};
 use coins_core::State as CoinState;
 use coins_indexer::Indexer;
 use hex;
@@ -22,7 +22,7 @@ async fn get_account_by_pk(Path(pk_hex): Path<String>, State(app_state): State<A
         Err(_) => return (StatusCode::BAD_REQUEST, "invalid hex public key").into_response(),
     };
 
-    let pk_arr: [u8; 32] = match pk_bytes.try_into() {
+    let pk_arr: [u8; G1_SIZE] = match pk_bytes.try_into() {
         Ok(arr) => arr,
         Err(_) => return (StatusCode::BAD_REQUEST, "invalid public key length").into_response(),
     };
@@ -57,7 +57,7 @@ async fn submit_tx(State(state): State<AppState>, Json(body): Json<TxSubmission>
         Err(_) => return (StatusCode::BAD_REQUEST, "invalid hex in signature").into_response(),
     };
 
-    let sig_arr: [u8; 64] = match sig_bytes.try_into() {
+    let sig_arr: [u8; G2_SIZE] = match sig_bytes.try_into() {
         Ok(arr) => arr,
         Err(_) => return (StatusCode::BAD_REQUEST, "invalid signature length").into_response(),
     };

@@ -14,6 +14,18 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+// RPC backend configuration constants
+/// Poll interval during wallet rescan (milliseconds)
+const RESCAN_POLL_INTERVAL_MS: u64 = 100;
+/// Minimum confirmations for UTXO queries
+const MIN_UTXO_CONFIRMATIONS: usize = 1;
+/// Maximum transactions to query in listtransactions
+const MAX_TRANSACTION_HISTORY: i64 = 100_000;
+/// Maximum blocks to scan when searching for spending TX
+const MAX_SPENDING_TX_SCAN_BLOCKS: u32 = 100;
+/// Getblock verbosity level for full transaction data
+const GETBLOCK_VERBOSITY_FULL: u8 = 2;
+
 /// A UTXO with confirmation status
 #[derive(Debug, Clone)]
 pub struct Utxo {
@@ -182,7 +194,7 @@ impl RpcBackend {
                             tracing::debug!(progress = format!("{:.2}%", progress * 100.0), "Rescan progress");
                         }
                         // Wait a bit before checking again
-                        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                        tokio::time::sleep(tokio::time::Duration::from_millis(RESCAN_POLL_INTERVAL_MS)).await;
                         continue;
                     }
                 }
@@ -292,7 +304,7 @@ impl RpcBackend {
                     if let Some(progress) = scanning.get("progress").and_then(|v| v.as_f64()) {
                         tracing::debug!(progress = format!("{:.2}%", progress * 100.0), "Rescan progress");
                     }
-                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                    tokio::time::sleep(tokio::time::Duration::from_millis(RESCAN_POLL_INTERVAL_MS)).await;
                     continue;
                 }
             }
@@ -319,11 +331,11 @@ impl RpcBackend {
         let addresses_vec = vec![address];
         let utxos = wallet_rpc
             .list_unspent(
-                Some(1),                      // min_conf = 1 (confirmed only)
-                None,                         // max_conf (unlimited)
-                Some(&addresses_vec),         // filter by address
-                None,                         // include_unsafe
-                None,                         // query_options
+                Some(MIN_UTXO_CONFIRMATIONS),  // min_conf (confirmed only)
+                None,                          // max_conf (unlimited)
+                Some(&addresses_vec),          // filter by address
+                None,                          // include_unsafe
+                None,                          // query_options
             )
             .with_context(|| format!("Failed to list unspent for {}", address))?;
 
@@ -332,7 +344,7 @@ impl RpcBackend {
             .map(|u| Utxo {
                 outpoint: OutPoint::new(u.txid, u.vout),
                 value: u.amount,
-                confirmed: u.confirmations >= 1,
+                confirmed: u.confirmations >= MIN_UTXO_CONFIRMATIONS as u32,
             })
             .collect())
     }
@@ -463,7 +475,7 @@ impl RpcBackend {
         // Get all transactions for this address using listtransactions
         // Label is "publisher" from our import
         let result: serde_json::Value = wallet_rpc
-            .call("listtransactions", &[json!("*"), json!(100000), json!(0), json!(true)])
+            .call("listtransactions", &[json!("*"), json!(MAX_TRANSACTION_HISTORY), json!(0), json!(true)])
             .context("Failed to list transactions")?;
 
         let mut txs = Vec::new();
@@ -558,8 +570,8 @@ impl RpcBackend {
                         .and_then(|v| v.as_u64())
                         .unwrap_or(0) as u32;
 
-                    // Scan from start_height to chain tip (or up to 100 blocks ahead max)
-                    let max_scan_height = std::cmp::min(chain_height, start_height + 100);
+                    // Scan from start_height to chain tip (or up to MAX_SPENDING_TX_SCAN_BLOCKS ahead max)
+                    let max_scan_height = std::cmp::min(chain_height, start_height + MAX_SPENDING_TX_SCAN_BLOCKS);
 
                     for scan_height in start_height..=max_scan_height {
                         // Get block hash at this height
@@ -569,7 +581,7 @@ impl RpcBackend {
                         if let Ok(blockhash) = blockhash_result {
                             // Get block with all transactions
                             let block_result: Result<serde_json::Value, _> =
-                                self.rpc.call("getblock", &[json!(blockhash), json!(2)]); // verbosity=2
+                                self.rpc.call("getblock", &[json!(blockhash), json!(GETBLOCK_VERBOSITY_FULL)]);
 
                             if let Ok(block_data) = block_result {
                                 // Scan all transactions in this block
