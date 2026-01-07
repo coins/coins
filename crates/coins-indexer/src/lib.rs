@@ -30,7 +30,7 @@ pub struct ChainBlock {
 
 impl ChainBlock {
     /// Serialize ChainBlock to bytes
-    fn serialize(&self) -> Vec<u8> {
+    fn serialize(&self, state: &State) -> Vec<u8> {
         let mut v = Vec::new();
         // Txid (32 bytes)
         v.extend_from_slice(self.btc_txid.as_ref());
@@ -38,7 +38,7 @@ impl ChainBlock {
         v.extend_from_slice(&self.btc_height.to_le_bytes());
         v.extend_from_slice(&self.btc_confirmations.to_le_bytes());
         // Sub-block (variable length)
-        let sub_block_bytes = self.sub_block.serialize();
+        let sub_block_bytes = self.sub_block.serialize(state);
         v.extend_from_slice(&(sub_block_bytes.len() as u32).to_le_bytes());
         v.extend_from_slice(&sub_block_bytes);
         // State root (32 bytes)
@@ -47,7 +47,7 @@ impl ChainBlock {
     }
 
     /// Deserialize ChainBlock from bytes
-    fn deserialize(data: &[u8]) -> Option<Self> {
+    fn deserialize(data: &[u8], state: &State) -> Option<Self> {
         if data.len() < 80 { return None; } // 32 + 12 + 4 + 32 minimum
 
         let txid_bytes: [u8; 32] = data[0..32].try_into().ok()?;
@@ -59,7 +59,7 @@ impl ChainBlock {
         let sub_block_len = u32::from_le_bytes(data[40..44].try_into().ok()?) as usize;
         if data.len() < 44 + sub_block_len + 32 { return None; }
 
-        let sub_block = SubBlock::deserialize(&data[44..44 + sub_block_len])?;
+        let sub_block = SubBlock::deserialize(&data[44..44 + sub_block_len], state)?;
 
         let state_root: [u8; 32] = data[44 + sub_block_len..44 + sub_block_len + 32]
             .try_into()
@@ -142,7 +142,7 @@ impl Indexer {
         };
 
         // Serialize and store
-        let block_bytes = chain_block.serialize();
+        let block_bytes = chain_block.serialize(&self.state);
 
         self.blocks.insert(&btc_height.to_le_bytes(), block_bytes)?;
 
@@ -162,7 +162,7 @@ impl Indexer {
             let (key, value) = item?;
 
             let height = u32::from_le_bytes(key.as_ref().try_into().unwrap());
-            let mut chain_block = ChainBlock::deserialize(&value)
+            let mut chain_block = ChainBlock::deserialize(&value, &self.state)
                 .ok_or(IndexerError::Serialization)?;
 
             if current_btc_height >= height {
@@ -171,7 +171,7 @@ impl Indexer {
                     chain_block.btc_confirmations = new_confirmations;
 
                     // Update in database
-                    let updated_bytes = chain_block.serialize();
+                    let updated_bytes = chain_block.serialize(&self.state);
                     self.blocks.insert(&key, updated_bytes)?;
                 }
             }
@@ -186,7 +186,7 @@ impl Indexer {
 
         for item in self.blocks.iter() {
             let (_, value) = item?;
-            let chain_block = ChainBlock::deserialize(&value)
+            let chain_block = ChainBlock::deserialize(&value, &self.state)
                 .ok_or(IndexerError::Serialization)?;
 
             if chain_block.btc_confirmations >= FINALITY_DEPTH {
@@ -203,7 +203,7 @@ impl Indexer {
         let key = height.to_le_bytes();
 
         if let Some(value) = self.blocks.get(&key)? {
-            let chain_block = ChainBlock::deserialize(&value)
+            let chain_block = ChainBlock::deserialize(&value, &self.state)
                 .ok_or(IndexerError::Serialization)?;
             Ok(Some(chain_block))
         } else {
@@ -215,7 +215,7 @@ impl Indexer {
     pub fn get_latest_block(&self) -> Result<Option<ChainBlock>, IndexerError> {
         if let Some(item) = self.blocks.iter().last() {
             let (_, value) = item?;
-            let chain_block = ChainBlock::deserialize(&value)
+            let chain_block = ChainBlock::deserialize(&value, &self.state)
                 .ok_or(IndexerError::Serialization)?;
             Ok(Some(chain_block))
         } else {
@@ -257,7 +257,7 @@ impl Indexer {
 
         for item in self.blocks.iter() {
             let (_, value) = item?;
-            let chain_block = ChainBlock::deserialize(&value)
+            let chain_block = ChainBlock::deserialize(&value, &self.state)
                 .ok_or(IndexerError::Serialization)?;
 
             // Only include finalized blocks
