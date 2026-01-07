@@ -242,7 +242,7 @@ echo -e "${GREEN}✓ Node 1 running (PID: $NODE1_PID, API: 8080)${NC}"
 echo -e "${YELLOW}[6/8] Submitting transactions to Node 1...${NC}"
 
 # Submit test transactions using submit_txs example
-# (Uses Alice and Bob keys from test-data/keys/)
+# (Uses Alice and Bob keys from .data/test-keys/)
 BOB_PK="5e74734c69fbb261c4c936d375df870f2a6af117f811a5c88f8c3328f291c012"
 
 # Submit transaction
