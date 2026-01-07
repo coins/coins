@@ -3,6 +3,9 @@
 
 set -e
 
+# Increase file descriptor limit
+ulimit -n 2048 2>/dev/null || true
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -36,6 +39,7 @@ trap cleanup EXIT
 test_format() {
     local format=$1
     local test_name=$2
+    local api_port=$3
     local config_path="/tmp/format_test/${format}.toml"
     local state_db="/tmp/format_test/${format}_state.db"
     local indexer_db="/tmp/format_test/${format}_indexer.db"
@@ -58,7 +62,7 @@ network = "regtest"
 genesis_pk = "43878a2a65c154d604cbe7d974d5dad1c63ce4dc2a68f697c45a4a3ef9ab8a21"
 genesis_balance = 1000000000000
 
-api_port = 9090
+api_port = $api_port
 state_db = "$state_db"
 indexer_db = "$indexer_db"
 bls_keyfile = "$bls_keyfile"
@@ -71,12 +75,36 @@ EOF
     # Setup test accounts
     cargo run --release --example setup_test_accounts "$state_db" &>/dev/null
 
-    # Start publisher
+    # Start publisher BRIEFLY to get fee address
+    echo -e "  ${BLUE}→ Starting publisher briefly to get fee address...${NC}"
+    ./target/release/coins-publisher --config "$config_path" > "$log_file" 2>&1 &
+    local TEMP_PID=$!
+    sleep 5
+
+    # Get fee address
+    FEE_ADDR=$(grep -E "(Publisher|Aggregator) initialized" "$log_file" | grep -o 'bcrt1q[a-z0-9]*' | head -1)
+    if [ -z "$FEE_ADDR" ]; then
+        echo -e "${RED}✗ Could not determine fee address${NC}"
+        kill $TEMP_PID 2>/dev/null || true
+        return 1
+    fi
+
+    echo -e "  ${BLUE}→ Fee address: $FEE_ADDR${NC}"
+
+    # Stop temporary publisher
+    kill $TEMP_PID 2>/dev/null || true
+    sleep 2
+
+    # Fund fee address BEFORE starting real publisher
+    echo -e "  ${BLUE}→ Funding fee address...${NC}"
+    bitcoin-cli -regtest -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_PORT generatetoaddress 50 "$FEE_ADDR" &>/dev/null
+    bitcoin-cli -regtest -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_PORT -rpcwallet=test-wallet sendtoaddress "$FEE_ADDR" 10 &>/dev/null
+    bitcoin-cli -regtest -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_PORT generatetoaddress 1 "$FEE_ADDR" &>/dev/null
+
+    # Now start the real publisher
+    echo -e "  ${BLUE}→ Starting publisher for test...${NC}"
     ./target/release/coins-publisher --config "$config_path" > "$log_file" 2>&1 &
     local PID=$!
-
-    # Wait for initialization
-    echo -e "  ${BLUE}→ Waiting for publisher to initialize...${NC}"
     sleep 8
 
     if ! kill -0 $PID 2>/dev/null; then
@@ -84,18 +112,6 @@ EOF
         tail -30 "$log_file"
         return 1
     fi
-
-    # Get fee address and fund it
-    FEE_ADDR=$(grep -E "(Publisher|Aggregator) initialized" "$log_file" | grep -o 'bcrt1q[a-z0-9]*' | head -1)
-    if [ -z "$FEE_ADDR" ]; then
-        echo -e "${RED}✗ Could not determine fee address${NC}"
-        kill $PID 2>/dev/null || true
-        return 1
-    fi
-
-    echo -e "  ${BLUE}→ Fee address: $FEE_ADDR${NC}"
-    echo -e "  ${BLUE}→ Funding fee address...${NC}"
-    bitcoin-cli -regtest -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_PORT generatetoaddress 20 "$FEE_ADDR" &>/dev/null
 
     # Submit test transactions
     echo -e "  ${BLUE}→ Submitting test transactions...${NC}"
@@ -227,27 +243,28 @@ if [ -z "$SUBCHAIN_ADDR" ]; then
     exit 1
 fi
 
-bitcoin-cli -regtest -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_PORT generatetoaddress 10 "$SUBCHAIN_ADDR" &>/dev/null
-bitcoin-cli -regtest -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_PORT generatetoaddress 95 "$ADDR" &>/dev/null
+bitcoin-cli -regtest -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_PORT generatetoaddress 101 "$SUBCHAIN_ADDR" &>/dev/null
 
-UTXO_DATA=$(bitcoin-cli -regtest -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_PORT scantxoutset start "[\"addr($SUBCHAIN_ADDR)\"]" | jq -r '.unspents[0] | "\(.txid):\(.vout)"')
-UTXO_TXID=$(echo "$UTXO_DATA" | cut -d: -f1)
-UTXO_VOUT=$(echo "$UTXO_DATA" | cut -d: -f2)
+# Get UTXO with both outpoint and value
+UTXO_INFO=$(bitcoin-cli -regtest -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_PORT scantxoutset start "[\"addr($SUBCHAIN_ADDR)\"]" | jq -r '.unspents[0] | "\(.txid):\(.vout) \((.amount*100000000)|floor)"')
+UTXO_OUTPOINT=$(echo "$UTXO_INFO" | awk '{print $1}')
+UTXO_VALUE=$(echo "$UTXO_INFO" | awk '{print $2}')
 
-if [ -z "$UTXO_TXID" ] || [ "$UTXO_TXID" = "null" ]; then
+if [ -z "$UTXO_OUTPOINT" ] || [ "$UTXO_OUTPOINT" = "null:null" ]; then
     echo -e "${RED}✗ No mature UTXO found${NC}"
     exit 1
 fi
 
-(echo "$UTXO_TXID"; echo "$UTXO_VOUT") | ./target/release/subchain-setup --config /tmp/subchain_config.toml &>/dev/null
+echo "  ${BLUE}→ Found UTXO: $UTXO_OUTPOINT ($UTXO_VALUE sats)${NC}"
+printf "%s\n%s\n" "$UTXO_OUTPOINT" "$UTXO_VALUE" | ./target/release/subchain-setup --config /tmp/subchain_config.toml &>/dev/null
 echo -e "${GREEN}✓ Subchain generated (100 transactions)${NC}"
 
-# Test each format
+# Test each format (both use port 8080 since submit_txs is hardcoded to that port)
 echo -e "${YELLOW}[4/6] Testing OP_RETURN format...${NC}"
-test_format "op_return" "OP_RETURN" || exit 1
+test_format "op_return" "OP_RETURN" 8080 || exit 1
 
 echo -e "${YELLOW}[5/6] Testing Taproot annex format...${NC}"
-test_format "taproot_annex" "Taproot Annex" || exit 1
+test_format "taproot_annex" "Taproot Annex" 8080 || exit 1
 
 # Test IBD with mixed formats
 echo -e "${YELLOW}[6/6] Testing IBD with mixed formats...${NC}"
