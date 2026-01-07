@@ -4,7 +4,6 @@ use bitcoin::Network;
 use clap::Parser;
 use coins_aggregator::engine::Engine;
 use coins_aggregator::api::{router, AppState};
-use coins_aggregator::blockchain_backend::BlockchainBackend;
 use coins_aggregator::rpc_backend::RpcBackend;
 use coins_crypto::G1;
 use coins_core::State;
@@ -128,7 +127,7 @@ async fn main() -> anyhow::Result<()> {
     });
 
     // ===== BACKEND SELECTION =====
-    let backend: Arc<dyn BlockchainBackend> = match config.network {
+    let backend: Arc<RpcBackend> = match config.network {
         Network::Regtest => {
             // Validate RPC config exists
             let rpc_url = config.rpc_url
@@ -151,7 +150,7 @@ async fn main() -> anyhow::Result<()> {
                 config.rpc_wallet,
             )?;
 
-            Arc::new(rpc_backend) as Arc<dyn BlockchainBackend>
+            Arc::new(rpc_backend)
         }
 
         other => {

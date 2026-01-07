@@ -6,7 +6,7 @@ use bitcoin::secp256k1::{Secp256k1, SecretKey};
 use coins_subchain::Subchain;
 use std::str::FromStr;
 use crate::api::AppState;
-use crate::blockchain_backend::BlockchainBackend;
+use crate::rpc_backend::RpcBackend;
 use coins_types::SubBlock;
 use coins_crypto::{G1, SecretKey as BLSSecretKey, aggregate};
 use coins_core::validate_subblock;
@@ -23,7 +23,7 @@ pub struct FeeUtxo {
 }
 
 pub struct Engine {
-    pub backend: Arc<dyn BlockchainBackend>,
+    pub backend: Arc<RpcBackend>,
     pub sc: Subchain,
     pub fee_sk: SecretKey,
     pub fee_addr: Address,
@@ -39,7 +39,7 @@ pub struct Engine {
 
 impl Engine {
     /// Initialize from backend, subchain path, optional fee key path.
-    pub async fn new(backend: Arc<dyn BlockchainBackend>, subchain_path: PathBuf, network: Network, key_file: Option<PathBuf>, bls_key_file: PathBuf, app_state: AppState) -> Result<Self> {
+    pub async fn new(backend: Arc<RpcBackend>, subchain_path: PathBuf, network: Network, key_file: Option<PathBuf>, bls_key_file: PathBuf, app_state: AppState) -> Result<Self> {
         // ---------- load subchain ----------
         let sc_bytes = std::fs::read(&subchain_path)?;
         let sc = Subchain::decode(&sc_bytes).ok_or_else(|| anyhow::anyhow!("invalid subchain file"))?;

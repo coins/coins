@@ -568,7 +568,6 @@ dependencies = [
  "ark-ec",
  "ark-ff",
  "ark-serialize",
- "async-trait",
  "axum",
  "bincode",
  "bitcoin",

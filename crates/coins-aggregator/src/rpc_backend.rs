@@ -6,15 +6,28 @@
 //! - Direct transaction broadcasting with `sendrawtransaction`
 //! - Package relay support with `submitpackage`
 
-use crate::blockchain_backend::{BlockchainBackend, OutputStatus, Utxo};
 use anyhow::{anyhow, Context, Result};
-use async_trait::async_trait;
-use bitcoin::{Address, OutPoint, Transaction, Txid};
+use bitcoin::{Address, Amount, OutPoint, Transaction, Txid};
 use bitcoincore_rpc::{Auth, Client as RpcClient, RpcApi};
 use serde_json::json;
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+
+/// A UTXO with confirmation status
+#[derive(Debug, Clone)]
+pub struct Utxo {
+    pub outpoint: OutPoint,
+    pub value: Amount,
+    pub confirmed: bool,
+}
+
+/// Output status indicating if spent and confirmation count
+#[derive(Debug, Clone)]
+pub struct OutputStatus {
+    pub spent: bool,
+    pub confirmations: u32,
+}
 
 /// Bitcoin RPC backend using wallet API
 pub struct RpcBackend {
@@ -199,9 +212,8 @@ impl RpcBackend {
     }
 }
 
-#[async_trait]
-impl BlockchainBackend for RpcBackend {
-    async fn get_address_utxos(&self, address: &Address) -> Result<Vec<Utxo>> {
+impl RpcBackend {
+    pub async fn get_address_utxos(&self, address: &Address) -> Result<Vec<Utxo>> {
         // Ensure address is imported
         self.ensure_address_imported(address).await?;
 
@@ -228,7 +240,7 @@ impl BlockchainBackend for RpcBackend {
             .collect())
     }
 
-    async fn get_output_status(&self, txid: &Txid, vout: u32) -> Result<Option<OutputStatus>> {
+    pub async fn get_output_status(&self, txid: &Txid, vout: u32) -> Result<Option<OutputStatus>> {
         // First check if transaction exists at all
         let tx_exists = matches!(
             self.rpc.call::<Option<String>>("getrawtransaction", &[json!(txid.to_string())]),
@@ -254,14 +266,14 @@ impl BlockchainBackend for RpcBackend {
         }
     }
 
-    async fn broadcast(&self, tx: &Transaction) -> Result<()> {
+    pub async fn broadcast(&self, tx: &Transaction) -> Result<()> {
         self.rpc
             .send_raw_transaction(tx)
             .with_context(|| "Failed to broadcast transaction")?;
         Ok(())
     }
 
-    async fn broadcast_package(&self, txs: &[Transaction]) -> Result<()> {
+    pub async fn broadcast_package(&self, txs: &[Transaction]) -> Result<()> {
         // Use submitpackage RPC for package relay (Bitcoin Core 24+)
         // submitpackage validates the package as a whole (CPFP), so individual
         // transactions may have 0 fees as long as the package fee rate is sufficient
@@ -344,7 +356,7 @@ impl BlockchainBackend for RpcBackend {
         Ok(())
     }
 
-    async fn get_address_transactions(&self, address: &Address) -> Result<Vec<(Txid, u32)>> {
+    pub async fn get_address_transactions(&self, address: &Address) -> Result<Vec<(Txid, u32)>> {
         // Ensure address is imported with full blockchain rescan
         // This is needed for IBD to find historical transactions
         self.ensure_address_imported_with_rescan(address).await?;
@@ -388,7 +400,7 @@ impl BlockchainBackend for RpcBackend {
         Ok(txs)
     }
 
-    async fn get_transaction(&self, txid: &Txid) -> Result<Option<Transaction>> {
+    pub async fn get_transaction(&self, txid: &Txid) -> Result<Option<Transaction>> {
         // Use base RPC (doesn't need wallet)
         let result: Result<String, _> = self.rpc.call("getrawtransaction", &[json!(txid.to_string())]);
 
@@ -405,7 +417,7 @@ impl BlockchainBackend for RpcBackend {
         }
     }
 
-    async fn get_spending_tx(&self, outpoint: &OutPoint) -> Result<Option<(Txid, Transaction, u32)>> {
+    pub async fn get_spending_tx(&self, outpoint: &OutPoint) -> Result<Option<(Txid, Transaction, u32)>> {
         // Use gettxout with verbose to check if spent
         let result: Result<serde_json::Value, _> = self.rpc.call(
             "gettxout",
