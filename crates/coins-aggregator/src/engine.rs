@@ -11,9 +11,8 @@ use coins_types::SubBlock;
 use coins_crypto::{G1, SecretKey as BLSSecretKey, aggregate};
 use coins_core::validate_subblock;
 use coins_subchain::op_return::{publish_op_return, compress};
-use ark_ff::PrimeField;
+use ark_ff::{PrimeField, BigInteger};
 use ark_bn254::Fr;
-use ark_serialize::CanonicalSerialize;
 
 /// Wrapper for esplora-client UTXO (txid,vout,value)
 #[derive(Debug, Clone)]
@@ -76,10 +75,9 @@ impl Engine {
             BLSSecretKey(fr)
         } else {
             let sk = BLSSecretKey::random();
-            // Save it for next time
-            let mut bytes = Vec::new();
-            sk.0.serialize_uncompressed(&mut bytes).expect("serialize Fr");
-            std::fs::write(&bls_key_file, hex::encode(&bytes))?;
+            // Save it for next time (using into_bigint().to_bytes_le() for consistency with client)
+            let sk_bytes = sk.0.into_bigint().to_bytes_le();
+            std::fs::write(&bls_key_file, hex::encode(&sk_bytes))?;
             sk
         };
         let aggregator_pk = G1(aggregator_sk.public_key());

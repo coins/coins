@@ -1,25 +1,34 @@
 //! Cryptography layer – minimal-public-key BLS on the BN-254 curve.
 //!
-//! • Public key: G₁ point (32-byte compressed)
-//! • Signature : σ = H(msg)^{sk} ∈ G₂ (64-byte compressed)
+//! • Public key: G₁ point (32-byte arkworks compressed format)
+//! • Signature : σ = H(msg)^{sk} ∈ G₂ (64-byte arkworks compressed format)
 //!
 //! Verify single:   e(G₁_gen, σ) == e(P, H(m))
 //! Verify aggregate: e(G₁_gen, Σ) == ∏ e(Pᵢ, H(mᵢ))
 //!
-//! WARNING This is a **demo-quality** implementation!  Hash-to-curve is a very
-//! simplified Blake2s-into-scalar approach and does NOT follow RFC 9380.  The
-//! compression format is ad-hoc (x-only + sign bit).  Do NOT use in production.
+//! ## Implementation Details
+//!
+//! **Hash-to-Curve:** RFC 9380 compliant using SVDW (Shallue-van de Woestijne) method
+//! with SHA-256 via the `bn254_hash2curve` crate (compatible with gnark-crypto).
+//!
+//! **Compression:** Uses arkworks canonical compressed serialization (not RFC 9380 format).
+//! G1 points are 32 bytes, G2 points are 64 bytes.
+//!
+//! **Security:** BN-254 provides ~100-bit security (post-exTNFS). Sufficient for most
+//! applications. Chosen over BLS12-381 for smaller keys (32B vs 48B) and signatures (64B vs 96B),
+//! and better ecosystem compatibility (Ethereum precompiles, zkSNARKs).
 
 use ark_bn254::{Bn254, Fr, G1Affine, G1Projective, G2Affine, G2Projective};
 use ark_ec::{pairing::Pairing, CurveGroup, Group};
-use ark_ff::{PrimeField, UniformRand, Zero, One};
-use blake2::{Blake2s256, Digest};
+use ark_ff::{UniformRand, Zero, One};
 use rand::rngs::OsRng;
 use ark_serialize::CanonicalSerialize;
 use std::io::Cursor;
 use serde::{ser::{Serializer, SerializeTuple}, de::{Deserializer, Visitor, SeqAccess, Error as DeError}};
+use bn254_hash2curve::hash2g2::HashToG2;
 
-const DST: &[u8] = b"EC-TOKEN"; // domain-sep tag
+// RFC 9380 compliant domain separation tag for BN254 G2
+const DST: &[u8] = b"QUUX-V01-CS02-with-BN254G2_XMD:SHA-256_SVDW_RO_";
 
 // -----------------------------------------------------------------------------
 // Wrapper types (compressed on the wire)
@@ -87,8 +96,8 @@ impl<'de> serde::Deserialize<'de> for G1 {
                 A: SeqAccess<'de>,
             {
                 let mut arr = [0u8; 32];
-                for i in 0..32 {
-                    arr[i] = seq.next_element::<u8>()?.ok_or_else(|| A::Error::invalid_length(i, &self))?;
+                for (i, byte) in arr.iter_mut().enumerate() {
+                    *byte = seq.next_element::<u8>()?.ok_or_else(|| A::Error::invalid_length(i, &self))?;
                 }
                 Ok(G1(arr))
             }
@@ -159,8 +168,8 @@ impl<'de> serde::Deserialize<'de> for G2 {
                 A: SeqAccess<'de>,
             {
                 let mut arr = [0u8; 64];
-                for i in 0..64 {
-                    arr[i] = seq.next_element::<u8>()?.ok_or_else(|| A::Error::invalid_length(i, &self))?;
+                for (i, byte) in arr.iter_mut().enumerate() {
+                    *byte = seq.next_element::<u8>()?.ok_or_else(|| A::Error::invalid_length(i, &self))?;
                 }
                 Ok(G2(arr))
             }
@@ -174,51 +183,81 @@ impl<'de> serde::Deserialize<'de> for G2 {
 // -----------------------------------------------------------------------------
 
 /// Secret key (scalar in Fr).
+///
+/// BLS secret keys are field elements in Fr (the scalar field of BN-254).
+/// They should be generated securely using a cryptographic RNG.
+///
+/// Serialization format: 32-byte little-endian representation via `into_bigint().to_bytes_le()`.
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub struct SecretKey(pub Fr);
 
-/// Generate a new random secret key.
+/// Generate a new random secret key using the provided RNG.
 pub fn rand_sk(rng: &mut OsRng) -> SecretKey {
     SecretKey(Fr::rand(rng))
 }
 
 impl SecretKey {
+    /// Generate a new random secret key using `OsRng`.
     pub fn random() -> Self {
         rand_sk(&mut OsRng)
     }
 
+    /// Derive the public key (G₁ point) from this secret key.
+    ///
+    /// Returns the compressed 32-byte representation of `sk * G₁_generator`.
     pub fn public_key(&self ) -> [u8; 32] {
         G1::from_affine(&(G1Projective::generator() * self.0).into_affine()).0
     }
 }
 
 // -----------------------------------------------------------------------------
-// Hash-to-curve (very simplified)
+// Hash-to-curve (RFC 9380 SVDW compliant)
 // -----------------------------------------------------------------------------
 
+/// Hash a message to a G₂ curve point using RFC 9380 SVDW method.
+///
+/// Uses the Shallue-van de Woestijne (SVDW) algorithm with SHA-256 and the
+/// standard RFC 9380 domain separation tag for BN254 G2.
+///
+/// This implementation is compatible with gnark-crypto and provides uniform
+/// distribution over the G₂ curve with proper cofactor clearing.
 fn hash_to_g2(msg: &[u8]) -> G2Projective {
-    // Blake2s → scalar mod r
-    let mut hasher = Blake2s256::new();
-    hasher.update(DST);
-    hasher.update(msg);
-    let digest = hasher.finalize();
-
-    let mut tmp = [0u8; 32];
-    tmp.copy_from_slice(&digest);
-    let scalar = Fr::from_le_bytes_mod_order(&tmp);
-    G2Projective::generator() * scalar
+    // Use RFC 9380 compliant hash-to-curve implementation
+    // Returns G2Affine from bn254_hash2curve, convert to G2Projective
+    let g2_affine = HashToG2(msg, DST);
+    g2_affine.into()
 }
 
 // -----------------------------------------------------------------------------
 // BLS primitives
 // -----------------------------------------------------------------------------
 
-/// σ = H(m)^{sk}
+/// Sign a message using BLS signatures.
+///
+/// Computes σ = H(msg)^{sk} where H is the RFC 9380 hash-to-curve function.
+///
+/// # Arguments
+/// * `sk` - The secret key
+/// * `msg` - The message bytes to sign
+///
+/// # Returns
+/// A 64-byte compressed G₂ signature
 pub fn sign(sk: &SecretKey, msg: &[u8]) -> G2 {
     let sig = hash_to_g2(msg) * sk.0;
     G2::from_affine(&sig.into_affine())
 }
 
+/// Verify a single BLS signature.
+///
+/// Checks that e(G₁_gen, σ) == e(P, H(m)) using the BN-254 pairing.
+///
+/// # Arguments
+/// * `pk` - The public key (compressed G₁ point)
+/// * `msg` - The message that was signed
+/// * `sig` - The signature to verify
+///
+/// # Returns
+/// `true` if the signature is valid, `false` otherwise
 pub fn verify(pk: &G1, msg: &[u8], sig: &G2) -> bool {
     let pk_affine = match pk.to_affine() {
         Some(p) => p,
@@ -234,7 +273,15 @@ pub fn verify(pk: &G1, msg: &[u8], sig: &G2) -> bool {
         == Bn254::pairing(pk_affine, h_affine)
 }
 
-/// Σ = Σᵢ σᵢ
+/// Aggregate multiple BLS signatures into a single signature.
+///
+/// Computes Σ = σ₁ + σ₂ + ... + σₙ (point addition in G₂).
+///
+/// # Arguments
+/// * `sigs` - Iterator of signatures to aggregate
+///
+/// # Returns
+/// A single aggregated signature that can be verified against multiple (pk, msg) pairs
 pub fn aggregate<'a, I>(sigs: I) -> G2
 where
     I: IntoIterator<Item = &'a G2>,
@@ -248,6 +295,20 @@ where
     G2::from_affine(&acc.into_affine())
 }
 
+/// Verify an aggregate BLS signature.
+///
+/// Checks that e(G₁_gen, Σ) == ∏ e(Pᵢ, H(mᵢ)) for all (pk, msg) pairs.
+///
+/// # Arguments
+/// * `pairs` - Iterator of (public_key, message) pairs
+/// * `sigma` - The aggregated signature
+///
+/// # Returns
+/// `true` if the aggregate signature is valid for all pairs, `false` otherwise
+///
+/// # Security Note
+/// This function does NOT check for duplicate public keys or messages.
+/// Callers must ensure no key reuse across different messages (rogue key attack).
 pub fn verify_aggregate<'a, I>(pairs: I, sigma: &G2) -> bool
 where
     I: IntoIterator<Item = (&'a G1, &'a [u8])>,
