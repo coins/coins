@@ -1,0 +1,5 @@
+# Subchain generation for mutinynet
+
+count = 1000
+network = "signet"
+output = ".data/mutinynet/subchains/subchain_mutinynet.bin"

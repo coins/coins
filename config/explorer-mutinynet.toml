@@ -1,0 +1,48 @@
+# Coins Block Explorer Configuration (Mutinynet)
+
+[database]
+# Path to publisher's state database (read-only, network-specific)
+state_db = ".data/mutinynet/state.db"
+
+# Path to publisher's indexer database (read-only, network-specific)
+indexer_db = ".data/mutinynet/indexer.db"
+
+# Path to explorer's transaction index database (read-write, explorer-specific, network-isolated)
+tx_index_db = ".data/mutinynet/explorer-tx-index.db"
+
+[bitcoin]
+# Bitcoin RPC connection settings (remote mutinynet node)
+rpc_url = "http://168.119.139.152:38332"
+rpc_user = "bitcoin"
+rpc_pass = "8723nasd0932n"
+network = "signet"
+
+[server]
+# Port for the explorer API and web UI
+api_port = 3000
+
+# Host to bind to
+host = "0.0.0.0"
+
+# CORS allowed origins (empty = allow all)
+cors_origins = []
+
+[cache]
+# Enable in-memory caching
+enabled = true
+
+# Number of blocks to keep in cache
+block_cache_size = 1000
+
+# Account cache time-to-live in seconds
+account_cache_ttl_seconds = 60
+
+# Bitcoin data cache time-to-live in seconds
+bitcoin_cache_ttl_seconds = 10
+
+[updates]
+# Interval for checking new blocks (seconds)
+poll_interval_seconds = 5
+
+# Batch size for initial indexing
+index_batch_size = 100

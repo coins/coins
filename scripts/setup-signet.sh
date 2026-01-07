@@ -54,10 +54,11 @@ else
     mkdir -p "${BITCOIN_DATADIR}"
     cat > "${BITCOIN_DATADIR}/bitcoin.conf" <<EOF
 # Bitcoin signet configuration
-[signet]
-server=1
+signet=1
 daemon=1
+datadir=${BITCOIN_DATADIR}
 
+[signet]
 # RPC settings
 rpcuser=${RPC_USER}
 rpcpassword=${RPC_PASS}
@@ -74,9 +75,8 @@ dbcache=300
 txindex=0
 EOF
 
-    # Start bitcoind with config file
-    ulimit -n 4096 2>/dev/null || true
-    bitcoind -conf="${BITCOIN_DATADIR}/bitcoin.conf" 2>&1 | grep -v "file descriptors" || true
+    # Start bitcoind with config file (ulimit in bash wrapper)
+    bash -c 'ulimit -n 4096; bitcoind -conf="'"${BITCOIN_DATADIR}"'/bitcoin.conf"' 2>&1 | grep -v "file descriptors" || true
 
     sleep 5
 

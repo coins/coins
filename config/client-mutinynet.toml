@@ -1,0 +1,8 @@
+# Client configuration for mutinynet signet (remote testnet)
+# Copy to ../client.toml and adjust as needed
+
+# Publisher endpoint (local mutinynet publisher)
+publisher_url = "http://127.0.0.1:8082"
+
+# Client secret key file (relative to project root)
+keyfile = ".data/keys/client_sk.hex"

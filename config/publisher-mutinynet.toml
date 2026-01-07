@@ -1,0 +1,44 @@
+# Publisher configuration for mutinynet signet (remote testnet)
+
+# Bitcoin RPC configuration (remote mutinynet node)
+rpc_url = "http://168.119.139.152:38332"
+rpc_user = "bitcoin"
+rpc_pass = "8723nasd0932n"
+rpc_wallet = "coins-publisher"
+
+# Subchain file (network-isolated)
+subchain = ".data/mutinynet/subchains/subchain_mutinynet.bin"
+
+# Bitcoin secret key for fee payments (network-isolated)
+keyfile = ".data/mutinynet/keys/publisher_mutinynet_sk.hex"
+
+# Mining interval (60s for signet's ~1 min blocks)
+interval = 60
+
+# Network
+network = "signet"
+
+# Genesis account
+genesis_pk = "43878a2a65c154d604cbe7d974d5dad1c63ce4dc2a68f697c45a4a3ef9ab8a21"
+genesis_balance = 1000000000000
+
+# Network-specific database paths (isolated from other networks)
+state_db = ".data/mutinynet/state.db"
+indexer_db = ".data/mutinynet/indexer.db"
+
+# API server port (network-specific to avoid conflicts)
+api_port = 8082
+
+# Publishing configuration
+# Format: "op_return" (default), "taproot_annex", or "dual"
+# - op_return: Standard relay, higher fees (proven, works everywhere)
+# - taproot_annex: 75% cheaper fees via witness discount (may need custom relay)
+# - dual: Broadcast both formats simultaneously (optimistic, 2x cost)
+publish_format = "op_return"
+
+# Fee rate in satoshis per virtual byte (default: 4)
+fee_rate_sat_per_vb = 4
+
+# For dual mode only: which format to track as primary anchor
+# Options: "op_return" or "taproot_annex" (default: "op_return")
+# dual_primary = "op_return"
