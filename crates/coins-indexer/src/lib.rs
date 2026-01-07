@@ -18,32 +18,14 @@ pub use finality::FINALITY_DEPTH;
 const TXID_SIZE: usize = 32;
 /// u32 field size in bytes
 const U32_SIZE: usize = std::mem::size_of::<u32>();
-/// State root hash size in bytes
-const STATE_ROOT_SIZE: usize = 32;
-/// ChainBlock fixed header size: txid + height + confirmations + sub_block_len
-const CHAIN_BLOCK_HEADER_SIZE: usize = TXID_SIZE + U32_SIZE + U32_SIZE + U32_SIZE;
-/// Minimum ChainBlock size: header + state_root (no transactions)
-const MIN_CHAIN_BLOCK_SIZE: usize = CHAIN_BLOCK_HEADER_SIZE + STATE_ROOT_SIZE;
-
-// Serialization byte offsets
-const OFFSET_HEIGHT: usize = TXID_SIZE;
-const OFFSET_CONFIRMATIONS: usize = OFFSET_HEIGHT + U32_SIZE;
-const OFFSET_SUBBLOCK_LEN: usize = OFFSET_CONFIRMATIONS + U32_SIZE;
-const OFFSET_SUBBLOCK_DATA: usize = OFFSET_SUBBLOCK_LEN + U32_SIZE;
 
 /// A sub-block anchored to a Bitcoin transaction
 #[derive(Debug, Clone)]
 pub struct ChainBlock {
     /// Bitcoin transaction ID that anchored this sub-block
     pub btc_txid: Txid,
-    /// Bitcoin block height where the anchor tx was confirmed
-    pub btc_height: u32,
-    /// Number of confirmations (updated as chain grows)
-    pub btc_confirmations: u32,
     /// The sub-block content
     pub sub_block: SubBlock,
-    /// State root hash after applying this sub-block (for future use)
-    pub state_root: [u8; STATE_ROOT_SIZE],
 }
 
 impl ChainBlock {
@@ -52,53 +34,29 @@ impl ChainBlock {
         let mut v = Vec::new();
         // Txid (32 bytes)
         v.extend_from_slice(self.btc_txid.as_ref());
-        // Heights and confirmations (12 bytes)
-        v.extend_from_slice(&self.btc_height.to_le_bytes());
-        v.extend_from_slice(&self.btc_confirmations.to_le_bytes());
         // Sub-block (variable length)
         let sub_block_bytes = self.sub_block.serialize(state);
         v.extend_from_slice(&(sub_block_bytes.len() as u32).to_le_bytes());
         v.extend_from_slice(&sub_block_bytes);
-        // State root (32 bytes)
-        v.extend_from_slice(&self.state_root);
         v
     }
 
     /// Deserialize ChainBlock from bytes
     fn deserialize(data: &[u8], state: &State) -> Option<Self> {
-        if data.len() < MIN_CHAIN_BLOCK_SIZE { return None; }
+        const MIN_SIZE: usize = TXID_SIZE + U32_SIZE; // txid + length
+        if data.len() < MIN_SIZE { return None; }
 
         let txid_bytes: [u8; TXID_SIZE] = data[0..TXID_SIZE].try_into().ok()?;
         let btc_txid = Txid::from_byte_array(txid_bytes);
 
-        let btc_height = u32::from_le_bytes(
-            data[OFFSET_HEIGHT..OFFSET_CONFIRMATIONS].try_into().ok()?
-        );
-        let btc_confirmations = u32::from_le_bytes(
-            data[OFFSET_CONFIRMATIONS..OFFSET_SUBBLOCK_LEN].try_into().ok()?
-        );
+        let sub_block_len = u32::from_le_bytes(data[TXID_SIZE..TXID_SIZE + U32_SIZE].try_into().ok()?) as usize;
+        if data.len() < TXID_SIZE + U32_SIZE + sub_block_len { return None; }
 
-        let sub_block_len = u32::from_le_bytes(
-            data[OFFSET_SUBBLOCK_LEN..OFFSET_SUBBLOCK_DATA].try_into().ok()?
-        ) as usize;
-        if data.len() < OFFSET_SUBBLOCK_DATA + sub_block_len + STATE_ROOT_SIZE { return None; }
-
-        let sub_block = SubBlock::deserialize(
-            &data[OFFSET_SUBBLOCK_DATA..OFFSET_SUBBLOCK_DATA + sub_block_len],
-            state
-        )?;
-
-        let state_root_start = OFFSET_SUBBLOCK_DATA + sub_block_len;
-        let state_root: [u8; STATE_ROOT_SIZE] = data[state_root_start..state_root_start + STATE_ROOT_SIZE]
-            .try_into()
-            .ok()?;
+        let sub_block = SubBlock::deserialize(&data[TXID_SIZE + U32_SIZE..TXID_SIZE + U32_SIZE + sub_block_len], state)?;
 
         Some(Self {
             btc_txid,
-            btc_height,
-            btc_confirmations,
             sub_block,
-            state_root,
         })
     }
 }
@@ -128,7 +86,6 @@ pub struct Indexer {
     /// Tree: btc_txid (Txid) -> btc_height (u32)
     txid_index: sled::Tree,
     /// Reference to account state (for querying accounts by ID)
-    #[allow(dead_code)]
     state: Arc<State>,
 }
 
@@ -163,10 +120,7 @@ impl Indexer {
 
         let chain_block = ChainBlock {
             btc_txid,
-            btc_height,
-            btc_confirmations: 0,
             sub_block,
-            state_root: [0u8; STATE_ROOT_SIZE], // TODO: compute actual state root
         };
 
         // Serialize and store
@@ -184,45 +138,23 @@ impl Indexer {
         Ok(())
     }
 
-    /// Update confirmation counts based on current Bitcoin height
-    pub fn update_confirmations(&self, current_btc_height: u32) -> Result<(), IndexerError> {
-        for item in self.blocks.iter() {
-            let (key, value) = item?;
-
-            let height = u32::from_le_bytes(key.as_ref().try_into().unwrap());
-            let mut chain_block = ChainBlock::deserialize(&value, &self.state)
-                .ok_or(IndexerError::Serialization)?;
-
-            if current_btc_height >= height {
-                let new_confirmations = current_btc_height - height + 1;
-                if chain_block.btc_confirmations != new_confirmations {
-                    chain_block.btc_confirmations = new_confirmations;
-
-                    // Update in database
-                    let updated_bytes = chain_block.serialize(&self.state);
-                    self.blocks.insert(&key, updated_bytes)?;
-                }
-            }
-        }
-
-        Ok(())
-    }
-
     /// Get all finalized blocks (6+ confirmations)
-    pub fn get_finalized_blocks(&self) -> Result<Vec<ChainBlock>, IndexerError> {
+    pub fn get_finalized_blocks(&self, current_btc_height: u32) -> Result<Vec<(u32, ChainBlock)>, IndexerError> {
         let mut finalized = Vec::new();
 
         for item in self.blocks.iter() {
-            let (_, value) = item?;
+            let (key, value) = item?;
+            let height = u32::from_le_bytes(key.as_ref().try_into().unwrap());
             let chain_block = ChainBlock::deserialize(&value, &self.state)
                 .ok_or(IndexerError::Serialization)?;
 
-            if chain_block.btc_confirmations >= FINALITY_DEPTH {
-                finalized.push(chain_block);
+            let confirmations = current_btc_height.saturating_sub(height) + 1;
+            if confirmations >= FINALITY_DEPTH {
+                finalized.push((height, chain_block));
             }
         }
 
-        finalized.sort_by_key(|b| b.btc_height);
+        finalized.sort_by_key(|(h, _)| *h);
         Ok(finalized)
     }
 
@@ -280,16 +212,18 @@ impl Indexer {
     }
 
     /// Get transaction history for an account (simple implementation for demo)
-    pub fn get_account_history(&self, pk: &G1) -> Result<Vec<Transaction>, IndexerError> {
+    pub fn get_account_history(&self, pk: &G1, current_btc_height: u32) -> Result<Vec<Transaction>, IndexerError> {
         let mut history = Vec::new();
 
         for item in self.blocks.iter() {
-            let (_, value) = item?;
+            let (key, value) = item?;
+            let height = u32::from_le_bytes(key.as_ref().try_into().unwrap());
             let chain_block = ChainBlock::deserialize(&value, &self.state)
                 .ok_or(IndexerError::Serialization)?;
 
             // Only include finalized blocks
-            if chain_block.btc_confirmations < FINALITY_DEPTH {
+            let confirmations = current_btc_height.saturating_sub(height) + 1;
+            if confirmations < FINALITY_DEPTH {
                 continue;
             }
 
