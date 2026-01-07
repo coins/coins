@@ -74,6 +74,7 @@ bitcoind \
     -daemon \
     -fallbackfee=0.00001 \
     -txindex=1 \
+    -acceptnonstdtxn=1 \
     -rpcuser="${RPC_USER}" \
     -rpcpassword="${RPC_PASS}" \
     -rpcport="${RPC_PORT}" \
