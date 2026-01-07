@@ -1,5 +1,5 @@
 ---
-name: git-commit-push
+name: git-push
 description: Commit and push changes to git repository. Use when the user asks to commit changes, finalize work, or push to remote.
 allowed-tools: Bash(git status:*), Bash(git add:*), Bash(git commit:*), Bash(git push:*), Bash(git diff:*), Bash(git log:*)
 ---
