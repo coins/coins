@@ -32,8 +32,8 @@ pub struct Engine {
     pub last_synced: Option<Txid>,
     pub app_state: AppState,
     pub base_url: String,
-    pub aggregator_sk: BLSSecretKey,
-    pub aggregator_pk: G1,
+    pub publisher_sk: BLSSecretKey,
+    pub publisher_pk: G1,
 }
 
 impl Engine {
@@ -67,8 +67,8 @@ impl Engine {
         let fee_pk = CompressedPublicKey::from_private_key(&secp, &pk).expect("private key");
         let fee_addr = Address::p2wpkh(&fee_pk, network);
 
-        // ---------- aggregator BLS secret key ----------
-        let aggregator_sk = if bls_key_file.exists() {
+        // ---------- publisher BLS secret key ----------
+        let publisher_sk = if bls_key_file.exists() {
             let hex = std::fs::read_to_string(&bls_key_file)?;
             let bytes = hex::decode(hex.trim())?;
             let fr = Fr::from_le_bytes_mod_order(&bytes);
@@ -80,7 +80,7 @@ impl Engine {
             std::fs::write(&bls_key_file, hex::encode(&sk_bytes))?;
             sk
         };
-        let aggregator_pk = G1(aggregator_sk.public_key());
+        let publisher_pk = G1(publisher_sk.public_key());
 
         // current anchor (anchor.output[1]) for idx 0 initially
         let current_anchor = sc.first_out;
@@ -96,8 +96,8 @@ impl Engine {
             last_synced: None,
             app_state,
             base_url: String::new(), // Not needed anymore, but kept for compatibility
-            aggregator_sk,
-            aggregator_pk,
+            publisher_sk,
+            publisher_pk,
         };
         eng.refresh_fee_utxos().await?;
         Ok(eng)
@@ -164,7 +164,7 @@ impl Engine {
         let sub_block = SubBlock {
             txs: transactions,
             sigma: aggregated_signature,
-            aggregator_pk: self.aggregator_pk,
+            publisher_pk: self.publisher_pk,
         };
 
         // Validate sub-block before broadcasting

@@ -79,16 +79,16 @@ pub fn validate_subblock(sb: &SubBlock, state: &State) -> Result<(), ValidationE
         return Err(ValidationError::BadSignature);
     }
 
-    // credit aggregator with total fees
-    let mut agg_acct = match state.get_by_pk(&sb.aggregator_pk).map_err(|_| ValidationError::UnknownSender(0))? {
+    // credit publisher with total fees
+    let mut pub_acct = match state.get_by_pk(&sb.publisher_pk).map_err(|_| ValidationError::UnknownSender(0))? {
         Some(a) => a,
         None => {
-            // create new account for aggregator
-            state.create_account(sb.aggregator_pk).map_err(|_| ValidationError::Db)?
+            // create new account for publisher
+            state.create_account(sb.publisher_pk).map_err(|_| ValidationError::Db)?
         }
     };
-    agg_acct.balance = agg_acct.balance.checked_add(fee_total as u64).ok_or(ValidationError::Overflow)?;
-    updates.insert(agg_acct.id.0, agg_acct);
+    pub_acct.balance = pub_acct.balance.checked_add(fee_total as u64).ok_or(ValidationError::Overflow)?;
+    updates.insert(pub_acct.id.0, pub_acct);
 
     // write batch
     let updated: Vec<Account> = updates.into_values().collect();

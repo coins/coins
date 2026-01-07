@@ -1,4 +1,4 @@
-//! E2E test for Coins aggregator
+//! E2E test for Coins publisher
 //!
 //! This creates test accounts, submits transactions, and verifies they are mined.
 //!
@@ -13,7 +13,7 @@ use std::time::Duration;
 use reqwest::blocking::Client;
 use serde_json::json;
 
-const AGGREGATOR_URL: &str = "http://localhost:8080";
+const PUBLISHER_URL: &str = "http://localhost:8080";
 
 struct TestUser {
     name: String,
@@ -41,7 +41,7 @@ impl TestUser {
 
     fn get_account(&self) -> Result<Account, Box<dyn std::error::Error>> {
         let client = Client::new();
-        let url = format!("{}/account/{}", AGGREGATOR_URL, self.pk_hex);
+        let url = format!("{}/account/{}", PUBLISHER_URL, self.pk_hex);
         let resp = client.get(&url).send()?;
 
         if resp.status() == 404 {
@@ -72,7 +72,7 @@ impl TestUser {
 
     fn submit_tx(&self, tx: &Transaction, sig: &G2) -> Result<(), Box<dyn std::error::Error>> {
         let client = Client::new();
-        let url = format!("{}/tx", AGGREGATOR_URL);
+        let url = format!("{}/tx", PUBLISHER_URL);
 
         let tx_bytes = bincode::serde::encode_to_vec(&tx, bincode::config::standard())?;
         let sig_bytes = bincode::serde::encode_to_vec(&sig, bincode::config::standard())?;

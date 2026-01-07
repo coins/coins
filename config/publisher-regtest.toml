@@ -1,17 +1,17 @@
-# Aggregator configuration for regtest (local testing)
-# Copy to ../aggregator.toml and adjust as needed
+# Publisher configuration for regtest (local testing)
+# Copy to ../publisher.toml and adjust as needed
 
 # Bitcoin RPC configuration (required for regtest)
 rpc_url = "http://localhost:18443"
 rpc_user = "user"
 rpc_pass = "password"
-rpc_wallet = "coins-aggregator"  # Watch-only wallet name
+rpc_wallet = "coins-publisher"  # Watch-only wallet name
 
 # Subchain file (relative to project root)
 subchain = ".data/subchains/subchain_regtest.bin"
 
 # Bitcoin secret key for fee payments (will be created if doesn't exist)
-keyfile = ".data/keys/aggregator_sk.hex"
+keyfile = ".data/keys/publisher_sk.hex"
 
 # Mining interval in seconds
 interval = 30

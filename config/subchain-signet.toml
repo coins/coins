@@ -1,0 +1,5 @@
+# Subchain generation for signet
+
+count = 1000
+network = "signet"
+output = ".data/subchains/subchain_signet.bin"

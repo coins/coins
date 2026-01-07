@@ -1,8 +1,8 @@
-//! End-to-end integration test for the Coins aggregator.
+//! End-to-end integration test for the Coins publisher.
 //!
 //! This test requires:
-//! - A running aggregator on localhost:8080
-//! - Genesis account funded in the aggregator state
+//! - A running publisher on localhost:8080
+//! - Genesis account funded in the publisher state
 //!
 //! Run with: cargo test --test e2e -- --nocapture
 
@@ -13,7 +13,7 @@ use serde_json::json;
 use std::thread::sleep;
 use std::time::Duration;
 
-const AGGREGATOR_URL: &str = "http://localhost:8080";
+const PUBLISHER_URL: &str = "http://localhost:8080";
 const GENESIS_PK_HEX: &str = "43878a2a65c154d604cbe7d974d5dad1c63ce4dc2a68f697c45a4a3ef9ab8a21";
 
 struct TestAccount {
@@ -33,7 +33,7 @@ impl TestAccount {
 
     fn get_account(&self) -> Result<Account, Box<dyn std::error::Error>> {
         let client = Client::new();
-        let url = format!("{}/account/{}", AGGREGATOR_URL, self.pk_hex);
+        let url = format!("{}/account/{}", PUBLISHER_URL, self.pk_hex);
         let resp = client.get(&url).send()?;
 
         if resp.status() == 404 {
@@ -46,7 +46,7 @@ impl TestAccount {
 
     fn submit_tx(&self, tx: Transaction, sig: G2) -> Result<(), Box<dyn std::error::Error>> {
         let client = Client::new();
-        let url = format!("{}/tx", AGGREGATOR_URL);
+        let url = format!("{}/tx", PUBLISHER_URL);
 
         let tx_bytes = bincode::serde::encode_to_vec(&tx, bincode::config::standard())?;
         let sig_bytes = bincode::serde::encode_to_vec(&sig, bincode::config::standard())?;
@@ -68,7 +68,7 @@ impl TestAccount {
 
 fn get_account_by_pk_hex(pk_hex: &str) -> Result<Account, Box<dyn std::error::Error>> {
     let client = Client::new();
-    let url = format!("{}/account/{}", AGGREGATOR_URL, pk_hex);
+    let url = format!("{}/account/{}", PUBLISHER_URL, pk_hex);
     let resp = client.get(&url).send()?;
 
     if resp.status() == 404 {

@@ -147,7 +147,7 @@ impl RpcBackend {
             "desc": descriptor_with_checksum,
             "timestamp": timestamp,
             "watchonly": true,
-            "label": "aggregator"
+            "label": "publisher"
         }]);
 
         let result: serde_json::Value = wallet_rpc
@@ -263,7 +263,7 @@ impl RpcBackend {
             "desc": descriptor_with_checksum,
             "timestamp": timestamp,
             "watchonly": true,
-            "label": "aggregator"
+            "label": "publisher"
         }]);
 
         let result: serde_json::Value = wallet_rpc
@@ -461,7 +461,7 @@ impl RpcBackend {
         let wallet_rpc = self.wallet_rpc()?;
 
         // Get all transactions for this address using listtransactions
-        // Label is "aggregator" from our import
+        // Label is "publisher" from our import
         let result: serde_json::Value = wallet_rpc
             .call("listtransactions", &[json!("*"), json!(100000), json!(0), json!(true)])
             .context("Failed to list transactions")?;

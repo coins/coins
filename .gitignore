@@ -10,7 +10,7 @@ target
 test-data/
 
 # Active configuration files (use templates in config/ instead)
-config/aggregator.toml
+config/publisher.toml
 config/subchain.toml
 
 # Runtime databases (allow in test-data/)

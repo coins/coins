@@ -1,4 +1,4 @@
-//! Submit test transactions to the aggregator
+//! Submit test transactions to the publisher
 //!
 //! This script:
 //! 1. Loads Alice/Bob keys (or generates them)
@@ -134,8 +134,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!();
 
     // Wait for mining
-    println!("Step 4: Waiting for aggregator to mine sub-block...");
-    println!("  (Aggregator mines every 30 seconds)");
+    println!("Step 4: Waiting for publisher to mine sub-block...");
+    println!("  (Publisher mines every 30 seconds)");
 
     for i in 1..=6 {
         sleep(Duration::from_secs(5));

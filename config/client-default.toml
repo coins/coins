@@ -1,8 +1,8 @@
 # Client configuration template
 # Copy to ../client.toml or create custom profiles (e.g., client-alice.toml)
 
-# Aggregator endpoint URL
-aggregator_url = "http://127.0.0.1:8080"
+# Publisher endpoint URL
+publisher_url = "http://127.0.0.1:8080"
 
 # Client secret key file (relative to project root)
 keyfile = ".data/keys/client_sk.hex"

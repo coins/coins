@@ -2,9 +2,9 @@ use std::{path::PathBuf, fs, sync::Arc};
 
 use bitcoin::Network;
 use clap::Parser;
-use coins_aggregator::engine::Engine;
-use coins_aggregator::api::{router, AppState};
-use coins_aggregator::rpc_backend::RpcBackend;
+use coins_publisher::engine::Engine;
+use coins_publisher::api::{router, AppState};
+use coins_publisher::rpc_backend::RpcBackend;
 use coins_crypto::G1;
 use coins_core::State;
 use coins_indexer::Indexer;
@@ -14,10 +14,10 @@ use tokio::time::{sleep, Duration};
 use hex;
 
 #[derive(Parser, Debug)]
-#[command(name="coins-aggregator", about="Run the Coins aggregator service")]
+#[command(name="coins-publisher", about="Run the Coins publisher service")]
 struct Opts {
     /// Path to the configuration file
-    #[arg(short, long, default_value = "config/aggregator.toml")]
+    #[arg(short, long, default_value = "config/publisher.toml")]
     config: PathBuf,
 }
 
@@ -69,7 +69,7 @@ fn default_indexer_db() -> PathBuf {
 }
 
 fn default_bls_keyfile() -> PathBuf {
-    PathBuf::from(".data/keys/aggregator_bls_sk.hex")
+    PathBuf::from(".data/keys/publisher_bls_sk.hex")
 }
 
 #[tokio::main]
@@ -78,7 +78,7 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "coins_aggregator=info,coins_validator=info,coins_crypto=debug".into())
+                .unwrap_or_else(|_| "coins_publisher=info,coins_validator=info,coins_crypto=debug".into())
         )
         .init();
 
@@ -128,16 +128,17 @@ async fn main() -> anyhow::Result<()> {
 
     // ===== BACKEND SELECTION =====
     let backend: Arc<RpcBackend> = match config.network {
-        Network::Regtest => {
+        Network::Regtest | Network::Signet => {
             // Validate RPC config exists
             let rpc_url = config.rpc_url
-                .ok_or_else(|| anyhow::anyhow!("rpc_url required for network=regtest"))?;
+                .ok_or_else(|| anyhow::anyhow!("rpc_url required for network={:?}", config.network))?;
             let rpc_user = config.rpc_user
-                .ok_or_else(|| anyhow::anyhow!("rpc_user required for network=regtest"))?;
+                .ok_or_else(|| anyhow::anyhow!("rpc_user required for network={:?}", config.network))?;
             let rpc_pass = config.rpc_pass
-                .ok_or_else(|| anyhow::anyhow!("rpc_pass required for network=regtest"))?;
+                .ok_or_else(|| anyhow::anyhow!("rpc_pass required for network={:?}", config.network))?;
 
             tracing::info!(
+                network = ?config.network,
                 rpc_url = %rpc_url,
                 wallet = %config.rpc_wallet,
                 "Using Bitcoin RPC backend"
@@ -155,7 +156,7 @@ async fn main() -> anyhow::Result<()> {
 
         other => {
             return Err(anyhow::anyhow!(
-                "Only regtest network is supported. Got: {:?}. Use Bitcoin Core RPC for regtest.",
+                "Network {:?} not supported. Use 'regtest' or 'signet' with RPC backend.",
                 other
             ));
         }

@@ -584,39 +584,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b94f61472cee1439c0b966b47e3aca9ae07e45d070759512cd390ea2bebc6675"
 
 [[package]]
-name = "coins-aggregator"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "ark-bn254",
- "ark-ec",
- "ark-ff",
- "ark-serialize",
- "axum",
- "bincode",
- "bitcoin",
- "bitcoincore-rpc",
- "clap",
- "coins-core",
- "coins-crypto",
- "coins-indexer",
- "coins-subchain",
- "coins-types",
- "hex",
- "rand 0.8.5",
- "reqwest",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 1.0.69",
- "tokio",
- "toml",
- "tower",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "coins-client"
 version = "0.1.0"
 dependencies = [
@@ -682,6 +649,39 @@ dependencies = [
  "tempfile",
  "thiserror 1.0.69",
  "tracing",
+]
+
+[[package]]
+name = "coins-publisher"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ark-bn254",
+ "ark-ec",
+ "ark-ff",
+ "ark-serialize",
+ "axum",
+ "bincode",
+ "bitcoin",
+ "bitcoincore-rpc",
+ "clap",
+ "coins-core",
+ "coins-crypto",
+ "coins-indexer",
+ "coins-subchain",
+ "coins-types",
+ "hex",
+ "rand 0.8.5",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "toml",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

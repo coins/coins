@@ -5,7 +5,7 @@ members = [
     "crates/coins-types",
     "crates/coins-core",
     "crates/coins-indexer",
-    "crates/coins-aggregator",
+    "crates/coins-publisher",
     "crates/coins-subchain",
     "crates/coins-client",
 ]

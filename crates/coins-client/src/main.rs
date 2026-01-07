@@ -23,9 +23,9 @@ struct Cli {
     #[arg(long)]
     keyfile: Option<PathBuf>,
 
-    /// Override aggregator URL from config
+    /// Override publisher URL from config
     #[arg(long)]
-    aggregator_url: Option<String>,
+    publisher_url: Option<String>,
 
     #[command(subcommand)]
     command: Commands,
@@ -33,13 +33,13 @@ struct Cli {
 
 #[derive(Deserialize, Default)]
 struct Config {
-    #[serde(default = "default_aggregator_url")]
-    aggregator_url: String,
+    #[serde(default = "default_publisher_url")]
+    publisher_url: String,
     #[serde(default = "default_keyfile")]
     keyfile: PathBuf,
 }
 
-fn default_aggregator_url() -> String {
+fn default_publisher_url() -> String {
     "http://127.0.0.1:8080".to_string()
 }
 
@@ -78,7 +78,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Apply CLI overrides (CLI flags take priority over config file)
     let keyfile = cli.keyfile.unwrap_or(config.keyfile);
-    let aggregator_url = cli.aggregator_url.unwrap_or(config.aggregator_url);
+    let publisher_url = cli.publisher_url.unwrap_or(config.publisher_url);
 
     match cli.command {
         Commands::Init => {
@@ -119,7 +119,7 @@ async fn main() -> anyhow::Result<()> {
             let pk_hex = hex::encode(pk.0);
 
             let client = reqwest::Client::new();
-            let url = format!("{}/account/{}", aggregator_url, pk_hex);
+            let url = format!("{}/account/{}", publisher_url, pk_hex);
             let res = client.get(&url).send().await?;
 
             if res.status().is_success() {
@@ -152,7 +152,7 @@ async fn main() -> anyhow::Result<()> {
             let pk = G1::from_affine(&G1Projective::generator().mul(sk.0).into());
             let pk_hex = hex::encode(pk.0);
             let client = reqwest::Client::new();
-            let url = format!("{}/account/{}", aggregator_url, pk_hex);
+            let url = format!("{}/account/{}", publisher_url, pk_hex);
             let res = client.get(&url).send().await?;
 
             let sender_account: Account = if res.status().is_success() {
@@ -174,7 +174,7 @@ async fn main() -> anyhow::Result<()> {
             let signature = sign(&sk, &tx_bytes);
 
             let client = reqwest::Client::new();
-            let res = client.post(format!("{}/tx", aggregator_url))
+            let res = client.post(format!("{}/tx", publisher_url))
                 .json(&serde_json::json!({
                     "tx": hex::encode(tx_bytes),
                     "signature": hex::encode(signature.0)

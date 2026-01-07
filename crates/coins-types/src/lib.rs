@@ -65,16 +65,16 @@ impl Transaction {
 #[derive(Debug, Clone)]
 pub struct SubBlock {
     pub sigma: G2,
-    pub aggregator_pk: G1,
+    pub publisher_pk: G1,
     pub txs: Vec<Transaction>,
 }
 
 impl SubBlock {
-    /// Serialize SubBlock into Vec<u8> (64-byte sigma + 32-byte aggregator_pk + N×41-byte txs).
+    /// Serialize SubBlock into Vec<u8> (64-byte sigma + 32-byte publisher_pk + N×41-byte txs).
     pub fn serialize(&self) -> Vec<u8> {
         let mut v = Vec::with_capacity(64 + 32 + self.txs.len() * TX_SIZE);
         v.extend_from_slice(&bincode_serialize(&self.sigma, bin_config()).expect("sigma ser"));
-        v.extend_from_slice(&bincode_serialize(&self.aggregator_pk, bin_config()).expect("pk ser"));
+        v.extend_from_slice(&bincode_serialize(&self.publisher_pk, bin_config()).expect("pk ser"));
         for tx in &self.txs {
             v.extend_from_slice(&tx.serialize());
         }
@@ -90,7 +90,7 @@ impl SubBlock {
             let (s, _): (G2, usize) = bincode_deserialize(sigma_bytes, bin_config()).ok()?;
             s
         };
-        let aggregator_pk: G1 = {
+        let publisher_pk: G1 = {
             let (pk, _): (G1, usize) = bincode_deserialize(pk_bytes, bin_config()).ok()?;
             pk
         };
@@ -103,7 +103,7 @@ impl SubBlock {
             let tx_slice = &tx_bytes[start..end];
             txs.push(Transaction::deserialize(tx_slice));
         }
-        Some(Self { sigma, aggregator_pk, txs })
+        Some(Self { sigma, publisher_pk, txs })
     }
 }
 

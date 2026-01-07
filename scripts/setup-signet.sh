@@ -1,0 +1,218 @@
+#!/bin/bash
+set -e
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+echo -e "${BLUE}=======================================${NC}"
+echo -e "${BLUE}   Coins Signet Integration Setup${NC}"
+echo -e "${BLUE}=======================================${NC}"
+echo ""
+
+# Configuration
+BITCOIN_DIR="${HOME}/.bitcoin"
+SIGNET_DIR="${BITCOIN_DIR}/signet"
+PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+DATA_DIR="${PROJECT_ROOT}/.data"
+SUBCHAIN_DIR="${DATA_DIR}/subchains"
+KEYS_DIR="${DATA_DIR}/keys"
+
+RPC_USER="user"
+RPC_PASS="password"
+RPC_PORT="38332"
+
+SUBCHAIN_COUNT=1000
+SUBCHAIN_FILE="${SUBCHAIN_DIR}/subchain_signet.bin"
+
+cd "$PROJECT_ROOT"
+
+echo -e "${YELLOW}[1/9] Cleaning up...${NC}"
+killall -9 bitcoind 2>/dev/null || true
+pkill -9 coins-publisher 2>/dev/null || true
+sleep 2
+
+mkdir -p "${SUBCHAIN_DIR}" "${KEYS_DIR}"
+echo -e "${GREEN}✓ Cleanup complete${NC}\n"
+
+echo -e "${YELLOW}[2/9] Starting Bitcoin Core (signet)...${NC}"
+ulimit -n 2048 2>/dev/null || true
+
+bitcoind \
+    -signet \
+    -daemon \
+    -prune=2048 \
+    -fallbackfee=0.00001 \
+    -rpcuser="${RPC_USER}" \
+    -rpcpassword="${RPC_PASS}" \
+    -rpcport="${RPC_PORT}" \
+    -maxconnections=10 \
+    -dbcache=300 2>&1 | grep -v "file descriptors" || true
+
+sleep 3
+
+echo -n "Waiting for bitcoind"
+for i in {1..30}; do
+    if bitcoin-cli -signet -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport="${RPC_PORT}" getblockchaininfo &>/dev/null; then
+        echo ""; break
+    fi
+    echo -n "."; sleep 1
+done
+
+echo -e "${GREEN}✓ Bitcoin Core started${NC}"
+echo -e "${YELLOW}Waiting for sync...${NC}\n"
+
+# Wait for sync
+while true; do
+    CHAIN_INFO=$(bitcoin-cli -signet -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport="${RPC_PORT}" getblockchaininfo 2>/dev/null)
+    BLOCKS=$(echo "$CHAIN_INFO" | jq -r '.blocks' 2>/dev/null || echo "0")
+    HEADERS=$(echo "$CHAIN_INFO" | jq -r '.headers' 2>/dev/null || echo "0")
+    VERIFIED=$(echo "$CHAIN_INFO" | jq -r '.verificationprogress' 2>/dev/null || echo "0")
+
+    if (( $(echo "$VERIFIED >= 0.9999" | bc -l 2>/dev/null || echo "0") )); then
+        echo -e "${GREEN}✓ Synced (${BLOCKS} blocks)${NC}\n"
+        break
+    fi
+
+    PERCENT=$(echo "$VERIFIED * 100" | bc -l 2>/dev/null | xargs printf "%.1f" 2>/dev/null || echo "0.0")
+    echo -ne "\rSyncing: ${PERCENT}% (${BLOCKS}/${HEADERS})"
+    sleep 5
+done
+
+echo -e "${YELLOW}[3/9] Creating wallet...${NC}"
+bitcoin-cli -signet -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport="${RPC_PORT}" \
+    createwallet "coins-publisher" true false "" false true &>/dev/null || true
+echo -e "${GREEN}✓ Wallet created${NC}\n"
+
+echo -e "${YELLOW}[4/9] Building...${NC}"
+cargo build --release --bin subchain-setup --bin coins-publisher &>/dev/null
+echo -e "${GREEN}✓ Build complete${NC}\n"
+
+echo -e "${YELLOW}[5/9] Generating subchain...${NC}"
+cat > /tmp/subchain_signet.toml <<EOF
+count = ${SUBCHAIN_COUNT}
+network = "signet"
+output = "${SUBCHAIN_FILE}"
+EOF
+
+SUBCHAIN_ADDR=$(
+    (echo "") | ./target/release/subchain-setup --config /tmp/subchain_signet.toml 2>&1 | \
+    grep "Generated one-time address:" | awk '{print $4}'
+)
+
+echo -e "${GREEN}✓ Subchain address: ${SUBCHAIN_ADDR}${NC}\n"
+
+echo -e "${YELLOW}⚠️  MANUAL FUNDING REQUIRED${NC}"
+echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo -e "Fund this address from signet faucet:\n"
+echo -e "${BLUE}  Address: ${SUBCHAIN_ADDR}${NC}\n"
+echo -e "${BLUE}  Faucet: https://signetfaucet.com${NC}"
+echo -e "${BLUE}  Amount: 0.001 BTC (minimum)${NC}\n"
+echo -e "Waiting for confirmation (~1 min)..."
+echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+
+# Poll for funding
+WAIT_COUNT=0
+MAX_WAIT=120
+
+while true; do
+    UTXO_INFO=$(bitcoin-cli -signet -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport="${RPC_PORT}" \
+        scantxoutset start "[\"addr(${SUBCHAIN_ADDR})\"]" 2>/dev/null | \
+        jq -r '.unspents[] | select(.height > 0) | "\(.txid):\(.vout) \((.amount*100000000)|floor)"' 2>/dev/null | head -1)
+
+    if [ -n "$UTXO_INFO" ]; then
+        UTXO_OUTPOINT=$(echo "$UTXO_INFO" | awk '{print $1}')
+        UTXO_VALUE=$(echo "$UTXO_INFO" | awk '{print $2}')
+        echo -e "${GREEN}✓ Funded: ${UTXO_OUTPOINT} (${UTXO_VALUE} sats)${NC}\n"
+        break
+    fi
+
+    WAIT_COUNT=$((WAIT_COUNT + 1))
+    if [ $WAIT_COUNT -ge $MAX_WAIT ]; then
+        echo -e "${RED}✗ Timeout waiting for funding${NC}"
+        exit 1
+    fi
+
+    echo -ne "\rWaiting... ($((WAIT_COUNT * 5))s)"
+    sleep 5
+done
+
+echo -e "${BLUE}→ Generating subchain file...${NC}"
+printf "%s\n%s\n" "${UTXO_OUTPOINT}" "${UTXO_VALUE}" | \
+    ./target/release/subchain-setup --config /tmp/subchain_signet.toml &>/dev/null
+
+echo -e "${GREEN}✓ Subchain created${NC}\n"
+
+echo -e "${YELLOW}[6/9] Determining fee address...${NC}"
+./target/release/coins-publisher --config config/publisher-signet.toml > /tmp/publisher_temp.log 2>&1 &
+TEMP_PID=$!
+sleep 5
+
+FEE_ADDR=$(grep "Aggregator initialized\|Publisher initialized\|fee_address" /tmp/publisher_temp.log | \
+    grep -oE 'tb1[a-z0-9]+' | head -1)
+
+kill $TEMP_PID 2>/dev/null || true
+sleep 2
+
+echo -e "${GREEN}✓ Fee address: ${FEE_ADDR}${NC}\n"
+
+echo -e "${YELLOW}⚠️  MANUAL FUNDING REQUIRED${NC}"
+echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo -e "Fund the fee address:\n"
+echo -e "${BLUE}  Address: ${FEE_ADDR}${NC}\n"
+echo -e "${BLUE}  Faucet: https://signetfaucet.com${NC}"
+echo -e "${BLUE}  Amount: 0.01 BTC (recommended)${NC}\n"
+echo -e "Waiting for confirmation..."
+echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+
+WAIT_COUNT=0
+while true; do
+    FEE_BALANCE=$(bitcoin-cli -signet -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport="${RPC_PORT}" \
+        scantxoutset start "[\"addr(${FEE_ADDR})\"]" 2>/dev/null | \
+        jq -r '[.unspents[] | select(.height > 0) | .amount] | add // 0' 2>/dev/null)
+
+    if (( $(echo "$FEE_BALANCE > 0" | bc -l 2>/dev/null || echo "0") )); then
+        FEE_SATS=$(echo "$FEE_BALANCE * 100000000" | bc 2>/dev/null | cut -d. -f1)
+        echo -e "${GREEN}✓ Fee address funded (${FEE_SATS} sats)${NC}\n"
+        break
+    fi
+
+    WAIT_COUNT=$((WAIT_COUNT + 1))
+    if [ $WAIT_COUNT -ge $MAX_WAIT ]; then
+        echo -e "${RED}✗ Timeout${NC}"
+        exit 1
+    fi
+
+    echo -ne "\rWaiting... ($((WAIT_COUNT * 5))s)"
+    sleep 5
+done
+
+echo -e "${YELLOW}[7/9] Setting up test accounts...${NC}"
+cargo run --release --example setup_test_accounts &>/dev/null
+echo -e "${GREEN}✓ Test accounts created${NC}\n"
+
+echo -e "${YELLOW}[8/9] Starting publisher...${NC}"
+./target/release/coins-publisher --config config/publisher-signet.toml > /tmp/publisher_signet.log 2>&1 &
+PUB_PID=$!
+
+echo -n "Waiting for publisher"
+for i in {1..30}; do
+    if curl -s http://localhost:8080/health &>/dev/null; then
+        echo ""; break
+    fi
+    echo -n "."; sleep 1
+done
+
+echo -e "${GREEN}✓ Publisher running (PID: ${PUB_PID})${NC}\n"
+
+echo -e "${GREEN}========================================${NC}"
+echo -e "${GREEN}   Setup Complete!${NC}"
+echo -e "${GREEN}========================================${NC}\n"
+echo -e "Network:      Signet (~1 min blocks)"
+echo -e "Subchain:     ${SUBCHAIN_FILE}"
+echo -e "Fee Address:  ${FEE_ADDR}"
+echo -e "Logs:         /tmp/publisher_signet.log\n"
+echo -e "${BLUE}Run tests: ./scripts/test-signet.sh${NC}\n"
