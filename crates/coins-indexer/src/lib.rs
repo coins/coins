@@ -24,8 +24,6 @@ pub struct ChainBlock {
     pub btc_confirmations: u32,
     /// The sub-block content
     pub sub_block: SubBlock,
-    /// State root hash after applying this sub-block (for future use)
-    pub state_root: [u8; 32],
 }
 
 impl ChainBlock {
@@ -41,14 +39,12 @@ impl ChainBlock {
         let sub_block_bytes = self.sub_block.serialize();
         v.extend_from_slice(&(sub_block_bytes.len() as u32).to_le_bytes());
         v.extend_from_slice(&sub_block_bytes);
-        // State root (32 bytes)
-        v.extend_from_slice(&self.state_root);
         v
     }
 
     /// Deserialize ChainBlock from bytes
     fn deserialize(data: &[u8]) -> Option<Self> {
-        if data.len() < 80 { return None; } // 32 + 12 + 4 + 32 minimum
+        if data.len() < 48 { return None; } // 32 + 12 + 4 minimum
 
         let txid_bytes: [u8; 32] = data[0..32].try_into().ok()?;
         let btc_txid = Txid::from_byte_array(txid_bytes);
@@ -57,20 +53,15 @@ impl ChainBlock {
         let btc_confirmations = u32::from_le_bytes(data[36..40].try_into().ok()?);
 
         let sub_block_len = u32::from_le_bytes(data[40..44].try_into().ok()?) as usize;
-        if data.len() < 44 + sub_block_len + 32 { return None; }
+        if data.len() < 44 + sub_block_len { return None; }
 
         let sub_block = SubBlock::deserialize(&data[44..44 + sub_block_len])?;
-
-        let state_root: [u8; 32] = data[44 + sub_block_len..44 + sub_block_len + 32]
-            .try_into()
-            .ok()?;
 
         Some(Self {
             btc_txid,
             btc_height,
             btc_confirmations,
             sub_block,
-            state_root,
         })
     }
 }
@@ -138,7 +129,6 @@ impl Indexer {
             btc_height,
             btc_confirmations: 0,
             sub_block,
-            state_root: [0u8; 32], // TODO: compute actual state root
         };
 
         // Serialize and store
