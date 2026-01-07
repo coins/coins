@@ -420,7 +420,7 @@ impl Engine {
 
     /// Scan blockchain for historical sub-blocks and index them
     async fn indexer_ibd(&mut self) -> Result<()> {
-        use coins_subchain::op_return::parse_blob_from_op_return;
+        use coins_subchain::parse_blob_from_tx;
         use coins_types::SubBlock;
 
         tracing::info!("Starting Indexer IBD...");
@@ -479,8 +479,14 @@ impl Engine {
                     "Found data_tx"
                 );
 
-                // Parse the OP_RETURN from the data_tx
-                if let Some(compressed_blob) = parse_blob_from_op_return(&data_tx) {
+                // Auto-detect format and parse blob
+                if let Some((compressed_blob, format)) = parse_blob_from_tx(&data_tx) {
+                    tracing::debug!(
+                        anchor_idx = idx,
+                        format = ?format,
+                        "Detected publish format"
+                    );
+
                     // Decompress
                     let blob = decompress(&compressed_blob)
                         .map_err(|e| anyhow::anyhow!("Decompression failed: {}", e))?;
