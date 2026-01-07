@@ -24,8 +24,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let alice_pk = G1(alice_pk_arr);
     let bob_pk = G1(bob_pk_arr);
 
-    // Open state database (same path as aggregator uses)
-    let state_path = PathBuf::from("./state.db");
+    // Open state database (use argument or default)
+    let state_path = std::env::args().nth(1)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("./state.db"));
+    println!("Using state database: {}", state_path.display());
     let state = State::open(&state_path)?;
 
     // Check if accounts already exist

@@ -46,10 +46,36 @@ struct Config {
     network: Network,
     genesis_pk: String,
     genesis_balance: u64,
+
+    // Optional runtime config
+    #[serde(default = "default_api_port")]
+    api_port: u16,
+    #[serde(default = "default_state_db")]
+    state_db: PathBuf,
+    #[serde(default = "default_indexer_db")]
+    indexer_db: PathBuf,
+    #[serde(default = "default_bls_keyfile")]
+    bls_keyfile: PathBuf,
 }
 
 fn default_wallet_name() -> String {
     "coins-aggregator".to_string()
+}
+
+fn default_api_port() -> u16 {
+    8080
+}
+
+fn default_state_db() -> PathBuf {
+    PathBuf::from("./state.db")
+}
+
+fn default_indexer_db() -> PathBuf {
+    PathBuf::from("./indexer.db")
+}
+
+fn default_bls_keyfile() -> PathBuf {
+    PathBuf::from("./aggregator_bls_sk.hex")
 }
 
 #[tokio::main]
@@ -68,9 +94,8 @@ async fn main() -> anyhow::Result<()> {
     let config: Config = toml::from_str(&config_str)?;
 
     // Initialize persistent state
-    let state_path = PathBuf::from("./state.db");
-    let state = Arc::new(State::open(&state_path)?);
-    tracing::info!("Opened persistent state database");
+    let state = Arc::new(State::open(&config.state_db)?);
+    tracing::info!(path = %config.state_db.display(), "Opened persistent state database");
 
     // Parse genesis public key
     let pk_bytes = hex::decode(&config.genesis_pk)?;
@@ -90,9 +115,8 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Initialize indexer
-    let indexer_path = PathBuf::from("./indexer.db");
-    let indexer = Arc::new(Indexer::open(&indexer_path, state.clone())?);
-    tracing::info!("Opened indexer database");
+    let indexer = Arc::new(Indexer::open(&config.indexer_db, state.clone())?);
+    tracing::info!(path = %config.indexer_db.display(), "Opened indexer database");
 
     // Create app state
     let app_state = AppState {
@@ -101,8 +125,10 @@ async fn main() -> anyhow::Result<()> {
         mempool: Arc::new(std::sync::Mutex::new(Vec::new())),
     };
     let router = router(app_state.clone());
+    let api_addr = format!("0.0.0.0:{}", config.api_port);
+    tracing::info!(addr = %api_addr, "Starting API server");
     tokio::spawn(async move {
-        let listener = TcpListener::bind("0.0.0.0:8080").await.unwrap();
+        let listener = TcpListener::bind(&api_addr).await.unwrap();
         axum::serve(listener, router).await.unwrap();
     });
 
@@ -156,6 +182,7 @@ async fn main() -> anyhow::Result<()> {
         config.subchain.clone(),
         config.network,
         Some(config.keyfile.clone()),
+        config.bls_keyfile.clone(),
         app_state
     ).await?;
 

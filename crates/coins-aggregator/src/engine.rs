@@ -39,7 +39,7 @@ pub struct Engine {
 
 impl Engine {
     /// Initialize from backend, subchain path, optional fee key path.
-    pub async fn new(backend: Arc<dyn BlockchainBackend>, subchain_path: PathBuf, network: Network, key_file: Option<PathBuf>, app_state: AppState) -> Result<Self> {
+    pub async fn new(backend: Arc<dyn BlockchainBackend>, subchain_path: PathBuf, network: Network, key_file: Option<PathBuf>, bls_key_file: PathBuf, app_state: AppState) -> Result<Self> {
         // ---------- load subchain ----------
         let sc_bytes = std::fs::read(&subchain_path)?;
         let sc = Subchain::decode(&sc_bytes).ok_or_else(|| anyhow::anyhow!("invalid subchain file"))?;
@@ -69,9 +69,8 @@ impl Engine {
         let fee_addr = Address::p2wpkh(&fee_pk, network);
 
         // ---------- aggregator BLS secret key ----------
-        let aggregator_key_file = PathBuf::from("aggregator_bls_sk.hex");
-        let aggregator_sk = if aggregator_key_file.exists() {
-            let hex = std::fs::read_to_string(&aggregator_key_file)?;
+        let aggregator_sk = if bls_key_file.exists() {
+            let hex = std::fs::read_to_string(&bls_key_file)?;
             let bytes = hex::decode(hex.trim())?;
             let fr = Fr::from_le_bytes_mod_order(&bytes);
             BLSSecretKey(fr)
@@ -80,7 +79,7 @@ impl Engine {
             // Save it for next time
             let mut bytes = Vec::new();
             sk.0.serialize_uncompressed(&mut bytes).expect("serialize Fr");
-            std::fs::write(&aggregator_key_file, hex::encode(&bytes))?;
+            std::fs::write(&bls_key_file, hex::encode(&bytes))?;
             sk
         };
         let aggregator_pk = G1(aggregator_sk.public_key());
