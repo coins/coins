@@ -190,11 +190,12 @@ echo -e "${YELLOW}[3/8] Determining Node 1's fee address...${NC}"
 TEMP_PID=$!
 sleep 5
 
-# Extract fee address from logs
-FEE_ADDR=$(grep "Publisher initialized" /tmp/publisher_temp.log | grep -o 'bcrt1q[a-z0-9]*' | head -1)
+# Extract fee address from logs (handle both "Publisher" and "Aggregator" for backwards compatibility)
+FEE_ADDR=$(grep -E "(Publisher|Aggregator) initialized" /tmp/publisher_temp.log | grep -o 'bcrt1q[a-z0-9]*' | head -1)
 
 if [ -z "$FEE_ADDR" ]; then
     echo -e "${RED}✗ Could not determine fee address${NC}"
+    echo -e "${YELLOW}Publisher log output:${NC}"
     cat /tmp/publisher_temp.log
     kill $TEMP_PID 2>/dev/null || true
     exit 1
