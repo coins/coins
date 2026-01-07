@@ -13,6 +13,24 @@ pub mod query;
 
 pub use finality::FINALITY_DEPTH;
 
+// ChainBlock serialization layout constants
+/// Bitcoin txid size in bytes
+const TXID_SIZE: usize = 32;
+/// u32 field size in bytes
+const U32_SIZE: usize = std::mem::size_of::<u32>();
+/// State root hash size in bytes
+const STATE_ROOT_SIZE: usize = 32;
+/// ChainBlock fixed header size: txid + height + confirmations + sub_block_len
+const CHAIN_BLOCK_HEADER_SIZE: usize = TXID_SIZE + U32_SIZE + U32_SIZE + U32_SIZE;
+/// Minimum ChainBlock size: header + state_root (no transactions)
+const MIN_CHAIN_BLOCK_SIZE: usize = CHAIN_BLOCK_HEADER_SIZE + STATE_ROOT_SIZE;
+
+// Serialization byte offsets
+const OFFSET_HEIGHT: usize = TXID_SIZE;
+const OFFSET_CONFIRMATIONS: usize = OFFSET_HEIGHT + U32_SIZE;
+const OFFSET_SUBBLOCK_LEN: usize = OFFSET_CONFIRMATIONS + U32_SIZE;
+const OFFSET_SUBBLOCK_DATA: usize = OFFSET_SUBBLOCK_LEN + U32_SIZE;
+
 /// A sub-block anchored to a Bitcoin transaction
 #[derive(Debug, Clone)]
 pub struct ChainBlock {
@@ -25,7 +43,7 @@ pub struct ChainBlock {
     /// The sub-block content
     pub sub_block: SubBlock,
     /// State root hash after applying this sub-block (for future use)
-    pub state_root: [u8; 32],
+    pub state_root: [u8; STATE_ROOT_SIZE],
 }
 
 impl ChainBlock {
@@ -48,20 +66,29 @@ impl ChainBlock {
 
     /// Deserialize ChainBlock from bytes
     fn deserialize(data: &[u8]) -> Option<Self> {
-        if data.len() < 80 { return None; } // 32 + 12 + 4 + 32 minimum
+        if data.len() < MIN_CHAIN_BLOCK_SIZE { return None; }
 
-        let txid_bytes: [u8; 32] = data[0..32].try_into().ok()?;
+        let txid_bytes: [u8; TXID_SIZE] = data[0..TXID_SIZE].try_into().ok()?;
         let btc_txid = Txid::from_byte_array(txid_bytes);
 
-        let btc_height = u32::from_le_bytes(data[32..36].try_into().ok()?);
-        let btc_confirmations = u32::from_le_bytes(data[36..40].try_into().ok()?);
+        let btc_height = u32::from_le_bytes(
+            data[OFFSET_HEIGHT..OFFSET_CONFIRMATIONS].try_into().ok()?
+        );
+        let btc_confirmations = u32::from_le_bytes(
+            data[OFFSET_CONFIRMATIONS..OFFSET_SUBBLOCK_LEN].try_into().ok()?
+        );
 
-        let sub_block_len = u32::from_le_bytes(data[40..44].try_into().ok()?) as usize;
-        if data.len() < 44 + sub_block_len + 32 { return None; }
+        let sub_block_len = u32::from_le_bytes(
+            data[OFFSET_SUBBLOCK_LEN..OFFSET_SUBBLOCK_DATA].try_into().ok()?
+        ) as usize;
+        if data.len() < OFFSET_SUBBLOCK_DATA + sub_block_len + STATE_ROOT_SIZE { return None; }
 
-        let sub_block = SubBlock::deserialize(&data[44..44 + sub_block_len])?;
+        let sub_block = SubBlock::deserialize(
+            &data[OFFSET_SUBBLOCK_DATA..OFFSET_SUBBLOCK_DATA + sub_block_len]
+        )?;
 
-        let state_root: [u8; 32] = data[44 + sub_block_len..44 + sub_block_len + 32]
+        let state_root_start = OFFSET_SUBBLOCK_DATA + sub_block_len;
+        let state_root: [u8; STATE_ROOT_SIZE] = data[state_root_start..state_root_start + STATE_ROOT_SIZE]
             .try_into()
             .ok()?;
 
@@ -138,7 +165,7 @@ impl Indexer {
             btc_height,
             btc_confirmations: 0,
             sub_block,
-            state_root: [0u8; 32], // TODO: compute actual state root
+            state_root: [0u8; STATE_ROOT_SIZE], // TODO: compute actual state root
         };
 
         // Serialize and store

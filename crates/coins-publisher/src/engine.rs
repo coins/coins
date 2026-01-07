@@ -14,6 +14,12 @@ use coins_subchain::op_return::{publish_op_return, compress};
 use ark_ff::{PrimeField, BigInteger};
 use ark_bn254::Fr;
 
+/// Default fee rate in sat/vbyte for sub-block transactions
+const DEFAULT_FEE_RATE_SAT_PER_VB: u64 = 4;
+
+/// Anchor output index (output[1] in anchor transactions)
+const ANCHOR_OUTPUT_INDEX: u32 = 1;
+
 /// Fee UTXO for paying Bitcoin transaction fees.
 #[derive(Debug, Clone)]
 pub struct FeeUtxo {
@@ -125,7 +131,7 @@ impl Engine {
                     anyhow::bail!("subchain exhausted");
                 }
                 let next = &txs[self.anchor_idx];
-                self.current_anchor = OutPoint::new(next.compute_txid(), 1);
+                self.current_anchor = OutPoint::new(next.compute_txid(), ANCHOR_OUTPUT_INDEX);
             }
         }
         Ok(())
@@ -182,7 +188,7 @@ impl Engine {
         }
 
         let fee_utxo = self.fee_utxos[0].clone();
-        let fee_rate = FeeRate::from_sat_per_vb(4).unwrap();
+        let fee_rate = FeeRate::from_sat_per_vb(DEFAULT_FEE_RATE_SAT_PER_VB).unwrap();
 
         let txs = self.sc.reconstruct_txs();
 
@@ -279,7 +285,7 @@ impl Engine {
                 self.anchor_idx = idx + 1;
                 if self.anchor_idx < txs.len() {
                     let next = &txs[self.anchor_idx];
-                    self.current_anchor = OutPoint::new(next.compute_txid(), 1);
+                    self.current_anchor = OutPoint::new(next.compute_txid(), ANCHOR_OUTPUT_INDEX);
                 } else {
                     // all anchors spent, we are at the tip
                 }
@@ -309,7 +315,7 @@ impl Engine {
         // For each anchor transaction, check if its anchor was spent
         for (idx, anchor_tx) in txs.iter().enumerate() {
             let anchor_txid = anchor_tx.compute_txid();
-            let anchor_outpoint = OutPoint::new(anchor_txid, 1);
+            let anchor_outpoint = OutPoint::new(anchor_txid, ANCHOR_OUTPUT_INDEX);
 
             tracing::debug!(
                 anchor_idx = idx,
@@ -318,7 +324,7 @@ impl Engine {
             );
 
             // Check if anchor output exists (anchor was broadcast)
-            let anchor_status = self.backend.get_output_status(&anchor_txid, 1).await?;
+            let anchor_status = self.backend.get_output_status(&anchor_txid, ANCHOR_OUTPUT_INDEX).await?;
 
             if anchor_status.is_none() {
                 tracing::debug!(

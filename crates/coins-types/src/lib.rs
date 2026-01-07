@@ -4,13 +4,16 @@
 //! crates can already depend on them while the detailed serialization logic
 //! is filled in later phases.
 
-use coins_crypto::{G1, G2};
+use coins_crypto::{G1, G2, G1_SIZE, G2_SIZE};
 use serde::{Serialize, Deserialize};
 use bincode::serde::{encode_to_vec as bincode_serialize, decode_from_slice as bincode_deserialize};
 use bincode::config::{standard, Config};
 
-/// Wire-size constant 
-pub const TX_SIZE: usize = 41; 
+/// Wire-size constant
+pub const TX_SIZE: usize = 41;
+
+/// SubBlock header size (G2 signature + G1 publisher key)
+pub const SUBBLOCK_HEADER_SIZE: usize = G2_SIZE + G1_SIZE;
 
 pub type Amount = u32;
 pub type Fee = u8;
@@ -70,9 +73,9 @@ pub struct SubBlock {
 }
 
 impl SubBlock {
-    /// Serialize SubBlock into Vec<u8> (64-byte sigma + 32-byte publisher_pk + N×41-byte txs).
+    /// Serialize SubBlock into Vec<u8> (G2_SIZE-byte sigma + G1_SIZE-byte publisher_pk + N×TX_SIZE-byte txs).
     pub fn serialize(&self) -> Vec<u8> {
-        let mut v = Vec::with_capacity(64 + 32 + self.txs.len() * TX_SIZE);
+        let mut v = Vec::with_capacity(SUBBLOCK_HEADER_SIZE + self.txs.len() * TX_SIZE);
         v.extend_from_slice(&bincode_serialize(&self.sigma, bin_config()).expect("sigma ser"));
         v.extend_from_slice(&bincode_serialize(&self.publisher_pk, bin_config()).expect("pk ser"));
         for tx in &self.txs {
@@ -83,9 +86,9 @@ impl SubBlock {
 
     /// Deserialize sub-block from bytes; returns None if size is invalid.
     pub fn deserialize(data: &[u8]) -> Option<Self> {
-        if data.len() < 96 { return None; }
-        let (sigma_bytes, rest) = data.split_at(64);
-        let (pk_bytes, tx_bytes) = rest.split_at(32);
+        if data.len() < SUBBLOCK_HEADER_SIZE { return None; }
+        let (sigma_bytes, rest) = data.split_at(G2_SIZE);
+        let (pk_bytes, tx_bytes) = rest.split_at(G1_SIZE);
         let sigma: G2 = {
             let (s, _): (G2, usize) = bincode_deserialize(sigma_bytes, bin_config()).ok()?;
             s

@@ -13,7 +13,7 @@
 //! - ⚠️  28% of nodes (Bitcoin Knots) may reject large OP_RETURN
 
 use bitcoin::absolute::LockTime;
-use bitcoin::opcodes::all::OP_RETURN;
+use bitcoin::opcodes::all::{OP_RETURN, OP_PUSHDATA1, OP_PUSHDATA2, OP_PUSHDATA4};
 use bitcoin::script::{Builder, PushBytesBuf};
 use bitcoin::secp256k1::{Message, Secp256k1, SecretKey};
 use bitcoin::sighash::{EcdsaSighashType, SighashCache};
@@ -24,11 +24,33 @@ use bitcoin::{
 use std::io::{Read, Write};
 use core::convert::TryFrom;
 
+/// Bitcoin dust limit in satoshis (minimum output value)
 const DUST_LIMIT_SAT: u64 = 546;
 
-/// Compress data using zstd (level 3 is a good balance of speed/compression)
+/// Bitcoin Core v30 OP_RETURN size limit (100KB)
+const OP_RETURN_MAX_SIZE: usize = 100_000;
+
+/// Zstd compression level (balance of speed/compression for sub-block data)
+const ZSTD_COMPRESSION_LEVEL: i32 = 3;
+
+/// Weight units to virtual bytes divisor (BIP-141)
+const WEIGHT_UNITS_PER_VBYTE: u64 = 4;
+
+/// Fee-paying input index in compound transaction
+const FEE_INPUT_INDEX: usize = 1;
+
+/// Anchor output index (output[1] in anchor transactions)
+const ANCHOR_OUTPUT_INDEX: u32 = 1;
+
+/// Maximum length for direct push (OP_PUSHBYTES_1 to OP_PUSHBYTES_75)
+const MAX_DIRECT_PUSH_LEN: u8 = 75;
+
+/// Transaction version 3 for TRUC/BIP-431 compatibility
+const TX_VERSION_TRUC: i32 = 3;
+
+/// Compress data using zstd
 pub fn compress(data: &[u8]) -> Result<Vec<u8>, std::io::Error> {
-    let mut encoder = zstd::Encoder::new(Vec::new(), 3)?;
+    let mut encoder = zstd::Encoder::new(Vec::new(), ZSTD_COMPRESSION_LEVEL)?;
     encoder.write_all(data)?;
     encoder.finish()
 }
@@ -91,7 +113,7 @@ fn compile_op_return_tx(
     }
 
     let mut tx = Transaction {
-        version: Version(3), // V3 for TRUC/BIP-431 compatibility
+        version: Version(TX_VERSION_TRUC), // V3 for TRUC/BIP-431 compatibility
         lock_time: LockTime::ZERO,
         input: vec![
             // Anchor input (anyone-can-spend)
@@ -112,11 +134,11 @@ fn compile_op_return_tx(
         output: outputs,
     };
 
-    // Sign fee input (index 1)
+    // Sign fee input
     let mut cache = SighashCache::new(&mut tx);
     let sighash = cache
         .p2wpkh_signature_hash(
-            1,
+            FEE_INPUT_INDEX,
             &fee_spk,
             Amount::from_sat(fee_value_sat),
             EcdsaSighashType::All,
@@ -128,7 +150,7 @@ fn compile_op_return_tx(
     let mut sig_der = sig.serialize_der().to_vec();
     sig_der.push(EcdsaSighashType::All as u8);
 
-    *cache.witness_mut(1).unwrap() = Witness::from_slice(&[
+    *cache.witness_mut(FEE_INPUT_INDEX).unwrap() = Witness::from_slice(&[
         sig_der.as_slice(),
         fee_pk.to_bytes().as_slice(),
     ]);
@@ -136,9 +158,9 @@ fn compile_op_return_tx(
     cache.into_transaction().clone()
 }
 
-/// Helper: compute vbytes from weight.
+/// Helper: compute vbytes from weight (BIP-141).
 fn weight_to_vbytes(w: u64) -> u64 {
-    (w + 3) / 4
+    (w + WEIGHT_UNITS_PER_VBYTE - 1) / WEIGHT_UNITS_PER_VBYTE
 }
 
 /// High-level function to publish blob via OP_RETURN.
@@ -160,11 +182,11 @@ pub fn publish_op_return(
     }
 
     // Bitcoin Core v30 allows up to 100KB in OP_RETURN
-    if blob.len() > 100_000 {
+    if blob.len() > OP_RETURN_MAX_SIZE {
         return Err("blob exceeds 100KB OP_RETURN limit");
     }
 
-    let anchor_out = OutPoint::new(anchor_tx.compute_txid(), 1);
+    let anchor_out = OutPoint::new(anchor_tx.compute_txid(), ANCHOR_OUTPUT_INDEX);
 
     // Build with zero fee to estimate weight
     let tx_estimate = compile_op_return_tx(
@@ -200,7 +222,7 @@ pub fn publish_op_return(
 
     // New anchor is the change output (if exists)
     let new_anchor = if data_tx.output.len() > 1 {
-        OutPoint::new(data_tx.compute_txid(), 1)
+        OutPoint::new(data_tx.compute_txid(), ANCHOR_OUTPUT_INDEX)
     } else {
         // No change output - all consumed as fee
         // This means we need a new fee UTXO for the next block
@@ -217,8 +239,8 @@ pub fn parse_blob_from_op_return(tx: &Transaction) -> Option<Vec<u8>> {
         let script = &output.script_pubkey;
         let bytes = script.as_bytes();
 
-        // Check if it's OP_RETURN (0x6a)
-        if bytes.is_empty() || bytes[0] != 0x6a {
+        // Check if it's OP_RETURN
+        if bytes.is_empty() || bytes[0] != OP_RETURN.to_u8() {
             continue;
         }
 
@@ -228,23 +250,23 @@ pub fn parse_blob_from_op_return(tx: &Transaction) -> Option<Vec<u8>> {
         }
 
         // Handle different push opcodes
-        let data_start = if bytes[1] <= 75 {
+        let data_start = if bytes[1] <= MAX_DIRECT_PUSH_LEN {
             // Direct push (OP_PUSHBYTES_1 to OP_PUSHBYTES_75)
             2
-        } else if bytes[1] == 0x4c {
-            // OP_PUSHDATA1
+        } else if bytes[1] == OP_PUSHDATA1.to_u8() {
+            // OP_PUSHDATA1 (1-byte length prefix)
             if bytes.len() < 3 {
                 continue;
             }
             3
-        } else if bytes[1] == 0x4d {
-            // OP_PUSHDATA2
+        } else if bytes[1] == OP_PUSHDATA2.to_u8() {
+            // OP_PUSHDATA2 (2-byte length prefix)
             if bytes.len() < 4 {
                 continue;
             }
             4
-        } else if bytes[1] == 0x4e {
-            // OP_PUSHDATA4
+        } else if bytes[1] == OP_PUSHDATA4.to_u8() {
+            // OP_PUSHDATA4 (4-byte length prefix)
             if bytes.len() < 6 {
                 continue;
             }
@@ -315,7 +337,7 @@ mod tests {
     #[test]
     fn test_op_return_size_limit() {
         let mut rng = OsRng;
-        let data = vec![0u8; 100_001]; // 1 byte over limit
+        let data = vec![0u8; OP_RETURN_MAX_SIZE + 1]; // 1 byte over limit
         let fee_sk = SecretKey::new(&mut rng);
 
         let anchor_tx = Transaction {

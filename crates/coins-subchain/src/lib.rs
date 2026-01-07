@@ -19,6 +19,15 @@ use bincode::config::{standard, Config};
 
 pub mod op_return;
 
+/// ECDSA compact signature size (r || s)
+const ECDSA_COMPACT_SIG_SIZE: usize = 64;
+
+/// Successor output index (output[0] in anchor transactions)
+const SUCCESSOR_OUTPUT_INDEX: u32 = 0;
+
+/// Transaction version 3 for TRUC/BIP-431 compatibility
+const TX_VERSION_TRUC: i32 = 3;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Subchain {
     /// First UTXO to spend.
@@ -50,12 +59,12 @@ impl Subchain {
             .into_script();
 
         Transaction {
-            version: Version(3),
+            version: Version(TX_VERSION_TRUC),
             lock_time: bitcoin::absolute::LockTime::ZERO,
             input: vec![TxIn {
                 previous_output: prev_out,
                 script_sig: ScriptBuf::new(),
-                sequence: Sequence::from_height(1),
+                sequence: Sequence::from_height(1), // BIP-68 relative locktime
                 witness: Witness::default(),
             }],
             output: vec![
@@ -115,7 +124,7 @@ impl Subchain {
             tx_final.input[0].witness = Witness::from_slice(&[sig_der.as_slice(), pk_bytes.as_slice()]);
 
             let txid = tx_final.compute_txid();
-            prev_out = OutPoint::new(txid, 0);
+            prev_out = OutPoint::new(txid, SUCCESSOR_OUTPUT_INDEX);
         }
 
         Self { first_out, value_sat, pubkey: pk_compressed, network, sigs, genesis_height: None }
@@ -156,7 +165,7 @@ impl Subchain {
         let (sc, _): (Subchain, usize) = bincode_deserialize(data, bin_config()).ok()?;
 
         // Validate that all signatures are exactly 64 bytes (compact format)
-        if sc.sigs.iter().any(|sig| sig.len() != 64) {
+        if sc.sigs.iter().any(|sig| sig.len() != ECDSA_COMPACT_SIG_SIZE) {
             return None;
         }
 
@@ -174,12 +183,12 @@ impl Subchain {
         for sig_bytes in &self.sigs {
             let mut tx = Self::build_anchor_tx(prev_out, self.value_sat, script_pubkey.clone());
 
-            // Convert compact signature (64 bytes) back to DER format for witness
-            if sig_bytes.len() != 64 {
-                panic!("Invalid signature length: expected 64 bytes, got {}", sig_bytes.len());
+            // Convert compact signature back to DER format for witness
+            if sig_bytes.len() != ECDSA_COMPACT_SIG_SIZE {
+                panic!("Invalid signature length: expected {} bytes, got {}", ECDSA_COMPACT_SIG_SIZE, sig_bytes.len());
             }
-            let sig_compact: [u8; 64] = sig_bytes.as_slice().try_into()
-                .expect("64-byte signature");
+            let sig_compact: [u8; ECDSA_COMPACT_SIG_SIZE] = sig_bytes.as_slice().try_into()
+                .expect("compact signature");
             let sig = Signature::from_compact(&sig_compact)
                 .expect("valid compact signature");
             let mut sig_der = sig.serialize_der().to_vec();
@@ -188,7 +197,7 @@ impl Subchain {
             let pkb = self.pubkey.to_bytes();
             tx.input[0].witness = Witness::from_slice(&[sig_der.as_slice(), pkb.as_slice()]);
             let txid = tx.compute_txid();
-            prev_out = OutPoint::new(txid, 0);
+            prev_out = OutPoint::new(txid, SUCCESSOR_OUTPUT_INDEX);
             txs.push(tx);
         }
         txs
