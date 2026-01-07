@@ -6,7 +6,7 @@ A compact Layer-2 Bitcoin token protocol using BLS signatures and embedded conse
 
 Coins is an embedded-consensus token system built on Bitcoin that uses:
 - **BLS signatures** on the BN-254 curve for compact multi-signature aggregation
-- **Space-chain** architecture: pre-signed Bitcoin transaction chains for anchoring
+- **Subchain** architecture: pre-signed Bitcoin transaction chains for anchoring
 - **6-block finality**: Sub-blocks achieve finality after 6 Bitcoin confirmations
 - **Minimal on-chain footprint**: 64-byte aggregate signatures for entire blocks
 
@@ -22,7 +22,7 @@ Coins is an embedded-consensus token system built on Bitcoin that uses:
 - **coins-aggregator**: Sub-block aggregation service with dual blockchain backend support:
   - **RPC backend**: Bitcoin Core RPC for regtest (fast, local testing)
   - **Esplora backend**: Public Esplora API for signet/mainnet (no node required)
-- **coins-spacechain**: Pre-signed UTXO chain generation and management
+- **coins-subchain**: Pre-signed UTXO chain generation and management
 - **coins-client**: User-facing wallet CLI
 
 ### How It Works
@@ -54,19 +54,19 @@ ADDR=$(bitcoin-cli -regtest -rpcuser=user -rpcpassword=pass getnewaddress)
 bitcoin-cli -regtest -rpcuser=user -rpcpassword=pass generatetoaddress 101 $ADDR
 ```
 
-### 2. Generate Spacechain
+### 2. Generate Subchain
 
 ```bash
-# Build the spacechain setup tool
-cargo build --release --bin spacechain-setup
+# Build the subchain setup tool
+cargo build --release --bin subchain-setup
 
-# Generate spacechain (10,000 pre-signed transactions)
-./target/release/spacechain-setup \
+# Generate subchain (10,000 pre-signed transactions)
+./target/release/subchain-setup \
     --count 10000 \
     --network regtest \
-    --output spacechain_regtest.bin
+    --output subchain_regtest.bin
 
-# This creates spacechain_regtest.bin (~795 KB)
+# This creates subchain_regtest.bin (~795 KB)
 ```
 
 ### 3. Configure Aggregator
@@ -75,11 +75,11 @@ Copy the regtest configuration templates:
 
 ```bash
 cp config/aggregator-regtest.toml config/aggregator.toml
-cp config/spacechain-regtest.toml config/spacechain.toml
+cp config/subchain-regtest.toml config/subchain.toml
 ```
 
 The configuration will use these paths:
-- Spacechain: `.data/spacechains/spacechain_regtest.bin`
+- Subchain: `.data/subchains/subchain_regtest.bin`
 - Keys: `.data/keys/aggregator_sk.hex`
 - Databases: `.data/db/state.db/` and `.data/db/indexer.db/`
 
@@ -216,8 +216,8 @@ The aggregator creates files in the `.data/` directory:
 │   ├── aggregator_sk.hex      # Bitcoin ECDSA secret key (fee payments)
 │   ├── aggregator_bls_sk.hex  # BLS secret key (sub-block signing)
 │   └── client_sk.hex          # Client wallet key
-├── spacechains/
-│   └── spacechain_regtest.bin # Pre-signed connector transactions
+├── subchains/
+│   └── subchain_regtest.bin # Pre-signed connector transactions
 └── db/
     ├── state.db/              # Persistent account state (sled database)
     └── indexer.db/            # Indexed sub-blocks with finality tracking
@@ -249,19 +249,19 @@ Configuration templates are located in the `config/` directory:
 
 - **`config/aggregator-regtest.toml`** - Regtest configuration (Bitcoin RPC)
 - **`config/aggregator-signet.toml`** - Signet configuration (Esplora API)
-- **`config/spacechain-regtest.toml`** - Spacechain for regtest
-- **`config/spacechain-signet.toml`** - Spacechain for signet
+- **`config/subchain-regtest.toml`** - Subchain for regtest
+- **`config/subchain-signet.toml`** - Subchain for signet
 
 ### Quick Setup
 
 ```bash
 # For regtest
 cp config/aggregator-regtest.toml config/aggregator.toml
-cp config/spacechain-regtest.toml config/spacechain.toml
+cp config/subchain-regtest.toml config/subchain.toml
 
 # For signet
 cp config/aggregator-signet.toml config/aggregator.toml
-cp config/spacechain-signet.toml config/spacechain.toml
+cp config/subchain-signet.toml config/subchain.toml
 ```
 
 ### Backend Auto-Selection
@@ -273,9 +273,9 @@ See `config/README.md` for detailed documentation.
 
 ## Troubleshooting
 
-### "Spacechain exhausted"
+### "Subchain exhausted"
 
-The pre-signed transaction chain has been fully used. Generate a new spacechain with more transactions (`--count` parameter).
+The pre-signed transaction chain has been fully used. Generate a new subchain with more transactions (`--count` parameter).
 
 ### "No fee UTXOs available"
 
@@ -302,7 +302,7 @@ cargo build --all
 # Build specific binary
 cargo build --bin coins-aggregator
 cargo build --bin coins-client
-cargo build --bin spacechain-setup
+cargo build --bin subchain-setup
 
 # Run with specific features
 cargo build --release
@@ -323,14 +323,14 @@ coins/
 ├── config/                    # Configuration files
 │   ├── README.md
 │   ├── aggregator.toml        # Active config (gitignored)
-│   ├── spacechain.toml        # Active config (gitignored)
+│   ├── subchain.toml          # Active config (gitignored)
 │   ├── aggregator-regtest.toml  # Template
 │   ├── aggregator-signet.toml   # Template
-│   ├── spacechain-regtest.toml  # Template
-│   └── spacechain-signet.toml   # Template
+│   ├── subchain-regtest.toml    # Template
+│   └── subchain-signet.toml     # Template
 ├── .data/                     # Generated files (gitignored)
 │   ├── keys/                  # Bitcoin & BLS keys
-│   ├── spacechains/           # Pre-signed chains
+│   ├── subchains/             # Pre-signed chains
 │   └── db/                    # Databases
 ├── test-data/                 # Test fixtures (gitignored)
 │   └── keys/
@@ -341,7 +341,7 @@ coins/
 │   ├── coins-validator/      # Transaction validation
 │   ├── coins-indexer/        # Chain indexing & finality
 │   ├── coins-aggregator/     # Aggregator service
-│   ├── coins-spacechain/     # Spacechain setup
+│   ├── coins-subchain/       # Subchain setup
 │   └── coins-client/         # Wallet CLI
 └── target/                    # Build outputs
 ```

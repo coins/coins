@@ -1,6 +1,6 @@
-# Coins Spacechain – Trusted Setup
+# Coins Subchain – Trusted Setup
 
-This crate ships an executable that performs the **one-time trusted setup** for the Coins space-chain: it
+This crate ships an executable that performs the **one-time trusted setup** for the Coins subchain: it
 
 1.  Generates a fresh one-time keypair.
 2.  Displays the Bech32 **address** that must receive the setup funds.
@@ -9,7 +9,7 @@ This crate ships an executable that performs the **one-time trusted setup** for 
 
 > ⚠️  Run this program **once** and **offline**. The one-time secret key lives only in RAM during
 > execution and is automatically dropped when the program terminates. Re-running the setup would
-> create a different space-chain and invalidate the previous one.
+> create a different subchain and invalidate the previous one.
 
 ---
 
@@ -17,13 +17,13 @@ This crate ships an executable that performs the **one-time trusted setup** for 
 
 ```bash
 # from the workspace root
-cargo build -p coins-spacechain --bin spacechain-setup --release
+cargo build -p coins-subchain --bin subchain-setup --release
 ```
 
 The resulting binary is at
 
 ```
-./target/release/spacechain-setup
+./target/release/subchain-setup
 ```
 
 
@@ -35,11 +35,11 @@ Example for a regtest deployment that creates **1 000 000** connector transactio
 minimum relayable amount (546 sat) each:
 
 ```bash
-./target/release/spacechain-setup \
+./target/release/subchain-setup \
   --count 1000000 \
   --value 546 \
   --network regtest \
-  --output spacechain.bin
+  --output subchain.bin
 ```
 
 ### Step-by-step interaction
@@ -65,16 +65,16 @@ minimum relayable amount (546 sat) each:
    specified file.
 
    ```text
-   Building spacechain…
-   Wrote 1000000 connectorTxs (75.00 MB) to spacechain.bin
+   Building subchain…
+   Wrote 1000000 connectorTxs (75.00 MB) to subchain.bin
    ```
 
 ---
 
 ## Output format
 
-`spacechain.bin` is the compact **bincode** representation of the `Spacechain` struct (with
-fixed-integer encoding). It is read by `Spacechain::decode()` and can reconstruct the full connector
+`subchain.bin` is the compact **bincode** representation of the `Subchain` struct (with
+fixed-integer encoding). It is read by `Subchain::decode()` and can reconstruct the full connector
 transactions on demand.
 
 ---
@@ -91,16 +91,16 @@ For any issues open a ticket in the repository.
 
 ## Verifying file integrity
 
-Because `spacechain.bin` is deterministic for a given funding out-point, its
+Because `subchain.bin` is deterministic for a given funding out-point, its
 authenticity can be verified by comparing its SHA-256 hash across machines.
 
 Generate the hash on Unix-like systems:
 
 ```bash
-sha256sum spacechain.bin   # Linux
+sha256sum subchain.bin   # Linux
 # or
-shasum -a 256 spacechain.bin   # macOS / BSD
+shasum -a 256 subchain.bin   # macOS / BSD
 # or with OpenSSL
-openssl dgst -sha256 spacechain.bin
+openssl dgst -sha256 subchain.bin
 ```
 
