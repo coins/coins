@@ -79,7 +79,7 @@ cp config/subchain-regtest.toml config/subchain.toml
 The configuration will use these paths:
 - Subchain: `.data/subchains/subchain_regtest.bin`
 - Keys: `.data/keys/publisher_sk.hex`
-- Databases: `.data/db/state.db/` and `.data/db/indexer.db/`
+- Databases: `.data/regtest/state.db/` and `.data/regtest/indexer.db/`
 
 
 ### 4. Run Publisher
@@ -92,8 +92,8 @@ cargo run --bin coins-publisher
 cargo run --bin coins-publisher -- --config config/publisher.toml
 
 # The publisher will:
-# - Initialize persistent state (.data/db/state.db/)
-# - Initialize indexer (.data/db/indexer.db/)
+# - Initialize persistent state (.data/regtest/state.db/)
+# - Initialize indexer (.data/regtest/indexer.db/)
 # - Start HTTP API on http://localhost:8080
 # - Begin mining sub-blocks every 30 seconds
 ```
@@ -202,13 +202,16 @@ The publisher creates files in the `.data/` directory:
 ```
 .data/
 ├── keys/
-│   ├── publisher_sk.hex      # Bitcoin ECDSA secret key (fee payments)
-│   ├── publisher_bls_sk.hex  # BLS secret key (sub-block signing)
+│   ├── publisher_sk.hex       # Bitcoin ECDSA secret key (fee payments)
+│   ├── publisher_bls_sk.hex   # BLS secret key (sub-block signing)
 │   └── client_sk.hex          # Client wallet key
 ├── subchains/
-│   └── subchain_regtest.bin # Pre-signed anchor transactions
-└── db/
-    ├── state.db/              # Persistent account state (sled database)
+│   └── subchain_regtest.bin   # Pre-signed anchor transactions
+├── regtest/                   # Regtest-specific databases
+│   ├── state.db/              # Persistent account state (RocksDB)
+│   └── indexer.db/            # Indexed sub-blocks with finality tracking
+└── signet/                    # Signet-specific databases (when using signet)
+    ├── state.db/              # Persistent account state (RocksDB)
     └── indexer.db/            # Indexed sub-blocks with finality tracking
 ```
 
@@ -273,10 +276,12 @@ Bitcoin node doesn't support package relay. Update your Bitcoin node to 0.30 or 
 
 ### State database corruption
 
-Delete `.data/db/` directory to reset. You'll lose all state - only do this on regtest/testnet:
+Delete `.data/regtest/` (or `.data/signet/`) directory to reset. You'll lose all state - only do this on regtest/testnet:
 
 ```bash
-rm -rf .data/db/
+rm -rf .data/regtest/  # For regtest
+# or
+rm -rf .data/signet/   # For signet
 ```
 
 ## Development

@@ -98,11 +98,11 @@ fn default_api_port() -> u16 {
 }
 
 fn default_state_db() -> PathBuf {
-    PathBuf::from("./state.db")
+    PathBuf::from(".data/state.db")
 }
 
 fn default_indexer_db() -> PathBuf {
-    PathBuf::from("./indexer.db")
+    PathBuf::from(".data/indexer.db")
 }
 
 fn default_bls_keyfile() -> PathBuf {
@@ -235,7 +235,7 @@ async fn main() -> anyhow::Result<()> {
 
     let total_sats: bitcoin::Amount = engine.fee_utxos.iter().map(|u| u.value).sum();
     tracing::info!(
-        fee_address = %engine.fee_addr,
+        publisher_address = %engine.fee_addr,
         total_sats = %total_sats,
         utxo_count = engine.fee_utxos.len(),
         "Publisher initialized"
