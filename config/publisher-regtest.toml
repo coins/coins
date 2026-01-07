@@ -7,11 +7,11 @@ rpc_user = "user"
 rpc_pass = "password"
 rpc_wallet = "coins-publisher"  # Watch-only wallet name
 
-# Subchain file (relative to project root)
-subchain = ".data/subchains/subchain_regtest.bin"
+# Subchain file (relative to project root, network-isolated)
+subchain = ".data/regtest/subchains/subchain_regtest.bin"
 
-# Bitcoin secret key for fee payments (will be created if doesn't exist)
-keyfile = ".data/keys/publisher_sk.hex"
+# Bitcoin secret key for fee payments (will be created if doesn't exist, network-isolated)
+keyfile = ".data/regtest/keys/publisher_sk.hex"
 
 # Mining interval in seconds
 interval = 30
@@ -24,6 +24,13 @@ genesis_pk = "43878a2a65c154d604cbe7d974d5dad1c63ce4dc2a68f697c45a4a3ef9ab8a21"
 
 # Genesis account initial balance
 genesis_balance = 1000000000000
+
+# Network-specific database paths (isolated from other networks)
+state_db = ".data/regtest/state.db"
+indexer_db = ".data/regtest/indexer.db"
+
+# API server port (network-specific to avoid conflicts)
+api_port = 8080
 
 # Publishing configuration
 # Format: "op_return" (default), "taproot_annex", or "dual"

@@ -94,7 +94,7 @@ fn default_wallet_name() -> String {
 }
 
 fn default_api_port() -> u16 {
-    8080
+    8080  // Regtest default; signet uses 8081 (set in config)
 }
 
 fn default_state_db() -> PathBuf {

@@ -40,7 +40,7 @@ struct Config {
 }
 
 fn default_publisher_url() -> String {
-    "http://127.0.0.1:8080".to_string()
+    "http://127.0.0.1:8080".to_string()  // Regtest default; signet uses :8081 (set in config)
 }
 
 fn default_keyfile() -> PathBuf {

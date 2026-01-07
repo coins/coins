@@ -118,7 +118,7 @@ cargo run --bin coins-client send \
 
 ## API Endpoints
 
-The publisher exposes a REST API on port 8080:
+The publisher exposes a REST API (default ports: regtest=8080, signet=8081):
 
 ### `GET /account/:pk`
 

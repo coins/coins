@@ -6,11 +6,11 @@ rpc_user = "user"
 rpc_pass = "password"
 rpc_wallet = "coins-publisher"
 
-# Subchain file
-subchain = ".data/subchains/subchain_signet.bin"
+# Subchain file (network-isolated)
+subchain = ".data/signet/subchains/subchain_signet.bin"
 
-# Bitcoin secret key for fee payments
-keyfile = ".data/keys/publisher_signet_sk.hex"
+# Bitcoin secret key for fee payments (network-isolated)
+keyfile = ".data/signet/keys/publisher_signet_sk.hex"
 
 # Mining interval (60s for signet's ~1 min blocks)
 interval = 60
@@ -21,6 +21,13 @@ network = "signet"
 # Genesis account
 genesis_pk = "43878a2a65c154d604cbe7d974d5dad1c63ce4dc2a68f697c45a4a3ef9ab8a21"
 genesis_balance = 1000000000000
+
+# Network-specific database paths (isolated from other networks)
+state_db = ".data/signet/state.db"
+indexer_db = ".data/signet/indexer.db"
+
+# API server port (network-specific to avoid conflicts)
+api_port = 8081
 
 # Publishing configuration
 # Format: "op_return" (default), "taproot_annex", or "dual"
