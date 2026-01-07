@@ -94,16 +94,11 @@ while true; do
     sleep 5
 done
 
-echo -e "${YELLOW}[3/9] Creating wallet...${NC}"
-bitcoin-cli -signet -regtest=0 -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport="${RPC_PORT}" \
-    createwallet "coins-publisher" true false "" false true &>/dev/null || true
-echo -e "${GREEN}✓ Wallet created${NC}\n"
-
-echo -e "${YELLOW}[4/9] Building...${NC}"
+echo -e "${YELLOW}[3/7] Building...${NC}"
 cargo build --release --bin subchain-setup --bin coins-publisher &>/dev/null
 echo -e "${GREEN}✓ Build complete${NC}\n"
 
-echo -e "${YELLOW}[5/9] Generating subchain...${NC}"
+echo -e "${YELLOW}[4/7] Generating subchain...${NC}"
 cat > /tmp/subchain_signet.toml <<EOF
 count = ${SUBCHAIN_COUNT}
 network = "signet"
@@ -126,7 +121,7 @@ echo -e "${BLUE}  Amount: 0.001 BTC (minimum)${NC}\n"
 echo -e "Waiting for confirmation (~1 min)..."
 echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
 
-# Poll for funding
+# Poll for funding (one-time setup operation)
 WAIT_COUNT=0
 MAX_WAIT=120
 
@@ -162,55 +157,11 @@ ln -sf "$(basename ${SUBCHAIN_FILE})" "${SUBCHAIN_LINK}"
 echo -e "${GREEN}✓ Subchain created: $(basename ${SUBCHAIN_FILE})${NC}"
 echo -e "${BLUE}→ Linked to: subchain_signet.bin${NC}\n"
 
-echo -e "${YELLOW}[6/9] Determining fee address...${NC}"
-./target/release/coins-publisher --config config/publisher-signet.toml > /tmp/publisher_temp.log 2>&1 &
-TEMP_PID=$!
-sleep 5
-
-FEE_ADDR=$(grep "Publisher initialized\|fee_address" /tmp/publisher_temp.log | \
-    grep -oE 'tb1[a-z0-9]+' | head -1)
-
-kill $TEMP_PID 2>/dev/null || true
-sleep 2
-
-echo -e "${GREEN}✓ Fee address: ${FEE_ADDR}${NC}\n"
-
-echo -e "${YELLOW}⚠️  MANUAL FUNDING REQUIRED${NC}"
-echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo -e "Fund the fee address:\n"
-echo -e "${BLUE}  Address: ${FEE_ADDR}${NC}\n"
-echo -e "${BLUE}  Faucet: https://signetfaucet.com${NC}"
-echo -e "${BLUE}  Amount: 0.01 BTC (recommended)${NC}\n"
-echo -e "Waiting for confirmation..."
-echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-
-WAIT_COUNT=0
-while true; do
-    FEE_BALANCE=$(bitcoin-cli -signet -regtest=0 -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport="${RPC_PORT}" \
-        scantxoutset start "[\"addr(${FEE_ADDR})\"]" 2>/dev/null | \
-        jq -r '[.unspents[] | select(.height > 0) | .amount] | add // 0' 2>/dev/null)
-
-    if (( $(echo "$FEE_BALANCE > 0" | bc -l 2>/dev/null || echo "0") )); then
-        FEE_SATS=$(echo "$FEE_BALANCE * 100000000" | bc 2>/dev/null | cut -d. -f1)
-        echo -e "${GREEN}✓ Fee address funded (${FEE_SATS} sats)${NC}\n"
-        break
-    fi
-
-    WAIT_COUNT=$((WAIT_COUNT + 1))
-    if [ $WAIT_COUNT -ge $MAX_WAIT ]; then
-        echo -e "${RED}✗ Timeout${NC}"
-        exit 1
-    fi
-
-    echo -ne "\rWaiting... ($((WAIT_COUNT * 5))s)"
-    sleep 5
-done
-
-echo -e "${YELLOW}[7/9] Setting up test accounts...${NC}"
+echo -e "${YELLOW}[5/7] Setting up test accounts...${NC}"
 cargo run --release --example setup_test_accounts &>/dev/null
 echo -e "${GREEN}✓ Test accounts created${NC}\n"
 
-echo -e "${YELLOW}[8/9] Starting publisher...${NC}"
+echo -e "${YELLOW}[6/7] Starting publisher...${NC}"
 ./target/release/coins-publisher --config config/publisher-signet.toml > /tmp/publisher_signet.log 2>&1 &
 PUB_PID=$!
 
@@ -230,7 +181,10 @@ echo -e "${GREEN}========================================${NC}\n"
 echo -e "Network:      Signet (~1 min blocks)"
 echo -e "Subchain:     $(basename ${SUBCHAIN_FILE})"
 echo -e "Link:         subchain_signet.bin -> $(basename ${SUBCHAIN_FILE})"
-echo -e "Fee Address:  ${FEE_ADDR}"
 echo -e "Logs:         /tmp/publisher_signet.log\n"
+echo -e "${YELLOW}NEXT STEP:${NC}"
+echo -e "${YELLOW}Check /tmp/publisher_signet.log for the fee address${NC}"
+echo -e "${YELLOW}Fund it from https://signetfaucet.com (~0.01 BTC)${NC}\n"
 echo -e "${BLUE}List subchains: ls -lh ${SUBCHAIN_DIR}/subchain_signet_*.bin${NC}"
+echo -e "${BLUE}Monitor logs:   tail -f /tmp/publisher_signet.log${NC}"
 echo -e "${BLUE}Run tests:      ./scripts/test-signet.sh${NC}\n"
