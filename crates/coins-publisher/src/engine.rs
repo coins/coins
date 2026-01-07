@@ -11,7 +11,7 @@ use coins_types::SubBlock;
 use coins_crypto::{G1, SecretKey as BLSSecretKey, aggregate};
 use coins_core::validate_subblock;
 use coins_subchain::op_return::publish_op_return;
-use coins_subchain::{compress, decompress};
+use coins_subchain::{compress, decompress, PublishMode, PublishFormat};
 use ark_ff::{PrimeField, BigInteger};
 use ark_bn254::Fr;
 
@@ -35,11 +35,22 @@ pub struct Engine {
     pub base_url: String,
     pub publisher_sk: BLSSecretKey,
     pub publisher_pk: G1,
+    pub publish_mode: PublishMode,
+    pub fee_rate: u64,
 }
 
 impl Engine {
     /// Initialize from backend, subchain path, optional fee key path.
-    pub async fn new(backend: Arc<RpcBackend>, subchain_path: PathBuf, network: Network, key_file: Option<PathBuf>, bls_key_file: PathBuf, app_state: AppState) -> Result<Self> {
+    pub async fn new(
+        backend: Arc<RpcBackend>,
+        subchain_path: PathBuf,
+        network: Network,
+        key_file: Option<PathBuf>,
+        bls_key_file: PathBuf,
+        app_state: AppState,
+        publish_mode: PublishMode,
+        fee_rate: u64,
+    ) -> Result<Self> {
         // ---------- load subchain ----------
         let sc_bytes = std::fs::read(&subchain_path)?;
         let sc = Subchain::decode(&sc_bytes).ok_or_else(|| anyhow::anyhow!("invalid subchain file"))?;
@@ -99,6 +110,8 @@ impl Engine {
             base_url: String::new(), // Not needed anymore, but kept for compatibility
             publisher_sk,
             publisher_pk,
+            publish_mode,
+            fee_rate,
         };
         eng.refresh_fee_utxos().await?;
         Ok(eng)

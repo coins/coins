@@ -8,6 +8,7 @@ use coins_publisher::rpc_backend::RpcBackend;
 use coins_crypto::G1;
 use coins_core::State;
 use coins_indexer::Indexer;
+use coins_subchain::{PublishMode, PublishFormat};
 use serde::Deserialize;
 use tokio::net::TcpListener;
 use tokio::time::{sleep, Duration};
@@ -50,6 +51,42 @@ struct Config {
     indexer_db: PathBuf,
     #[serde(default = "default_bls_keyfile")]
     bls_keyfile: PathBuf,
+
+    // Publishing config
+    #[serde(default = "default_publish_format")]
+    publish_format: String,
+    #[serde(default = "default_fee_rate")]
+    fee_rate_sat_per_vb: u64,
+    #[serde(default)]
+    dual_primary: Option<String>,
+}
+
+impl Config {
+    /// Parse the publish_format string into a PublishMode
+    fn parse_publish_mode(&self) -> anyhow::Result<PublishMode> {
+        match self.publish_format.as_str() {
+            "op_return" => Ok(PublishMode::Single(PublishFormat::OpReturn)),
+            "taproot_annex" => Ok(PublishMode::Single(PublishFormat::TaprootAnnex)),
+            "dual" => {
+                let primary = match self.dual_primary.as_deref() {
+                    Some("op_return") => PublishFormat::OpReturn,
+                    Some("taproot_annex") => PublishFormat::TaprootAnnex,
+                    Some(other) => {
+                        return Err(anyhow::anyhow!("Invalid dual_primary: '{}'. Use 'op_return' or 'taproot_annex'", other));
+                    }
+                    None => PublishFormat::OpReturn, // default to OP_RETURN if not specified
+                };
+                let secondary = primary.other();
+                Ok(PublishMode::Dual { primary, secondary })
+            }
+            other => {
+                Err(anyhow::anyhow!(
+                    "Invalid publish_format: '{}'. Use 'op_return', 'taproot_annex', or 'dual'",
+                    other
+                ))
+            }
+        }
+    }
 }
 
 fn default_wallet_name() -> String {
@@ -70,6 +107,16 @@ fn default_indexer_db() -> PathBuf {
 
 fn default_bls_keyfile() -> PathBuf {
     PathBuf::from(".data/keys/publisher_bls_sk.hex")
+}
+
+fn default_publish_format() -> String {
+    // Can be overridden via environment variable
+    std::env::var("DEFAULT_PUBLISH_FORMAT")
+        .unwrap_or_else(|_| "op_return".to_string())
+}
+
+fn default_fee_rate() -> u64 {
+    4
 }
 
 #[tokio::main]
@@ -126,6 +173,15 @@ async fn main() -> anyhow::Result<()> {
         axum::serve(listener, router).await.unwrap();
     });
 
+    // ===== PARSE PUBLISHING CONFIG FIRST (before config is moved) =====
+    let publish_mode = config.parse_publish_mode()?;
+    let fee_rate = config.fee_rate_sat_per_vb;
+    tracing::info!(
+        mode = ?publish_mode,
+        fee_rate = fee_rate,
+        "Parsed publishing configuration"
+    );
+
     // ===== BACKEND SELECTION =====
     let backend: Arc<RpcBackend> = match config.network {
         Network::Regtest | Network::Signet => {
@@ -169,7 +225,9 @@ async fn main() -> anyhow::Result<()> {
         config.network,
         Some(config.keyfile.clone()),
         config.bls_keyfile.clone(),
-        app_state
+        app_state,
+        publish_mode,
+        fee_rate,
     ).await?;
 
     // Perform Initial Block Downsync to find current anchor and fee UTXOs
