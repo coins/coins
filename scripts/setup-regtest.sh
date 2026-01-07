@@ -36,7 +36,7 @@ echo -e "${YELLOW}[1/9] Cleaning up old processes and data...${NC}"
 # Kill any running processes (try multiple times to be sure)
 killall -9 bitcoind 2>/dev/null || true
 pkill -9 bitcoind 2>/dev/null || true
-pkill -9 coins-aggregator 2>/dev/null || true
+pkill -9 coins-publisher 2>/dev/null || true
 sleep 3
 
 # Verify no bitcoind is running
@@ -49,7 +49,7 @@ fi
 # Clean up old data
 rm -rf "${DATA_DIR}" 2>/dev/null || true
 rm -rf indexer.db state.db 2>/dev/null || true
-rm -f aggregator_bls_sk.hex 2>/dev/null || true
+rm -f publisher_bls_sk.hex 2>/dev/null || true
 
 # Create directory structure
 mkdir -p "${SUBCHAIN_DIR}"
@@ -109,16 +109,16 @@ fi
 echo -e "${GREEN}✓ Bitcoin Core started${NC}"
 echo ""
 
-echo -e "${YELLOW}[3/9] Creating aggregator wallet...${NC}"
-# Create watch-only wallet for aggregator
+echo -e "${YELLOW}[3/9] Creating publisher wallet...${NC}"
+# Create watch-only wallet for publisher
 bitcoin-cli -regtest -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport="${RPC_PORT}" \
-    createwallet "coins-aggregator" true false "" false true &>/dev/null
+    createwallet "coins-publisher" true false "" false true &>/dev/null
 
 echo -e "${GREEN}✓ Wallet created${NC}"
 echo ""
 
 echo -e "${YELLOW}[4/9] Building project...${NC}"
-cargo build --release --bin subchain-setup --bin coins-aggregator &>/dev/null
+cargo build --release --bin subchain-setup --bin coins-publisher &>/dev/null
 echo -e "${GREEN}✓ Build complete${NC}"
 echo ""
 
@@ -189,24 +189,24 @@ echo -e "${YELLOW}[6/9] Determining fee address and mining blocks...${NC}"
 # Create directories
 mkdir -p "${KEYS_DIR}"
 
-# Start aggregator briefly to determine fee address
-echo -e "  ${BLUE}→ Starting aggregator temporarily to get fee address...${NC}"
-./target/release/coins-aggregator --config config/aggregator.toml > /tmp/aggregator_temp.log 2>&1 &
-TEMP_AGG_PID=$!
+# Start publisher briefly to determine fee address
+echo -e "  ${BLUE}→ Starting publisher temporarily to get fee address...${NC}"
+./target/release/coins-publisher --config config/publisher.toml > /tmp/publisher_temp.log 2>&1 &
+TEMP_PUB_PID=$!
 
-# Wait for aggregator to initialize and log its fee address
+# Wait for publisher to initialize and log its fee address
 sleep 5
 
 # Extract fee address from log
-FEE_ADDR=$(grep "Aggregator initialized" /tmp/aggregator_temp.log | grep -oE 'bcrt1[a-z0-9]+' | head -1)
+FEE_ADDR=$(grep "Publisher initialized" /tmp/publisher_temp.log | grep -oE 'bcrt1[a-z0-9]+' | head -1)
 
-# Stop temporary aggregator
-kill $TEMP_AGG_PID 2>/dev/null || true
+# Stop temporary publisher
+kill $TEMP_PUB_PID 2>/dev/null || true
 sleep 2
 
 if [ -z "$FEE_ADDR" ]; then
     echo -e "${RED}✗ Failed to get fee address${NC}"
-    cat /tmp/aggregator_temp.log
+    cat /tmp/publisher_temp.log
     exit 1
 fi
 
@@ -227,21 +227,21 @@ cargo run --release --example setup_test_accounts &>/dev/null
 echo -e "${GREEN}✓ Test accounts created${NC}"
 echo ""
 
-echo -e "${YELLOW}[8/9] Starting aggregator...${NC}"
-./target/release/coins-aggregator --config config/aggregator.toml > /tmp/aggregator.log 2>&1 &
-AGGREGATOR_PID=$!
+echo -e "${YELLOW}[8/9] Starting publisher...${NC}"
+./target/release/coins-publisher --config config/publisher.toml > /tmp/publisher.log 2>&1 &
+PUBLISHER_PID=$!
 
-# Wait for aggregator to start
-echo -n "Waiting for aggregator to start"
+# Wait for publisher to start
+echo -n "Waiting for publisher to start"
 for i in {1..30}; do
     if curl -s http://localhost:8080/health &>/dev/null; then
         echo ""
         break
     fi
-    if ! kill -0 $AGGREGATOR_PID 2>/dev/null; then
+    if ! kill -0 $PUBLISHER_PID 2>/dev/null; then
         echo ""
-        echo -e "${RED}✗ Aggregator crashed. Check /tmp/aggregator.log${NC}"
-        tail -20 /tmp/aggregator.log
+        echo -e "${RED}✗ Publisher crashed. Check /tmp/publisher.log${NC}"
+        tail -20 /tmp/publisher.log
         exit 1
     fi
     echo -n "."
@@ -250,11 +250,11 @@ done
 
 if ! curl -s http://localhost:8080/health &>/dev/null; then
     echo ""
-    echo -e "${RED}✗ Aggregator failed to start${NC}"
+    echo -e "${RED}✗ Publisher failed to start${NC}"
     exit 1
 fi
 
-echo -e "${GREEN}✓ Aggregator running (PID: ${AGGREGATOR_PID})${NC}"
+echo -e "${GREEN}✓ Publisher running (PID: ${PUBLISHER_PID})${NC}"
 echo ""
 
 echo -e "${YELLOW}[9/9] Running integration test...${NC}"
@@ -268,7 +268,7 @@ echo ""
 echo -e "Subchain: ${SUBCHAIN_FILE}"
 echo -e "Address:  ${SUBCHAIN_ADDR}"
 echo -e "Blocks:   ${BLOCK_COUNT}"
-echo -e "Logs:     /tmp/aggregator.log"
+echo -e "Logs:     /tmp/publisher.log"
 echo ""
 echo -e "${BLUE}Run tests with:${NC}"
 echo -e "  cargo run --release --example submit_txs"

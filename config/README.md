@@ -8,15 +8,15 @@ This directory contains configuration templates for different Bitcoin networks.
 
 ```bash
 # 1. Copy regtest templates
-cp config/aggregator-regtest.toml config/aggregator.toml
+cp config/publisher-regtest.toml config/publisher.toml
 cp config/subchain-regtest.toml config/subchain.toml
 cp config/client-regtest.toml config/client.toml
 
 # 2. Generate subchain
 cargo run --bin subchain-setup
 
-# 3. Start aggregator
-cargo run --bin coins-aggregator
+# 3. Start publisher
+cargo run --bin coins-publisher
 
 # 4. Initialize client
 cargo run --bin coins-client init
@@ -29,18 +29,18 @@ cargo run --bin coins-client balance
 
 ```bash
 # 1. Copy signet templates
-cp config/aggregator-signet.toml config/aggregator.toml
+cp config/publisher-signet.toml config/publisher.toml
 cp config/subchain-signet.toml config/subchain.toml
 cp config/client-signet.toml config/client.toml
 
-# 2. Edit config/aggregator.toml and set your genesis_pk
-# 3. Edit config/client.toml and set your aggregator_url
+# 2. Edit config/publisher.toml and set your genesis_pk
+# 3. Edit config/client.toml and set your publisher_url
 
 # 4. Generate subchain
 cargo run --bin subchain-setup
 
-# 5. Start aggregator
-cargo run --bin coins-aggregator
+# 5. Start publisher
+cargo run --bin coins-publisher
 
 # 6. Initialize client
 cargo run --bin coins-client init
@@ -51,9 +51,9 @@ cargo run --bin coins-client balance
 
 ## Configuration Files
 
-### Aggregator Configurations
+### Publisher Configurations
 
-- **`aggregator-regtest.toml`** - Bitcoin RPC backend for local regtest
+- **`publisher-regtest.toml`** - Bitcoin RPC backend for local regtest
   - Uses Bitcoin Core RPC directly
   - Requires running `bitcoind -regtest`
   - Fast, local testing
@@ -69,7 +69,7 @@ cargo run --bin coins-client balance
 
 ## Backend
 
-The aggregator uses Bitcoin Core RPC backend for regtest:
+The publisher uses Bitcoin Core RPC backend for regtest:
 
 - `network = "regtest"` → **RPC Backend** (requires `rpc_url`, `rpc_user`, `rpc_pass`)
 
@@ -82,8 +82,8 @@ All generated files use the new `.data/` directory structure:
 ```
 .data/
 ├── keys/
-│   ├── aggregator_sk.hex      # Bitcoin ECDSA key (fee payments)
-│   ├── aggregator_bls_sk.hex  # BLS key (sub-block signing)
+│   ├── publisher_sk.hex      # Bitcoin ECDSA key (fee payments)
+│   ├── publisher_bls_sk.hex  # BLS key (sub-block signing)
 │   ├── client_sk.hex          # Default client wallet key
 │   ├── alice_sk.hex           # Example: Alice's client key
 │   └── bob_sk.hex             # Example: Bob's client key
@@ -122,13 +122,13 @@ cargo run --bin coins-client --config config/client-bob.toml balance
 cargo run --bin coins-client --keyfile .data/keys/alice_sk.hex init
 cargo run --bin coins-client --keyfile .data/keys/bob_sk.hex init
 
-# Override aggregator URL to test against different servers
-cargo run --bin coins-client --aggregator-url http://localhost:8081 balance
+# Override publisher URL to test against different servers
+cargo run --bin coins-client --publisher-url http://localhost:8081 balance
 
 # Combine overrides
 cargo run --bin coins-client \
   --keyfile .data/keys/alice_sk.hex \
-  --aggregator-url http://signet.example.com:8080 \
+  --publisher-url http://signet.example.com:8080 \
   send --recipient-pk abc123... --amount 100
 ```
 
@@ -138,11 +138,11 @@ Configuration values are applied in this order (later overrides earlier):
 
 1. Hardcoded defaults (`http://127.0.0.1:8080`, `.data/keys/client_sk.hex`)
 2. Config file values (if `--config` file exists)
-3. CLI flag overrides (`--keyfile`, `--aggregator-url`)
+3. CLI flag overrides (`--keyfile`, `--publisher-url`)
 
 ## Important Notes
 
-- **Never commit `aggregator.toml`, `subchain.toml`, or `client.toml`** to git (they are gitignored)
+- **Never commit `publisher.toml`, `subchain.toml`, or `client.toml`** to git (they are gitignored)
 - **Never commit keys or database files** (in `.data/` - gitignored)
 - Templates are safe to commit and share
 - Production configurations should use different genesis keys and higher security

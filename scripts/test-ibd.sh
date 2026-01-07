@@ -27,17 +27,17 @@ cd "$PROJECT_ROOT"
 # Cleanup function
 cleanup() {
     echo -e "\n${YELLOW}Cleaning up...${NC}"
-    pkill -f "coins-aggregator.*node1" 2>/dev/null || true
-    pkill -f "coins-aggregator.*node2" 2>/dev/null || true
+    pkill -f "coins-publisher.*node1" 2>/dev/null || true
+    pkill -f "coins-publisher.*node2" 2>/dev/null || true
     # Don't delete logs - they're useful for debugging
     rm -rf /tmp/node1 /tmp/node2 2>/dev/null || true
 }
 
 trap cleanup EXIT
 
-# Stop any running aggregators and reset Bitcoin regtest to ensure fresh state
+# Stop any running publishers and reset Bitcoin regtest to ensure fresh state
 echo -e "${YELLOW}Resetting Bitcoin regtest for fresh test environment...${NC}"
-pkill -f "coins-aggregator" 2>/dev/null || true
+pkill -f "coins-publisher" 2>/dev/null || true
 bitcoin-cli -regtest -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_PORT stop 2>/dev/null || true
 sleep 3
 
@@ -130,14 +130,14 @@ echo -e "${YELLOW}[1/8] Creating test configurations...${NC}"
 # Create Node 1 config (port 8080, default DBs)
 mkdir -p /tmp/node1
 SUBCHAIN_PATH="$(pwd)/.data/subchains/subchain_regtest.bin"
-KEYFILE_PATH="$(pwd)/.data/keys/aggregator_sk.hex"
+KEYFILE_PATH="$(pwd)/.data/keys/publisher_sk.hex"
 
-cat > /tmp/node1/aggregator.toml <<EOF
+cat > /tmp/node1/publisher.toml <<EOF
 # Node 1 Configuration (Primary node)
 rpc_url = "http://localhost:$RPC_PORT"
 rpc_user = "$RPC_USER"
 rpc_pass = "$RPC_PASS"
-rpc_wallet = "coins-aggregator"
+rpc_wallet = "coins-publisher"
 
 subchain = "$SUBCHAIN_PATH"
 keyfile = "$KEYFILE_PATH"
@@ -150,17 +150,17 @@ genesis_balance = 1000000000000
 api_port = 8080
 state_db = "/tmp/node1/state.db"
 indexer_db = "/tmp/node1/indexer.db"
-bls_keyfile = "/tmp/node1/aggregator_bls_sk.hex"
+bls_keyfile = "/tmp/node1/publisher_bls_sk.hex"
 EOF
 
 # Create Node 2 config (port 8081, separate DBs)
 mkdir -p /tmp/node2
-cat > /tmp/node2/aggregator.toml <<EOF
+cat > /tmp/node2/publisher.toml <<EOF
 # Node 2 Configuration (IBD node)
 rpc_url = "http://localhost:$RPC_PORT"
 rpc_user = "$RPC_USER"
 rpc_pass = "$RPC_PASS"
-rpc_wallet = "coins-aggregator"
+rpc_wallet = "coins-publisher"
 
 subchain = "$SUBCHAIN_PATH"
 keyfile = "$KEYFILE_PATH"
@@ -173,7 +173,7 @@ genesis_balance = 1000000000000
 api_port = 8081
 state_db = "/tmp/node2/state.db"
 indexer_db = "/tmp/node2/indexer.db"
-bls_keyfile = "/tmp/node2/aggregator_bls_sk.hex"
+bls_keyfile = "/tmp/node2/publisher_bls_sk.hex"
 EOF
 
 echo -e "${GREEN}✓ Configurations created${NC}"
@@ -185,30 +185,30 @@ cargo run --release --example setup_test_accounts /tmp/node2/state.db &>/dev/nul
 echo -e "${GREEN}✓ Test accounts created for both nodes${NC}"
 
 echo -e "${YELLOW}[3/8] Determining Node 1's fee address...${NC}"
-# Start aggregator briefly to determine fee address
-./target/release/coins-aggregator --config /tmp/node1/aggregator.toml > /tmp/aggregator_temp.log 2>&1 &
+# Start publisher briefly to determine fee address
+./target/release/coins-publisher --config /tmp/node1/publisher.toml > /tmp/publisher_temp.log 2>&1 &
 TEMP_PID=$!
 sleep 5
 
 # Extract fee address from logs
-FEE_ADDR=$(grep "Aggregator initialized" /tmp/aggregator_temp.log | grep -o 'bcrt1q[a-z0-9]*' | head -1)
+FEE_ADDR=$(grep "Publisher initialized" /tmp/publisher_temp.log | grep -o 'bcrt1q[a-z0-9]*' | head -1)
 
 if [ -z "$FEE_ADDR" ]; then
     echo -e "${RED}✗ Could not determine fee address${NC}"
-    cat /tmp/aggregator_temp.log
+    cat /tmp/publisher_temp.log
     kill $TEMP_PID 2>/dev/null || true
     exit 1
 fi
 
 echo -e "  ${BLUE}→ Fee address: $FEE_ADDR${NC}"
 
-# Stop the temporary aggregator
+# Stop the temporary publisher
 kill $TEMP_PID 2>/dev/null || true
 sleep 2
 echo -e "${GREEN}✓ Fee address determined${NC}"
 
 echo -e "${YELLOW}[4/8] Funding fee address...${NC}"
-# Mine blocks to fee address BEFORE starting the main aggregator
+# Mine blocks to fee address BEFORE starting the main publisher
 echo -e "  ${BLUE}→ Mining 50 blocks to fee address...${NC}"
 bitcoin-cli -regtest -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_PORT generatetoaddress 50 "$FEE_ADDR" &>/dev/null
 
@@ -219,7 +219,7 @@ bitcoin-cli -regtest -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_POR
 echo -e "${GREEN}✓ Fee address funded (51 blocks + 1 transaction)${NC}"
 
 echo -e "${YELLOW}[5/8] Starting Node 1 (Primary)...${NC}"
-./target/release/coins-aggregator --config /tmp/node1/aggregator.toml > /tmp/aggregator-node1.log 2>&1 &
+./target/release/coins-publisher --config /tmp/node1/publisher.toml > /tmp/publisher-node1.log 2>&1 &
 NODE1_PID=$!
 
 # Wait for Node 1 to start and rescan blockchain
@@ -227,7 +227,7 @@ echo -e "  ${BLUE}→ Waiting for blockchain rescan to complete...${NC}"
 sleep 10
 if ! kill -0 $NODE1_PID 2>/dev/null; then
     echo -e "${RED}✗ Node 1 failed to start${NC}"
-    tail -20 /tmp/aggregator-node1.log
+    tail -20 /tmp/publisher-node1.log
     exit 1
 fi
 
@@ -256,21 +256,21 @@ echo -e "${GREEN}✓ Transactions submitted${NC}"
 echo -e "${YELLOW}[7/8] Waiting for sub-block to be broadcast (watching logs)...${NC}"
 # Wait for Node 1 to broadcast the package
 for i in {1..30}; do
-    if grep -q "Package broadcasted successfully" /tmp/aggregator-node1.log 2>/dev/null; then
+    if grep -q "Package broadcasted successfully" /tmp/publisher-node1.log 2>/dev/null; then
         echo -e "${GREEN}✓ Package broadcast detected${NC}"
         break
     fi
     sleep 1
 done
 
-if ! grep -q "Package broadcasted successfully" /tmp/aggregator-node1.log 2>/dev/null; then
+if ! grep -q "Package broadcasted successfully" /tmp/publisher-node1.log 2>/dev/null; then
     echo -e "${RED}✗ Package was not broadcast within 30 seconds${NC}"
-    tail -50 /tmp/aggregator-node1.log
+    tail -50 /tmp/publisher-node1.log
     exit 1
 fi
 
 # Extract connector and data TXIDs (extract 64-char hex strings)
-PACKAGE_LINE=$(grep "Package broadcasted successfully" /tmp/aggregator-node1.log | tail -1)
+PACKAGE_LINE=$(grep "Package broadcasted successfully" /tmp/publisher-node1.log | tail -1)
 CONNECTOR_TXID=$(echo "$PACKAGE_LINE" | grep -o '[a-f0-9]\{64\}' | head -1)
 DATA_TXID=$(echo "$PACKAGE_LINE" | grep -o '[a-f0-9]\{64\}' | tail -1)
 echo "Connector TXID: $CONNECTOR_TXID"
@@ -338,14 +338,14 @@ echo -e "${GREEN}✓ Node 1 stopped${NC}"
 echo -e "${GREEN}✓ Sub-block and connector TX confirmed in blockchain${NC}"
 
 echo -e "${YELLOW}[9/9] Starting Node 2 (IBD node with fresh databases)...${NC}"
-./target/release/coins-aggregator --config /tmp/node2/aggregator.toml > /tmp/aggregator-node2.log 2>&1 &
+./target/release/coins-publisher --config /tmp/node2/publisher.toml > /tmp/publisher-node2.log 2>&1 &
 NODE2_PID=$!
 
 # Wait for Node 2 to start and perform IBD
 sleep 5
 if ! kill -0 $NODE2_PID 2>/dev/null; then
     echo -e "${RED}✗ Node 2 failed to start${NC}"
-    tail -20 /tmp/aggregator-node2.log
+    tail -20 /tmp/publisher-node2.log
     exit 1
 fi
 
@@ -381,14 +381,14 @@ if [ "$EXPECTED_BOB_BALANCE" != "$BOB_BALANCE_NODE2" ]; then
     echo "Got:      $BOB_BALANCE_NODE2"
     echo ""
     echo "Node 2 logs:"
-    tail -100 /tmp/aggregator-node2.log
+    tail -100 /tmp/publisher-node2.log
     exit 1
 fi
 
 if [ "$BOB_BALANCE_NODE2" == "null" ] || [ "$BOB_BALANCE_NODE2" == "0" ] || [ -z "$BOB_BALANCE_NODE2" ]; then
     echo -e "${RED}✗ IBD FAILED: Node 2 did not sync transactions (Bob balance: $BOB_BALANCE_NODE2)${NC}"
     echo "Node 2 logs:"
-    tail -100 /tmp/aggregator-node2.log
+    tail -100 /tmp/publisher-node2.log
     exit 1
 fi
 

@@ -4,7 +4,7 @@
 //! sequence of pre-signed *anchor* transactions.  Each anchor has
 //!  - input:   the previous successor UTXO (taproot key-path spend)
 //!  - output0: the next successor UTXO (pays back to the same address)
-//!  - output1: a 0-sat OP_TRUE anchor which aggregators can spend to attach a
+//!  - output1: a 0-sat OP_TRUE anchor which publishers can spend to attach a
 //!              sub-block (publish tx).
 //!
 

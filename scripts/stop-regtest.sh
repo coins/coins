@@ -7,11 +7,11 @@ NC='\033[0m'
 
 echo -e "${YELLOW}Stopping regtest services...${NC}"
 
-# Stop aggregator
-if pkill -9 coins-aggregator 2>/dev/null; then
-    echo -e "${GREEN}✓ Stopped aggregator${NC}"
+# Stop publisher
+if pkill -9 coins-publisher 2>/dev/null; then
+    echo -e "${GREEN}✓ Stopped publisher${NC}"
 else
-    echo "  (aggregator not running)"
+    echo "  (publisher not running)"
 fi
 
 # Stop bitcoind gracefully first
@@ -30,8 +30,8 @@ fi
 if [ -f "${HOME}/.bitcoin/regtest/.lock" ]; then
     rm -f "${HOME}/.bitcoin/regtest/.lock"
 fi
-if [ -f "${HOME}/.bitcoin/regtest/wallets/coins-aggregator/.walletlock" ]; then
-    rm -f "${HOME}/.bitcoin/regtest/wallets/coins-aggregator/.walletlock"
+if [ -f "${HOME}/.bitcoin/regtest/wallets/coins-publisher/.walletlock" ]; then
+    rm -f "${HOME}/.bitcoin/regtest/wallets/coins-publisher/.walletlock"
 fi
 
 echo -e "${GREEN}All services stopped${NC}"

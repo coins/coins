@@ -19,14 +19,14 @@ Coins is an embedded-consensus token system built on Bitcoin that uses:
 - **coins-types**: Core protocol data structures (Transaction, Account, SubBlock)
 - **coins-core**: State management and transaction validation with BLS signature verification
 - **coins-indexer**: Chain indexing with 6-block finality tracking
-- **coins-aggregator**: Sub-block aggregation service using Bitcoin Core RPC (regtest only)
+- **coins-publisher**: Sub-block publishing service using Bitcoin Core RPC (regtest only)
 - **coins-subchain**: Pre-signed UTXO chain generation and management
 - **coins-client**: User-facing wallet CLI
 
 ### How It Works
 
 1. **Users** create 41-byte transactions and sign them with BLS signatures
-2. **Aggregator** collects transactions, aggregates signatures into sub-blocks
+2. **Publisher** collects transactions, aggregates signatures into sub-blocks
 3. **Sub-blocks** are compressed and published to Bitcoin via OP_RETURN in anchor transactions
 4. **Validators** verify aggregate signatures and update account state
 5. **Finality** is achieved after 6 Bitcoin block confirmations (~1 hour)
@@ -67,31 +67,31 @@ cargo build --release --bin subchain-setup
 # This creates subchain_regtest.bin (~795 KB)
 ```
 
-### 3. Configure Aggregator
+### 3. Configure Publisher
 
 Copy the regtest configuration templates:
 
 ```bash
-cp config/aggregator-regtest.toml config/aggregator.toml
+cp config/publisher-regtest.toml config/publisher.toml
 cp config/subchain-regtest.toml config/subchain.toml
 ```
 
 The configuration will use these paths:
 - Subchain: `.data/subchains/subchain_regtest.bin`
-- Keys: `.data/keys/aggregator_sk.hex`
+- Keys: `.data/keys/publisher_sk.hex`
 - Databases: `.data/db/state.db/` and `.data/db/indexer.db/`
 
 
-### 4. Run Aggregator
+### 4. Run Publisher
 
 ```bash
-# Build and run the aggregator (uses config/aggregator.toml by default)
-cargo run --bin coins-aggregator
+# Build and run the publisher (uses config/publisher.toml by default)
+cargo run --bin coins-publisher
 
 # Or specify a different config:
-cargo run --bin coins-aggregator -- --config config/aggregator.toml
+cargo run --bin coins-publisher -- --config config/publisher.toml
 
-# The aggregator will:
+# The publisher will:
 # - Initialize persistent state (.data/db/state.db/)
 # - Initialize indexer (.data/db/indexer.db/)
 # - Start HTTP API on http://localhost:8080
@@ -118,7 +118,7 @@ cargo run --bin coins-client send \
 
 ## API Endpoints
 
-The aggregator exposes a REST API on port 8080:
+The publisher exposes a REST API on port 8080:
 
 ### `GET /account/:pk`
 
@@ -182,28 +182,28 @@ RUST_LOG=debug cargo test
 
 ## Logging
 
-The aggregator uses structured logging via `tracing`:
+The publisher uses structured logging via `tracing`:
 
 ```bash
 # Info level (default)
-cargo run --bin coins-aggregator
+cargo run --bin coins-publisher
 
 # Debug level
-RUST_LOG=coins_aggregator=debug cargo run --bin coins-aggregator
+RUST_LOG=coins_publisher=debug cargo run --bin coins-publisher
 
 # Trace level for all coins crates
-RUST_LOG=coins=trace cargo run --bin coins-aggregator
+RUST_LOG=coins=trace cargo run --bin coins-publisher
 ```
 
 ## Generated Files
 
-The aggregator creates files in the `.data/` directory:
+The publisher creates files in the `.data/` directory:
 
 ```
 .data/
 ├── keys/
-│   ├── aggregator_sk.hex      # Bitcoin ECDSA secret key (fee payments)
-│   ├── aggregator_bls_sk.hex  # BLS secret key (sub-block signing)
+│   ├── publisher_sk.hex      # Bitcoin ECDSA secret key (fee payments)
+│   ├── publisher_bls_sk.hex  # BLS secret key (sub-block signing)
 │   └── client_sk.hex          # Client wallet key
 ├── subchains/
 │   └── subchain_regtest.bin # Pre-signed anchor transactions
@@ -223,7 +223,7 @@ All files in `.data/` are gitignored and created automatically when needed.
 2. **No subgroup checks**: Curve points not explicitly validated
 3. **No DoS protection**: Mempool and API have no rate limiting
 4. **Simplified key management**: Keys stored in plain hex files
-5. **No network p2p**: Single aggregator, no peer discovery
+5. **No network p2p**: Single publisher, no peer discovery
 6. **Limited reorg handling**: Basic reorganization detection only
 
 **DO NOT use this code:**
@@ -236,20 +236,20 @@ All files in `.data/` are gitignored and created automatically when needed.
 
 Configuration templates are located in the `config/` directory:
 
-- **`config/aggregator-regtest.toml`** - Aggregator configuration for regtest (Bitcoin RPC)
+- **`config/publisher-regtest.toml`** - Publisher configuration for regtest (Bitcoin RPC)
 - **`config/subchain-regtest.toml`** - Subchain generation configuration for regtest
 
 ### Quick Setup
 
 ```bash
 # Copy regtest configuration templates
-cp config/aggregator-regtest.toml config/aggregator.toml
+cp config/publisher-regtest.toml config/publisher.toml
 cp config/subchain-regtest.toml config/subchain.toml
 ```
 
 ### Configuration Options
 
-The aggregator requires Bitcoin Core RPC configuration:
+The publisher requires Bitcoin Core RPC configuration:
 - `rpc_url` - Bitcoin Core RPC endpoint (e.g., "http://127.0.0.1:18443")
 - `rpc_user` - RPC username
 - `rpc_pass` - RPC password
@@ -265,7 +265,7 @@ The pre-signed transaction chain has been fully used. Generate a new subchain wi
 
 ### "No fee UTXOs available"
 
-The aggregator's Bitcoin wallet has no confirmed UTXOs. Send Bitcoin to the fee address displayed at startup.
+The publisher's Bitcoin wallet has no confirmed UTXOs. Send Bitcoin to the fee address displayed at startup.
 
 ### "Package relay failed"
 
@@ -286,13 +286,13 @@ rm -rf .data/db/
 cargo build --all
 
 # Build specific binary
-cargo build --bin coins-aggregator
+cargo build --bin coins-publisher
 cargo build --bin coins-client
 cargo build --bin subchain-setup
 
 # Run with specific features
 cargo build --release
-cargo build --bin coins-aggregator --release
+cargo build --bin coins-publisher --release
 
 # Check code
 cargo clippy --all
@@ -308,9 +308,9 @@ coins/
 ├── spec.md                    # Technical specification
 ├── config/                    # Configuration files
 │   ├── README.md
-│   ├── aggregator.toml        # Active config (gitignored)
+│   ├── publisher.toml        # Active config (gitignored)
 │   ├── subchain.toml          # Active config (gitignored)
-│   ├── aggregator-regtest.toml  # Template
+│   ├── publisher-regtest.toml  # Template
 │   └── subchain-regtest.toml    # Template
 ├── .data/                     # Generated files (gitignored)
 │   ├── keys/                  # Bitcoin & BLS keys
@@ -323,7 +323,7 @@ coins/
 │   ├── coins-types/          # Data structures
 │   ├── coins-core/           # State management & validation
 │   ├── coins-indexer/        # Chain indexing & finality
-│   ├── coins-aggregator/     # Aggregator service (RPC backend)
+│   ├── coins-publisher/     # Publisher service (RPC backend)
 │   ├── coins-subchain/       # Subchain setup
 │   └── coins-client/         # Wallet CLI
 └── target/                    # Build outputs

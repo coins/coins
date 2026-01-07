@@ -53,7 +53,7 @@ struct Config {
 }
 
 fn default_wallet_name() -> String {
-    "coins-aggregator".to_string()
+    "coins-publisher".to_string()
 }
 
 fn default_api_port() -> u16 {

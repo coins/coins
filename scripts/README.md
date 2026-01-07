@@ -19,15 +19,15 @@ Foolproof scripts for running Coins on Bitcoin regtest.
 
 1. **Cleanup**: Stops old processes, removes stale data
 2. **Bitcoin Core**: Starts fresh regtest node
-3. **Wallet**: Creates watch-only wallet for aggregator
-4. **Build**: Compiles subchain-setup and aggregator
+3. **Wallet**: Creates watch-only wallet for publisher
+4. **Build**: Compiles subchain-setup and publisher
 5. **Subchain**:
    - Generates random keypair
    - Mines 101 blocks to that address
    - Creates subchain file with 1000 pre-signed transactions
 6. **Funding**: Mines 50 blocks to fee address
 7. **Accounts**: Sets up Alice and Bob test accounts
-8. **Aggregator**: Starts the aggregator service
+8. **Publisher**: Starts the publisher service
 9. **Test**: Runs a quick smoke test
 
 ## What `test-regtest.sh` Does
@@ -43,12 +43,12 @@ Runs comprehensive integration tests:
 ## What `stop-regtest.sh` Does
 
 Cleanly stops:
-- Coins aggregator
+- Coins publisher
 - Bitcoin Core regtest node
 
 ## Logs
 
-- Aggregator: `/tmp/aggregator.log`
+- Publisher: `/tmp/publisher.log`
 - Bitcoin: `~/.bitcoin/regtest/debug.log`
 
 ## Manual Testing
@@ -84,14 +84,14 @@ The setup script uses:
 
 ## Troubleshooting
 
-**Aggregator won't start:**
+**Publisher won't start:**
 ```bash
-tail -50 /tmp/aggregator.log
+tail -50 /tmp/publisher.log
 ```
 
 **Package relay not working:**
 ```bash
-grep "Package mempool" /tmp/aggregator.log
+grep "Package mempool" /tmp/publisher.log
 ```
 
 **Bitcoin Core issues:**

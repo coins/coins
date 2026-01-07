@@ -124,7 +124,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Step 3: Verify accounts via API
     println!("Step 3: Verifying accounts via API...");
-    sleep(Duration::from_millis(500)); // Give aggregator time to see the updates
+    sleep(Duration::from_millis(500)); // Give publisher time to see the updates
 
     let alice_info = alice.get_account()?;
     println!("  Alice - ID: {}, Balance: {}, Nonce: {}",
@@ -164,7 +164,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!();
 
     // Step 6: Wait for mining
-    println!("Step 6: Waiting for aggregator to mine sub-block (30 seconds)...");
+    println!("Step 6: Waiting for publisher to mine sub-block (30 seconds)...");
     for i in 0..6 {
         sleep(Duration::from_secs(5));
         print!("  {} seconds...", (i + 1) * 5);

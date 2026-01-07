@@ -26,43 +26,52 @@ RPC_PASS="password"
 RPC_PORT="38332"
 
 SUBCHAIN_COUNT=1000
-SUBCHAIN_FILE="${SUBCHAIN_DIR}/subchain_signet.bin"
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+SUBCHAIN_FILE="${SUBCHAIN_DIR}/subchain_signet_${TIMESTAMP}.bin"
+SUBCHAIN_LINK="${SUBCHAIN_DIR}/subchain_signet.bin"
 
 cd "$PROJECT_ROOT"
 
 echo -e "${YELLOW}[1/9] Cleaning up...${NC}"
-killall -9 bitcoind 2>/dev/null || true
 pkill -9 coins-publisher 2>/dev/null || true
 sleep 2
 
+# Preserve signet blockchain if it exists
 mkdir -p "${SUBCHAIN_DIR}" "${KEYS_DIR}"
 echo -e "${GREEN}✓ Cleanup complete${NC}\n"
 
 echo -e "${YELLOW}[2/9] Starting Bitcoin Core (signet)...${NC}"
-ulimit -n 2048 2>/dev/null || true
 
-bitcoind \
-    -signet \
-    -daemon \
-    -prune=2048 \
-    -fallbackfee=0.00001 \
-    -rpcuser="${RPC_USER}" \
-    -rpcpassword="${RPC_PASS}" \
-    -rpcport="${RPC_PORT}" \
-    -maxconnections=10 \
-    -dbcache=300 2>&1 | grep -v "file descriptors" || true
+# Check if bitcoind is already running on signet
+if bitcoin-cli -signet -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport="${RPC_PORT}" getblockchaininfo &>/dev/null; then
+    echo -e "${BLUE}→ Bitcoin Core already running on signet${NC}"
+else
+    ulimit -n 2048 2>/dev/null || true
 
-sleep 3
+    bitcoind \
+        -signet \
+        -daemon \
+        -prune=2048 \
+        -fallbackfee=0.00001 \
+        -rpcuser="${RPC_USER}" \
+        -rpcpassword="${RPC_PASS}" \
+        -rpcport="${RPC_PORT}" \
+        -maxconnections=10 \
+        -dbcache=300 2>&1 | grep -v "file descriptors" || true
 
-echo -n "Waiting for bitcoind"
-for i in {1..30}; do
-    if bitcoin-cli -signet -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport="${RPC_PORT}" getblockchaininfo &>/dev/null; then
-        echo ""; break
-    fi
-    echo -n "."; sleep 1
-done
+    sleep 3
 
-echo -e "${GREEN}✓ Bitcoin Core started${NC}"
+    echo -n "Waiting for bitcoind"
+    for i in {1..30}; do
+        if bitcoin-cli -signet -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport="${RPC_PORT}" getblockchaininfo &>/dev/null; then
+            echo ""; break
+        fi
+        echo -n "."; sleep 1
+    done
+
+    echo -e "${GREEN}✓ Bitcoin Core started${NC}"
+fi
+
 echo -e "${YELLOW}Waiting for sync...${NC}\n"
 
 # Wait for sync
@@ -144,7 +153,11 @@ echo -e "${BLUE}→ Generating subchain file...${NC}"
 printf "%s\n%s\n" "${UTXO_OUTPOINT}" "${UTXO_VALUE}" | \
     ./target/release/subchain-setup --config /tmp/subchain_signet.toml &>/dev/null
 
-echo -e "${GREEN}✓ Subchain created${NC}\n"
+# Create symlink to latest subchain
+ln -sf "$(basename ${SUBCHAIN_FILE})" "${SUBCHAIN_LINK}"
+
+echo -e "${GREEN}✓ Subchain created: $(basename ${SUBCHAIN_FILE})${NC}"
+echo -e "${BLUE}→ Linked to: subchain_signet.bin${NC}\n"
 
 echo -e "${YELLOW}[6/9] Determining fee address...${NC}"
 ./target/release/coins-publisher --config config/publisher-signet.toml > /tmp/publisher_temp.log 2>&1 &
@@ -212,7 +225,9 @@ echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}   Setup Complete!${NC}"
 echo -e "${GREEN}========================================${NC}\n"
 echo -e "Network:      Signet (~1 min blocks)"
-echo -e "Subchain:     ${SUBCHAIN_FILE}"
+echo -e "Subchain:     $(basename ${SUBCHAIN_FILE})"
+echo -e "Link:         subchain_signet.bin -> $(basename ${SUBCHAIN_FILE})"
 echo -e "Fee Address:  ${FEE_ADDR}"
 echo -e "Logs:         /tmp/publisher_signet.log\n"
-echo -e "${BLUE}Run tests: ./scripts/test-signet.sh${NC}\n"
+echo -e "${BLUE}List subchains: ls -lh ${SUBCHAIN_DIR}/subchain_signet_*.bin${NC}"
+echo -e "${BLUE}Run tests:      ./scripts/test-signet.sh${NC}\n"

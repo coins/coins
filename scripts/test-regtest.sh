@@ -18,7 +18,7 @@ echo ""
 
 # Check if services are running
 if ! curl -s http://localhost:8080/health &>/dev/null; then
-    echo -e "${RED}✗ Aggregator not running${NC}"
+    echo -e "${RED}✗ Publisher not running${NC}"
     echo -e "${YELLOW}Run ./scripts/setup-regtest.sh first${NC}"
     exit 1
 fi
@@ -87,8 +87,8 @@ if [ "$TX_COUNT" -gt 1 ]; then
     PASS_COUNT=$((PASS_COUNT + 1))
 else
     echo -e "${RED}  ✗ FAIL - Block only has coinbase (check logs)${NC}"
-    echo -e "    Last 10 lines from aggregator log:"
-    tail -10 /tmp/aggregator.log | sed 's/^/    /'
+    echo -e "    Last 10 lines from publisher log:"
+    tail -10 /tmp/publisher.log | sed 's/^/    /'
     FAIL_COUNT=$((FAIL_COUNT + 1))
 fi
 TEST_COUNT=$((TEST_COUNT + 1))
@@ -106,8 +106,8 @@ run_test "Bitcoin RPC connectivity" \
     "bitcoin-cli -regtest -rpcuser=user -rpcpassword=password -rpcport=18443 getblockcount &>/dev/null"
 
 # Test 6: Wallet exists and has UTXOs
-run_test "Aggregator wallet has UTXOs" \
-    "bitcoin-cli -regtest -rpcuser=user -rpcpassword=password -rpcport=18443 -rpcwallet=coins-aggregator \
+run_test "Publisher wallet has UTXOs" \
+    "bitcoin-cli -regtest -rpcuser=user -rpcpassword=password -rpcport=18443 -rpcwallet=coins-publisher \
         listdescriptors | jq -e '.descriptors | length > 0'"
 
 echo ""
@@ -122,7 +122,7 @@ if [ $FAIL_COUNT -gt 0 ]; then
     echo -e "${RED}Failed: $FAIL_COUNT${NC}"
     echo ""
     echo -e "${YELLOW}Check logs:${NC}"
-    echo -e "  /tmp/aggregator.log"
+    echo -e "  /tmp/publisher.log"
     exit 1
 else
     echo -e "${GREEN}Failed: $FAIL_COUNT${NC}"

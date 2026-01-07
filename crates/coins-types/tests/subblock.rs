@@ -16,8 +16,8 @@ fn subblock_roundtrip() {
     }
     // dummy sigma (all-zero 64 bytes for test)
     let sigma = G2([0u8; 64]);
-    let agg_sk = SecretKey::random();
-    let sb = SubBlock { sigma, aggregator_pk: G1(agg_sk.public_key()), txs: txs.clone() };
+    let pub_sk = SecretKey::random();
+    let sb = SubBlock { sigma, publisher_pk: G1(pub_sk.public_key()), txs: txs.clone() };
     let bytes = sb.serialize();
     // size check: 64 +32+ n*41
     assert_eq!(bytes.len(), 96 + txs.len()*TX_SIZE);

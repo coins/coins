@@ -22,13 +22,13 @@ This single command will:
 5. ✅ Generate subchain with valid UTXOs
 6. ✅ Mine blocks to fee address for funding
 7. ✅ Setup test accounts (Alice & Bob)
-8. ✅ Start aggregator service
+8. ✅ Start publisher service
 9. ✅ Run smoke test
 
 ## What the Setup Script Does
 
 ### 1. Cleanup
-- Kills any running `bitcoind` or `coins-aggregator` processes
+- Kills any running `bitcoind` or `coins-publisher` processes
 - Removes old data directories
 - Cleans Bitcoin regtest data
 
@@ -50,7 +50,7 @@ The script generates a subchain with pre-signed connector transactions:
 4. Creates 1000 pre-signed connector transactions
 
 ### 4. Fee Funding
-1. Starts aggregator temporarily to discover its fee address
+1. Starts publisher temporarily to discover its fee address
 2. Extracts fee address from logs
 3. Mines 150 blocks to that address (ensures mature coinbase UTXOs)
 
@@ -85,7 +85,7 @@ cargo run --release --example submit_txs
 
 This:
 - Creates a transaction from Alice to Bob
-- Submits it to the aggregator
+- Submits it to the publisher
 - Waits 30 seconds for mining
 - Verifies balances updated
 
@@ -115,8 +115,8 @@ bitcoin-cli -regtest -rpcuser=user -rpcpassword=password -rpcport=18443 getrawme
 ### View Logs
 
 ```bash
-# Aggregator logs
-tail -f /tmp/aggregator.log
+# Publisher logs
+tail -f /tmp/publisher.log
 
 # Bitcoin Core logs
 tail -f ~/Library/Application\ Support/Bitcoin/regtest/debug.log
@@ -129,7 +129,7 @@ tail -f ~/Library/Application\ Support/Bitcoin/regtest/debug.log
 ```
 
 Cleanly stops:
-- Aggregator service
+- Publisher service
 - Bitcoin Core regtest node
 - Removes lock files
 
@@ -140,20 +140,20 @@ Cleanly stops:
 ├── subchains/
 │   └── subchain_regtest.bin    # 1000 pre-signed transactions (contains pubkey → address)
 └── keys/
-    └── aggregator_sk.hex        # Fee payment key
+    └── publisher_sk.hex        # Fee payment key
 
 state.db/                         # Account state database
 indexer.db/                       # Block indexer database
-aggregator_bls_sk.hex            # BLS key for signatures
+publisher_bls_sk.hex            # BLS key for signatures
 ```
 
 ## Troubleshooting
 
-### Aggregator Won't Start
+### Publisher Won't Start
 
 ```bash
 # Check logs for errors
-tail -50 /tmp/aggregator.log
+tail -50 /tmp/publisher.log
 
 # Common issues:
 # - "database locked": Run ./scripts/stop-regtest.sh first
@@ -164,7 +164,7 @@ tail -50 /tmp/aggregator.log
 
 ```bash
 # Check for rejection reasons
-grep "Package mempool" /tmp/aggregator.log
+grep "Package mempool" /tmp/publisher.log
 
 # Common issues:
 # - "missing-inputs": Subchain file references non-existent UTXOs (re-run setup)
@@ -187,7 +187,7 @@ bitcoind -regtest -daemon -fallbackfee=0.00001 -txindex=1 \
 
 ```bash
 ./scripts/stop-regtest.sh
-rm -rf .data state.db indexer.db aggregator_bls_sk.hex
+rm -rf .data state.db indexer.db publisher_bls_sk.hex
 ./scripts/setup-regtest.sh
 ```
 
@@ -204,9 +204,9 @@ RPC_USER="user"            # Bitcoin RPC username
 RPC_PASS="password"        # Bitcoin RPC password
 ```
 
-### Aggregator Config
+### Publisher Config
 
-Edit `config/aggregator.toml`:
+Edit `config/publisher.toml`:
 
 ```toml
 interval = 30              # Mining interval in seconds
@@ -240,10 +240,10 @@ cargo run --release --bin subchain-setup -- --config /tmp/custom_subchain.toml
 
 ### Debug Mode
 
-Run aggregator with debug logging:
+Run publisher with debug logging:
 
 ```bash
-RUST_LOG=debug ./target/release/coins-aggregator --config config/aggregator.toml
+RUST_LOG=debug ./target/release/coins-publisher --config config/publisher.toml
 ```
 
 ### Package Relay Debugging
@@ -251,7 +251,7 @@ RUST_LOG=debug ./target/release/coins-aggregator --config config/aggregator.toml
 Enable detailed package relay logs:
 
 ```bash
-RUST_LOG=coins_aggregator::rpc_backend=debug ./target/release/coins-aggregator --config config/aggregator.toml
+RUST_LOG=coins_publisher::rpc_backend=debug ./target/release/coins-publisher --config config/publisher.toml
 ```
 
 ## CI/CD Integration
@@ -276,11 +276,11 @@ set -e
 
 After successful setup:
 1. Read `scripts/README.md` for script details
-2. Check `crates/coins-aggregator/examples/` for more examples
+2. Check `crates/coins-publisher/examples/` for more examples
 3. Review `ARCHITECTURE.md` for system design
 
 ## Support
 
-- Setup issues: Check `/tmp/aggregator.log` and this guide's troubleshooting section
+- Setup issues: Check `/tmp/publisher.log` and this guide's troubleshooting section
 - Bitcoin Core issues: Verify Bitcoin Core version is 24+
 - General questions: See main README.md
