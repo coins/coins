@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Coins Block Explorer</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+    <link rel="stylesheet" href="/styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar is-dark" role="navigation">
+        <div class="container">
+            <div class="navbar-brand">
+                <a class="navbar-item" href="#" onclick="app.navigate('home')">
+                    <strong>⛓️ Coins Explorer</strong>
+                </a>
+            </div>
+
+            <div class="navbar-menu">
+                <div class="navbar-start">
+                    <a class="navbar-item" onclick="app.navigate('home')">Home</a>
+                    <a class="navbar-item" onclick="app.navigate('blocks')">Blocks</a>
+                </div>
+
+                <div class="navbar-end">
+                    <div class="navbar-item">
+                        <div class="field has-addons">
+                            <div class="control is-expanded">
+                                <input class="input" type="text" id="search-input" placeholder="Search by account pubkey (hex)...">
+                            </div>
+                            <div class="control">
+                                <button class="button is-primary" onclick="app.search()">
+                                    Search
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="navbar-item">
+                        <span class="tag is-success" id="connection-status">
+                            ● Connected
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <section class="section">
+        <div class="container">
+            <div id="content">
+                <!-- Dynamic content loaded here -->
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="content has-text-centered">
+            <p>
+                <strong>Coins Block Explorer</strong> - Powered by <a href="https://bitcoin.org">Bitcoin</a>
+            </p>
+        </div>
+    </footer>
+
+    <script src="/app.js"></script>
+</body>
+</html>

@@ -19,6 +19,10 @@ use ark_ff::PrimeField;
 use ark_bn254::Fr;
 use ark_serialize::CanonicalSerialize;
 
+fn get_publisher_url() -> String {
+    std::env::var("PUBLISHER_URL").unwrap_or_else(|_| "http://localhost:8080".to_string())
+}
+
 const PUBLISHER_URL: &str = "http://localhost:8080";
 
 // Alice PK from setup_test_accounts
@@ -46,7 +50,7 @@ fn load_or_generate_key(path: &str) -> Result<SecretKey, Box<dyn std::error::Err
 
 fn get_account(pk_hex: &str) -> Result<Account, Box<dyn std::error::Error>> {
     let client = Client::new();
-    let url = format!("{}/account/{}", PUBLISHER_URL, pk_hex);
+    let url = format!("{}/account/{}", get_publisher_url(), pk_hex);
     let resp = client.get(&url).send()?;
 
     if !resp.status().is_success() {
@@ -59,7 +63,7 @@ fn get_account(pk_hex: &str) -> Result<Account, Box<dyn std::error::Error>> {
 
 fn submit_tx(tx: &Transaction, sig: &G2) -> Result<(), Box<dyn std::error::Error>> {
     let client = Client::new();
-    let url = format!("{}/tx", PUBLISHER_URL);
+    let url = format!("{}/tx", get_publisher_url());
 
     let tx_bytes = bincode::serde::encode_to_vec(&tx, bincode::config::standard())?;
     let sig_bytes = bincode::serde::encode_to_vec(&sig, bincode::config::standard())?;

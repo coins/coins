@@ -42,7 +42,7 @@ impl ChainBlock {
     }
 
     /// Deserialize ChainBlock from bytes
-    fn deserialize(data: &[u8], state: &State) -> Option<Self> {
+    pub fn deserialize(data: &[u8], state: &State) -> Option<Self> {
         const MIN_SIZE: usize = TXID_SIZE + U32_SIZE; // txid + length
         if data.len() < MIN_SIZE { return None; }
 
@@ -82,9 +82,9 @@ pub struct Indexer {
     #[allow(dead_code)]
     db: sled::Db,
     /// Tree: btc_height (u32) -> ChainBlock
-    blocks: sled::Tree,
+    pub blocks: sled::Tree,
     /// Tree: btc_txid (Txid) -> btc_height (u32)
-    txid_index: sled::Tree,
+    pub txid_index: sled::Tree,
     /// Reference to account state (for querying accounts by ID)
     state: Arc<State>,
 }

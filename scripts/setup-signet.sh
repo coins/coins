@@ -18,8 +18,9 @@ BITCOIN_DIR="${HOME}/.bitcoin"
 SIGNET_DIR="${BITCOIN_DIR}/signet"
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DATA_DIR="${PROJECT_ROOT}/.data"
-SUBCHAIN_DIR="${DATA_DIR}/subchains"
-KEYS_DIR="${DATA_DIR}/keys"
+NETWORK_DIR="${DATA_DIR}/signet"  # Network-specific directory
+SUBCHAIN_DIR="${NETWORK_DIR}/subchains"
+KEYS_DIR="${NETWORK_DIR}/keys"
 
 RPC_USER="user"
 RPC_PASS="password"
@@ -36,7 +37,11 @@ echo -e "${YELLOW}[1/9] Cleaning up...${NC}"
 pkill -9 coins-publisher 2>/dev/null || true
 sleep 2
 
-# Preserve signet blockchain if it exists
+# Clean up old signet-specific data (preserve other networks)
+rm -rf "${NETWORK_DIR}" 2>/dev/null || true
+rm -rf indexer.db state.db explorer-tx-index.db 2>/dev/null || true  # Legacy paths
+
+# Create network-specific directory structure (all signet data isolated)
 mkdir -p "${SUBCHAIN_DIR}" "${KEYS_DIR}"
 echo -e "${GREEN}✓ Cleanup complete${NC}\n"
 
@@ -164,6 +169,7 @@ echo -e "${GREEN}✓ Test accounts created${NC}\n"
 echo -e "${YELLOW}[6/7] Starting publisher...${NC}"
 ./target/release/coins-publisher --config config/publisher-signet.toml > /tmp/publisher_signet.log 2>&1 &
 PUB_PID=$!
+echo "$PUB_PID" > /tmp/publisher_signet.pid
 
 echo -n "Waiting for publisher"
 for i in {1..30}; do
@@ -183,7 +189,7 @@ echo -e "Subchain:     $(basename ${SUBCHAIN_FILE})"
 echo -e "Link:         subchain_signet.bin -> $(basename ${SUBCHAIN_FILE})"
 echo -e "Logs:         /tmp/publisher_signet.log\n"
 echo -e "${YELLOW}NEXT STEP:${NC}"
-echo -e "${YELLOW}Check /tmp/publisher_signet.log for the fee address${NC}"
+echo -e "${YELLOW}Check /tmp/publisher_signet.log for the publisher address${NC}"
 echo -e "${YELLOW}Fund it from https://signetfaucet.com (~0.01 BTC)${NC}\n"
 echo -e "${BLUE}List subchains: ls -lh ${SUBCHAIN_DIR}/subchain_signet_*.bin${NC}"
 echo -e "${BLUE}Monitor logs:   tail -f /tmp/publisher_signet.log${NC}"

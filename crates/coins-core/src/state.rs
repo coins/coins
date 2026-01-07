@@ -115,6 +115,28 @@ impl State {
         self.accounts.apply_batch(batch)?;
         Ok(())
     }
+
+    /// Get total number of accounts
+    pub fn account_count(&self) -> usize {
+        // Subtract 1 to exclude the KEY_LAST_ID entry
+        self.accounts.len().saturating_sub(1)
+    }
+
+    /// Calculate total supply by summing all account balances
+    pub fn total_supply(&self) -> Result<u64, StateError> {
+        let mut total = 0u64;
+        for item in self.accounts.iter() {
+            let (_key, value) = item?;
+            // Skip the special KEY_LAST_ID key
+            if value.len() == 4 {
+                continue;
+            }
+            if let Ok((account, _)) = bincode_deserialize::<Account, _>(&value, bin_config()) {
+                total = total.saturating_add(account.balance);
+            }
+        }
+        Ok(total)
+    }
 }
 
 // -----------------------------------------------------------------------------

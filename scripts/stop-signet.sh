@@ -6,10 +6,22 @@ NC='\033[0m'
 
 echo -e "${YELLOW}Stopping signet services...${NC}"
 
-if pkill -9 coins-publisher 2>/dev/null; then
-    echo -e "${GREEN}✓ Stopped publisher${NC}"
+# Stop publisher using PID file (network-specific)
+if [ -f /tmp/publisher_signet.pid ]; then
+    PID=$(cat /tmp/publisher_signet.pid)
+    if kill -9 "$PID" 2>/dev/null; then
+        echo -e "${GREEN}✓ Stopped publisher (PID: $PID)${NC}"
+    else
+        echo "  (publisher not running)"
+    fi
+    rm -f /tmp/publisher_signet.pid
 else
-    echo "  (publisher not running)"
+    # Fallback: kill any publisher (legacy)
+    if pkill -9 coins-publisher 2>/dev/null; then
+        echo -e "${GREEN}✓ Stopped publisher${NC}"
+    else
+        echo "  (publisher not running)"
+    fi
 fi
 
 bitcoin-cli -signet -rpcuser=user -rpcpassword=password -rpcport=38332 stop &>/dev/null || true

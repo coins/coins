@@ -1,0 +1,51 @@
+[package]
+name = "coins-explorer"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "coins-explorer"
+path = "src/main.rs"
+
+[dependencies]
+# Internal crates (read-only access)
+coins-types = { path = "../coins-types" }
+coins-core = { path = "../coins-core" }
+coins-crypto = { path = "../coins-crypto" }
+coins-indexer = { path = "../coins-indexer" }
+
+# Web framework
+axum = { version = "0.7", features = ["json", "macros", "ws"] }
+tower = "0.5"
+tower-http = { version = "0.5", features = ["fs", "cors", "trace"] }
+
+# Bitcoin integration
+bitcoin = { version = "0.32", features = ["serde"] }
+bitcoincore-rpc = "0.19.0"
+
+# Async runtime
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs"] }
+tokio-stream = "0.1"
+futures = "0.3"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+hex = "0.4"
+bincode = "1"
+
+# Cryptography (for G1 conversions)
+ark-bn254 = "0.5"
+ark-ff = "0.5"
+ark-ec = "0.5"
+
+# Utilities
+anyhow = "1"
+thiserror = "1"
+clap = { version = "4", features = ["derive"] }
+toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+# Database
+sled = "0.34"

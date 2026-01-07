@@ -120,10 +120,45 @@ impl RpcBackend {
         RpcClient::new(&wallet_url, auth).context("Failed to create wallet RPC client")
     }
 
+    /// Get a safe rescan timestamp for pruned mode
+    ///
+    /// Returns a timestamp ~50 blocks back to avoid pruned blocks
+    async fn get_safe_rescan_timestamp(&self) -> Result<u64> {
+        let rpc = self.wallet_rpc()?;
+
+        // Get blockchain info to check if pruned
+        let chain_info: serde_json::Value = rpc
+            .call("getblockchaininfo", &[])
+            .context("Failed to get blockchain info")?;
+
+        let current_height = chain_info["blocks"]
+            .as_u64()
+            .ok_or_else(|| anyhow!("Missing blocks in getblockchaininfo"))?;
+
+        // Go back 50 blocks for safety
+        let rescan_height = current_height.saturating_sub(50);
+
+        // Get block hash at that height
+        let block_hash: String = rpc
+            .call("getblockhash", &[json!(rescan_height)])
+            .context("Failed to get block hash")?;
+
+        // Get block info to get timestamp
+        let block_info: serde_json::Value = rpc
+            .call("getblock", &[json!(block_hash)])
+            .context("Failed to get block")?;
+
+        let timestamp = block_info["time"]
+            .as_u64()
+            .ok_or_else(|| anyhow!("Missing time in block info"))?;
+
+        Ok(timestamp)
+    }
+
     /// Ensure an address has been imported to the wallet
     ///
-    /// If `rescan` is true, imports with timestamp 0 to rescan the entire blockchain.
-    /// This is needed for IBD to find historical transactions.
+    /// If `rescan` is true, imports with recent timestamp to rescan from ~50 blocks back.
+    /// This is compatible with pruned mode while still catching recent transactions.
     async fn ensure_address_imported_internal(&self, address: &Address, rescan: bool) -> Result<()> {
         let addr_str = address.to_string();
 
@@ -151,9 +186,13 @@ impl RpcBackend {
             .as_str()
             .ok_or_else(|| anyhow!("Missing descriptor in getdescriptorinfo response"))?;
 
-        // Use timestamp 0 (rescan) for first import OR when explicitly requested
-        // This ensures we don't miss any historical blocks
-        let timestamp = if rescan || !already_imported { json!(0) } else { json!("now") };
+        // Use recent timestamp (50 blocks back) for pruned mode compatibility
+        // or "now" if already imported and not rescanning
+        let timestamp = if rescan || !already_imported {
+            json!(self.get_safe_rescan_timestamp().await?)
+        } else {
+            json!("now")
+        };
 
         let import_request = json!([{
             "desc": descriptor_with_checksum,

@@ -8,5 +8,5 @@ count = 10000
 # Bitcoin network
 network = "regtest"
 
-# Output file path (relative to project root)
-output = ".data/subchains/subchain_regtest.bin"
+# Output file path (relative to project root, network-isolated)
+output = ".data/regtest/subchains/subchain_regtest.bin"

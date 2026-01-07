@@ -30,8 +30,8 @@ run_test() {
 }
 
 # Check services
-if ! curl -s http://localhost:8080/health &>/dev/null; then
-    echo -e "${RED}✗ Publisher not running. Run ./scripts/setup-signet.sh first${NC}"
+if ! curl -s http://localhost:8081/account/43878a2a65c154d604cbe7d974d5dad1c63ce4dc2a68f697c45a4a3ef9ab8a21 &>/dev/null; then
+    echo -e "${RED}✗ Publisher not running on port 8081. Run ./scripts/setup-signet.sh first${NC}"
     exit 1
 fi
 
@@ -39,7 +39,7 @@ echo -e "${GREEN}✓ Publisher is running${NC}\n"
 
 # Test 1: Submit transaction
 run_test "Submit transaction" \
-    "cargo run --release --example submit_txs 2>&1 | grep -q 'Submitted'"
+    "PUBLISHER_URL=http://localhost:8081 cargo run --release --example submit_txs 2>&1 | grep -q 'Submitted'"
 
 # Test 2: Wait for mining
 echo -e "${YELLOW}[Test 2] Wait for sub-block mining (60s)${NC}"
@@ -93,7 +93,7 @@ TEST_COUNT=$((TEST_COUNT + 1))
 
 # Test 5: Balance persistence
 run_test "Account balance persistence" \
-    "curl -s http://localhost:8080/account/2fa09cfde49a9c593bee32d5297a413d5ee2f8956cd8a2324fb8e523b2196d8f | jq -e '.balance >= 0'"
+    "curl -s http://localhost:8081/account/2fa09cfde49a9c593bee32d5297a413d5ee2f8956cd8a2324fb8e523b2196d8f | jq -e '.balance >= 0'"
 
 # Test 6: Indexer
 run_test "Indexer database exists" \
