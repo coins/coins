@@ -7,7 +7,7 @@ NC='\033[0m'
 # Configuration
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 NETWORK_DIR="${PROJECT_ROOT}/.data/signet"
-BITCOIN_DATADIR="${NETWORK_DIR}/bitcoin"
+BITCOIN_DATADIR="${HOME}/.bitcoin"  # Canonical Bitcoin Core datadir
 
 echo -e "${YELLOW}Stopping signet services...${NC}"
 

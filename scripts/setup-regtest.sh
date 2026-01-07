@@ -63,31 +63,41 @@ echo -e "${YELLOW}[2/9] Starting Bitcoin Core (regtest)...${NC}"
 rm -rf "${BITCOIN_DATADIR}" 2>/dev/null || true
 mkdir -p "${BITCOIN_DATADIR}"
 
+# Create bitcoin.conf
+cat > "${BITCOIN_DATADIR}/bitcoin.conf" <<EOF
+# Bitcoin regtest configuration
+regtest=1
+server=1
+daemon=1
+
+# RPC settings
+rpcuser=${RPC_USER}
+rpcpassword=${RPC_PASS}
+rpcport=${RPC_PORT}
+
+# Transaction settings
+fallbackfee=0.00001
+txindex=1
+acceptnonstdtxn=1
+
+# Network settings (minimal for regtest)
+listen=0
+discover=0
+dnsseed=0
+upnp=0
+natpmp=0
+maxconnections=0
+
+# Resource limits
+dbcache=50
+par=1
+EOF
+
 # Increase file descriptor limit for bitcoind
 ulimit -n 2048 2>/dev/null || true
 
-# Start bitcoind with minimal resource usage
-# Note: On macOS, bitcoind may report "-1 file descriptors available" incorrectly
-# Using reduced settings to minimize fd usage
-bitcoind \
-    -regtest \
-    -daemon \
-    -datadir="${BITCOIN_DATADIR}" \
-    -fallbackfee=0.00001 \
-    -txindex=1 \
-    -acceptnonstdtxn=1 \
-    -rpcuser="${RPC_USER}" \
-    -rpcpassword="${RPC_PASS}" \
-    -rpcport="${RPC_PORT}" \
-    -server=1 \
-    -listen=0 \
-    -discover=0 \
-    -dnsseed=0 \
-    -upnp=0 \
-    -natpmp=0 \
-    -maxconnections=0 \
-    -dbcache=50 \
-    -par=1 2>&1 | grep -v "file descriptors" || true
+# Start bitcoind with config file
+bitcoind -datadir="${BITCOIN_DATADIR}" -conf="${BITCOIN_DATADIR}/bitcoin.conf" 2>&1 | grep -v "file descriptors" || true
 
 # Check if bitcoind actually started despite the warning
 sleep 2

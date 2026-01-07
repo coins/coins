@@ -17,7 +17,7 @@ echo ""
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DATA_DIR="${PROJECT_ROOT}/.data"
 NETWORK_DIR="${DATA_DIR}/signet"  # Network-specific directory
-BITCOIN_DATADIR="${NETWORK_DIR}/bitcoin"  # Bitcoin signet data (local, isolated)
+BITCOIN_DATADIR="${HOME}/.bitcoin"  # Canonical Bitcoin Core datadir (preserve existing blockchain)
 SUBCHAIN_DIR="${NETWORK_DIR}/subchains"
 KEYS_DIR="${NETWORK_DIR}/keys"
 
@@ -46,27 +46,37 @@ echo -e "${GREEN}✓ Cleanup complete${NC}\n"
 
 echo -e "${YELLOW}[2/9] Starting Bitcoin Core (signet)...${NC}"
 
-# Clean signet data (use local datadir for isolation)
-mkdir -p "${BITCOIN_DATADIR}"
-
 # Check if bitcoind is already running on signet
 if bitcoin-cli -signet -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport="${RPC_PORT}" getblockchaininfo &>/dev/null; then
     echo -e "${BLUE}→ Bitcoin Core already running on signet${NC}"
 else
-    # Use bash wrapper for ulimit to ensure it applies to bitcoind
-    bash -c 'ulimit -n 4096; bitcoind \
-        -signet \
-        -daemon \
-        -datadir="'"${BITCOIN_DATADIR}"'" \
-        -prune=2048 \
-        -fallbackfee=0.00001 \
-        -datacarriersize=10000 \
-        -rpcuser="'"${RPC_USER}"'" \
-        -rpcpassword="'"${RPC_PASS}"'" \
-        -rpcport="'"${RPC_PORT}"'" \
-        -maxconnections=10 \
-        -dbcache=300 \
-        -txindex=0' 2>&1 | grep -v "file descriptors" || true
+    # Create bitcoin.conf for signet
+    mkdir -p "${BITCOIN_DATADIR}"
+    cat > "${BITCOIN_DATADIR}/bitcoin.conf" <<EOF
+# Bitcoin signet configuration
+[signet]
+server=1
+daemon=1
+
+# RPC settings
+rpcuser=${RPC_USER}
+rpcpassword=${RPC_PASS}
+rpcport=${RPC_PORT}
+
+# Transaction settings
+fallbackfee=0.00001
+datacarriersize=10000
+
+# Resource limits
+prune=2048
+maxconnections=10
+dbcache=300
+txindex=0
+EOF
+
+    # Start bitcoind with config file
+    ulimit -n 4096 2>/dev/null || true
+    bitcoind -conf="${BITCOIN_DATADIR}/bitcoin.conf" 2>&1 | grep -v "file descriptors" || true
 
     sleep 5
 
