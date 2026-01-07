@@ -6,17 +6,16 @@
 //!
 //! Run with: cargo test --test e2e -- --nocapture
 
-use coins_crypto::{SecretKey, G1, G2, sign};
-use coins_types::{Transaction, Account, AccountId};
+use coins_crypto::{SecretKey, G1, G2};
+use coins_types::{Transaction, Account};
 use reqwest::blocking::Client;
 use serde_json::json;
-use std::thread::sleep;
-use std::time::Duration;
 
 const PUBLISHER_URL: &str = "http://localhost:8080";
 const GENESIS_PK_HEX: &str = "43878a2a65c154d604cbe7d974d5dad1c63ce4dc2a68f697c45a4a3ef9ab8a21";
 
 struct TestAccount {
+    #[allow(dead_code)]
     sk: SecretKey,
     pk: G1,
     pk_hex: String,
@@ -44,6 +43,7 @@ impl TestAccount {
         Ok(account)
     }
 
+    #[allow(dead_code)]
     fn submit_tx(&self, tx: Transaction, sig: G2) -> Result<(), Box<dyn std::error::Error>> {
         let client = Client::new();
         let url = format!("{}/tx", PUBLISHER_URL);
@@ -103,7 +103,7 @@ fn test_e2e_transfers() {
 
     // Step 3: Transfer from genesis to Alice (100 tokens)
     println!("\nStep 3: Transferring 100 tokens from genesis to Alice...");
-    let tx1 = Transaction {
+    let _tx1 = Transaction {
         sender_id: genesis.id.0,
         recipient_pk: alice.pk,
         amount: 100,
