@@ -12,6 +12,7 @@ use hex;
 #[derive(Clone)]
 pub struct AppState {
     pub state: Arc<CoinState>,
+    #[allow(dead_code)]
     pub indexer: Arc<Indexer>,
     pub mempool: Arc<Mutex<Vec<(Transaction, G2)>>>,
 }
