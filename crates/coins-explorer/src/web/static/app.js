@@ -5,15 +5,44 @@ class ExplorerApp {
         this.currentPage = 0;
         this.apiBase = '/api/v1';
 
-        this.initWebSocket();
-        this.navigate('home');
+        // WebSocket disabled in simple proxy mode
+        // this.initWebSocket();
+        document.getElementById('connection-status').textContent = '● Simple Mode';
+        document.getElementById('connection-status').className = 'tag is-info';
 
-        // Handle browser back/forward
-        window.addEventListener('popstate', (e) => {
-            if (e.state && e.state.view) {
-                this.navigate(e.state.view, e.state.params, false);
-            }
+        // Navigate to hash or home
+        this.navigateFromHash();
+
+        // Handle browser back/forward and hash changes
+        window.addEventListener('popstate', () => {
+            this.navigateFromHash();
         });
+        window.addEventListener('hashchange', () => {
+            this.navigateFromHash();
+        });
+    }
+
+    navigateFromHash() {
+        const hash = window.location.hash.slice(1); // Remove #
+        if (!hash) {
+            this.navigate('home', {}, false);
+            return;
+        }
+
+        const parts = hash.split('/');
+        const view = parts[0];
+        const params = {};
+
+        // Parse parameters based on view type
+        if (view === 'block' && parts[1]) {
+            params.height = parseInt(parts[1]);
+        } else if (view === 'account' && parts[1]) {
+            params.pk = parts[1];
+        } else if (view === 'blocks' && parts[1]) {
+            params.page = parseInt(parts[1]) || 0;
+        }
+
+        this.navigate(view, params, false);
     }
 
     initWebSocket() {
@@ -83,7 +112,16 @@ class ExplorerApp {
         this.currentView = view;
 
         if (pushState) {
-            history.pushState({ view, params }, '', `#${view}`);
+            // Build hash URL with parameters
+            let hash = view;
+            if (view === 'block' && params.height !== undefined) {
+                hash = `block/${params.height}`;
+            } else if (view === 'account' && params.pk) {
+                hash = `account/${params.pk}`;
+            } else if (view === 'blocks' && params.page) {
+                hash = `blocks/${params.page}`;
+            }
+            history.pushState({ view, params }, '', `#${hash}`);
         }
 
         const content = document.getElementById('content');
@@ -117,6 +155,7 @@ class ExplorerApp {
 
     async renderHome() {
         const stats = await this.fetchAPI('/stats');
+        const latestBlock = await this.fetchAPI('/blocks/latest');
         const content = document.getElementById('content');
 
         content.innerHTML = `
@@ -124,118 +163,185 @@ class ExplorerApp {
 
             <div class="stats-grid">
                 <div class="stat-card">
-                    <div class="stat-value">${stats.network.total_blocks}</div>
+                    <div class="stat-value">${stats.total_blocks || 0}</div>
                     <div class="stat-label">Total Blocks</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-value">${stats.network.finalized_blocks}</div>
-                    <div class="stat-label">Finalized Blocks</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value">${stats.network.total_accounts}</div>
+                    <div class="stat-value">${stats.total_accounts || 0}</div>
                     <div class="stat-label">Total Accounts</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-value">${stats.network.total_transactions}</div>
-                    <div class="stat-label">Total Transactions</div>
+                    <div class="stat-value">${stats.total_supply || 0}</div>
+                    <div class="stat-label">Total Supply</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-value">${stats.bitcoin.current_height}</div>
-                    <div class="stat-label">Bitcoin Height</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value">${stats.bitcoin.finality_depth}</div>
-                    <div class="stat-label">Finality Depth</div>
+                    <div class="stat-value">${latestBlock ? latestBlock.height : 0}</div>
+                    <div class="stat-label">Latest Block Height</div>
                 </div>
             </div>
 
-            <h2 class="title is-4">Recent Blocks</h2>
-            <table class="table is-fullwidth is-striped is-hoverable blocks-table">
-                <thead>
-                    <tr>
-                        <th>BTC Height</th>
-                        <th>BTC Txid</th>
-                        <th>Confirmations</th>
-                        <th>Transactions</th>
-                        <th>Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${stats.recent_blocks.map(block => `
-                        <tr onclick="app.navigate('block', {height: ${block.btc_height}})">
-                            <td><strong>${block.btc_height}</strong></td>
-                            <td class="mono truncate">${block.btc_txid}</td>
-                            <td>${block.btc_confirmations}</td>
-                            <td>${block.tx_count}</td>
-                            <td>
-                                <span class="${block.finalized ? 'status-finalized' : 'status-pending'}">
-                                    ${block.finalized ? '✓ Finalized' : '⏳ Pending'}
-                                </span>
-                            </td>
-                        </tr>
-                    `).join('')}
-                </tbody>
-            </table>
+            <h2 class="title is-4">Latest Block</h2>
+            ${latestBlock ? this.renderBlockCard(latestBlock) : '<p>No blocks yet</p>'}
 
-            <div class="has-text-centered" style="margin-top: 2rem;">
-                <button class="button is-primary" onclick="app.navigate('blocks')">
-                    View All Blocks
-                </button>
+            <div style="text-align: center; margin: 1rem 0;">
+                <a onclick="app.navigate('blocks')" class="button is-primary is-medium">
+                    📋 Browse All Blocks
+                </a>
+            </div>
+
+            <h2 class="title is-4">Search Account</h2>
+            <div class="box">
+                <div class="field has-addons">
+                    <div class="control is-expanded">
+                        <input class="input" type="text" id="account-search" placeholder="Enter public key (hex)...">
+                    </div>
+                    <div class="control">
+                        <button class="button is-primary" onclick="app.searchAccount()">
+                            Search
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="account-result"></div>
+        `;
+    }
+
+    renderBlockCard(block) {
+        const txCount = block.sub_block && block.sub_block.txs ? block.sub_block.txs.length : 0;
+        return `
+            <div class="box">
+                <table class="table is-fullwidth">
+                    <tr>
+                        <th>Height</th>
+                        <td>
+                            <a onclick="app.navigate('block', {height: ${block.height}})" style="cursor: pointer; color: #3273dc;">
+                                <strong>${block.height}</strong>
+                            </a>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>Bitcoin Txid</th>
+                        <td><code>${block.btc_txid}</code></td>
+                    </tr>
+                    <tr>
+                        <th>Transactions</th>
+                        <td>${txCount}</td>
+                    </tr>
+                </table>
+                <a onclick="app.navigate('block', {height: ${block.height}})" class="button is-primary is-fullwidth" style="margin-top: 1rem;">
+                    View Block Details
+                </a>
             </div>
         `;
     }
 
-    async renderBlocks(page = 0) {
-        const data = await this.fetchAPI(`/blocks?page=${page}&limit=20`);
-        const content = document.getElementById('content');
+    async searchAccount() {
+        const input = document.getElementById('account-search');
+        const pk = input.value.trim();
 
-        const totalPages = Math.ceil(data.total_count / data.limit);
+        if (!pk) {
+            alert('Please enter a public key');
+            return;
+        }
+
+        const resultDiv = document.getElementById('account-result');
+        resultDiv.innerHTML = '<div class="loading"></div>';
+
+        try {
+            const account = await this.fetchAPI(`/accounts/${pk}`);
+            const pk_hex = this.bytesToHex(account.pk);
+            resultDiv.innerHTML = `
+                <div class="box">
+                    <h3 class="title is-5">Account Details</h3>
+                    <table class="table is-fullwidth">
+                        <tr>
+                            <th>Account ID</th>
+                            <td><strong>${account.id.toString()}</strong></td>
+                        </tr>
+                        <tr>
+                            <th>Public Key</th>
+                            <td><code style="font-size: 0.85em; word-break: break-all;">${pk_hex}</code></td>
+                        </tr>
+                        <tr>
+                            <th>Balance</th>
+                            <td><strong style="color: #23d160;">${account.balance} sats</strong></td>
+                        </tr>
+                        <tr>
+                            <th>Nonce</th>
+                            <td>${account.nonce}</td>
+                        </tr>
+                    </table>
+                    <a onclick="app.navigate('account', {pk: '${pk_hex}'})" class="button is-link is-fullwidth">
+                        View Full Account Page
+                    </a>
+                </div>
+            `;
+        } catch (error) {
+            resultDiv.innerHTML = `
+                <div class="notification is-danger">
+                    Account not found or error: ${error.message}
+                </div>
+            `;
+        }
+    }
+
+    async renderBlocks(page = 0) {
+        const content = document.getElementById('content');
+        const latestBlock = await this.fetchAPI('/blocks/latest');
+
+        if (!latestBlock) {
+            content.innerHTML = '<h1 class="title">Blocks</h1><p>No blocks yet</p>';
+            return;
+        }
+
+        // Fetch ALL blocks (from 0 to latest height) - the API filters out non-existent ones
+        const allBlocks = await this.fetchAPI(`/blocks?from=0&to=${latestBlock.height}`);
+
+        // Sort descending by height
+        allBlocks.sort((a, b) => b.height - a.height);
+
+        // Paginate the actual blocks
+        const blocksPerPage = 20;
+        const totalBlocks = allBlocks.length;
+        const totalPages = Math.ceil(totalBlocks / blocksPerPage);
+        const startIdx = page * blocksPerPage;
+        const endIdx = startIdx + blocksPerPage;
+        const blocks = allBlocks.slice(startIdx, endIdx);
 
         content.innerHTML = `
-            <div class="level">
-                <div class="level-left">
-                    <div class="level-item">
-                        <h1 class="title">Blocks</h1>
-                    </div>
-                </div>
-                <div class="level-right">
-                    <div class="level-item">
-                        <span class="tag is-info">Total: ${data.total_count}</span>
-                    </div>
-                    <div class="level-item">
-                        <span class="tag is-primary">BTC Height: ${data.current_btc_height}</span>
-                    </div>
-                </div>
-            </div>
+            <h1 class="title">Blocks</h1>
+            <div class="subtitle">Showing ${blocks.length} of ${totalBlocks} block(s) (page ${page + 1} of ${totalPages})</div>
 
-            <table class="table is-fullwidth is-striped is-hoverable blocks-table">
-                <thead>
-                    <tr>
-                        <th>BTC Height</th>
-                        <th>BTC Txid</th>
-                        <th>Confirmations</th>
-                        <th>Transactions</th>
-                        <th>Publisher</th>
-                        <th>Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${data.blocks.map(block => `
-                        <tr onclick="app.navigate('block', {height: ${block.btc_height}})">
-                            <td><strong>${block.btc_height}</strong></td>
-                            <td class="mono truncate">${block.btc_txid}</td>
-                            <td>${block.btc_confirmations}</td>
-                            <td>${block.tx_count}</td>
-                            <td class="mono truncate">${block.publisher_pk}</td>
-                            <td>
-                                <span class="${block.finalized ? 'status-finalized' : 'status-pending'}">
-                                    ${block.finalized ? '✓ Finalized' : '⏳ Pending'}
-                                </span>
-                            </td>
+            ${blocks.length > 0 ? `
+                <table class="table is-fullwidth is-striped is-hoverable">
+                    <thead>
+                        <tr>
+                            <th>Height</th>
+                            <th>Bitcoin Txid</th>
+                            <th>Transactions</th>
+                            <th>Actions</th>
                         </tr>
-                    `).join('')}
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        ${blocks.map(block => {
+                            const txCount = block.sub_block && block.sub_block.txs ? block.sub_block.txs.length : 0;
+                            return `
+                                <tr>
+                                    <td><strong>${block.height}</strong></td>
+                                    <td><code style="font-size: 0.85em;">${block.btc_txid.substring(0, 16)}...${block.btc_txid.substring(56)}</code></td>
+                                    <td>${txCount}</td>
+                                    <td>
+                                        <a onclick="app.navigate('block', {height: ${block.height}})" class="button is-small is-primary">
+                                            View Details
+                                        </a>
+                                    </td>
+                                </tr>
+                            `;
+                        }).join('')}
+                    </tbody>
+                </table>
+            ` : `<div class="notification is-info">No blocks found</div>`}
 
             ${this.renderPagination(page, totalPages)}
         `;
@@ -244,6 +350,10 @@ class ExplorerApp {
     async renderBlock(height) {
         const block = await this.fetchAPI(`/blocks/${height}`);
         const content = document.getElementById('content');
+
+        // Convert byte arrays to hex
+        const publisher_pk_hex = this.bytesToHex(block.sub_block.publisher_pk);
+        const txCount = block.sub_block && block.sub_block.txs ? block.sub_block.txs.length : 0;
 
         content.innerHTML = `
             <nav class="breadcrumb">
@@ -254,78 +364,79 @@ class ExplorerApp {
                 </ul>
             </nav>
 
-            <h1 class="title">Block at Bitcoin Height ${block.btc_height}</h1>
+            <h1 class="title">Block #${height}</h1>
 
             <div class="box">
-                <div class="block-detail-grid">
-                    <div class="block-detail-label">Bitcoin Txid:</div>
-                    <div class="block-detail-value mono">
-                        ${block.btc_txid}
-                        <div style="margin-top: 0.5rem;">
-                            <a href="${block.bitcoin_links.mempool_space}" target="_blank" class="button is-small is-link">
-                                mempool.space
-                            </a>
-                            <a href="${block.bitcoin_links.blockstream}" target="_blank" class="button is-small is-link">
-                                blockstream.info
-                            </a>
-                        </div>
-                    </div>
-
-                    <div class="block-detail-label">Confirmations:</div>
-                    <div class="block-detail-value">${block.btc_confirmations}</div>
-
-                    <div class="block-detail-label">Status:</div>
-                    <div class="block-detail-value">
-                        <span class="${block.finalized ? 'status-finalized' : 'status-pending'}">
-                            ${block.finalized ? '✓ Finalized' : '⏳ Pending'}
-                        </span>
-                    </div>
-
-                    <div class="block-detail-label">Publisher:</div>
-                    <div class="block-detail-value mono">${block.publisher_pk}</div>
-
-                    <div class="block-detail-label">Timestamp:</div>
-                    <div class="block-detail-value">
-                        ${block.btc_timestamp ? new Date(block.btc_timestamp * 1000).toLocaleString() : 'N/A'}
-                    </div>
-                </div>
+                <table class="table is-fullwidth">
+                    <tr>
+                        <th>Height</th>
+                        <td>${block.height}</td>
+                    </tr>
+                    <tr>
+                        <th>Bitcoin Txid</th>
+                        <td>
+                            <code>${block.btc_txid}</code>
+                            <div style="margin-top: 0.5rem;">
+                                <a href="https://mempool.space/signet/tx/${block.btc_txid}" target="_blank" class="button is-small is-link">
+                                    View on mempool.space
+                                </a>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>Publisher</th>
+                        <td><code style="font-size: 0.85em;">${publisher_pk_hex}</code></td>
+                    </tr>
+                    <tr>
+                        <th>Transactions</th>
+                        <td>${txCount}</td>
+                    </tr>
+                </table>
             </div>
 
-            <h2 class="title is-4">Transactions (${block.txs.length})</h2>
+            <h2 class="title is-4">Transactions (${txCount})</h2>
 
-            <table class="table is-fullwidth is-striped is-hoverable">
-                <thead>
-                    <tr>
-                        <th>Sender ID</th>
-                        <th>Recipient</th>
-                        <th>Amount</th>
-                        <th>Fee</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${block.txs.map(tx => `
+            ${txCount > 0 ? `
+                <table class="table is-fullwidth is-striped is-hoverable">
+                    <thead>
                         <tr>
-                            <td><strong>${tx.sender_id}</strong></td>
-                            <td>
-                                <a onclick="app.navigate('account', {pk: '${tx.recipient_pk}'})" class="mono truncate">
-                                    ${tx.recipient_pk}
-                                </a>
-                                ${tx.recipient_id !== null ? ` (ID: ${tx.recipient_id})` : ''}
-                            </td>
-                            <td>${tx.amount}</td>
-                            <td>${tx.fee}</td>
+                            <th>Sender ID</th>
+                            <th>Recipient PK</th>
+                            <th>Amount</th>
+                            <th>Fee</th>
                         </tr>
-                    `).join('')}
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        ${block.sub_block.txs.map(tx => {
+                            const recipient_pk_hex = this.bytesToHex(tx.recipient_pk);
+                            return `
+                                <tr>
+                                    <td><strong>${tx.sender_id}</strong></td>
+                                    <td>
+                                        <a onclick="app.navigate('account', {pk: '${recipient_pk_hex}'})" style="cursor: pointer; color: #3273dc;">
+                                            <code style="font-size: 0.85em;">${recipient_pk_hex.substring(0, 16)}...${recipient_pk_hex.substring(56)}</code>
+                                        </a>
+                                    </td>
+                                    <td>${tx.amount}</td>
+                                    <td>${tx.fee}</td>
+                                </tr>
+                            `;
+                        }).join('')}
+                    </tbody>
+                </table>
+            ` : '<p>No transactions in this block</p>'}
         `;
     }
 
+    bytesToHex(bytes) {
+        return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+    }
+
     async renderAccount(pk) {
-        const data = await this.fetchAPI(`/accounts/${pk}`);
+        const account = await this.fetchAPI(`/accounts/${pk}`);
         const content = document.getElementById('content');
 
-        if (!data.account) {
+        if (!account) {
             content.innerHTML = `
                 <div class="notification is-warning">
                     <strong>Account Not Found</strong><br>
@@ -335,45 +446,39 @@ class ExplorerApp {
             return;
         }
 
-        const account = data.account;
+        const pk_hex = this.bytesToHex(account.pk);
 
         content.innerHTML = `
             <nav class="breadcrumb">
                 <ul>
                     <li><a onclick="app.navigate('home')">Home</a></li>
-                    <li class="is-active"><a>Account ${account.id}</a></li>
+                    <li class="is-active"><a>Account #${account.id.toString()}</a></li>
                 </ul>
             </nav>
 
-            <h1 class="title">Account ${account.id}</h1>
+            <h1 class="title">Account #${account.id.toString()}</h1>
 
             <div class="box">
-                <div class="block-detail-grid">
-                    <div class="block-detail-label">Account ID:</div>
-                    <div class="block-detail-value"><strong>${account.id}</strong></div>
-
-                    <div class="block-detail-label">Public Key:</div>
-                    <div class="block-detail-value mono">${account.pk}</div>
-
-                    <div class="block-detail-label">Balance:</div>
-                    <div class="block-detail-value"><strong>${account.balance}</strong> satoshis</div>
-
-                    <div class="block-detail-label">Nonce:</div>
-                    <div class="block-detail-value">${account.nonce}</div>
-
-                    <div class="block-detail-label">Transactions:</div>
-                    <div class="block-detail-value">${account.tx_count}</div>
-                </div>
-            </div>
-
-            <h2 class="title is-4">Transaction History</h2>
-            <div id="account-txs">
-                <div class="loading"></div>
+                <table class="table is-fullwidth">
+                    <tr>
+                        <th style="width: 150px;">Account ID</th>
+                        <td><strong>${account.id.toString()}</strong></td>
+                    </tr>
+                    <tr>
+                        <th>Public Key</th>
+                        <td><code style="font-size: 0.85em; word-break: break-all;">${pk_hex}</code></td>
+                    </tr>
+                    <tr>
+                        <th>Balance</th>
+                        <td><strong style="font-size: 1.2em; color: #23d160;">${account.balance} sats</strong></td>
+                    </tr>
+                    <tr>
+                        <th>Nonce</th>
+                        <td>${account.nonce}</td>
+                    </tr>
+                </table>
             </div>
         `;
-
-        // Load transaction history
-        this.loadAccountTransactions(pk, 0);
     }
 
     async loadAccountTransactions(pk, page = 0) {

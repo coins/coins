@@ -10,8 +10,10 @@ use coins_core::State;
 
 pub mod finality;
 pub mod query;
+pub mod client;
 
 pub use finality::FINALITY_DEPTH;
+pub use client::IndexerClient;
 
 // ChainBlock serialization layout constants
 /// Bitcoin txid size in bytes
@@ -24,6 +26,8 @@ const U32_SIZE: usize = std::mem::size_of::<u32>();
 pub struct ChainBlock {
     /// Bitcoin transaction ID that anchored this sub-block
     pub btc_txid: Txid,
+    /// Bitcoin block height where this sub-block was anchored
+    pub btc_height: u32,
     /// The sub-block content
     pub sub_block: SubBlock,
 }
@@ -34,6 +38,8 @@ impl ChainBlock {
         let mut v = Vec::new();
         // Txid (32 bytes)
         v.extend_from_slice(self.btc_txid.as_ref());
+        // Bitcoin height (4 bytes)
+        v.extend_from_slice(&self.btc_height.to_le_bytes());
         // Sub-block (variable length)
         let sub_block_bytes = self.sub_block.serialize(state);
         v.extend_from_slice(&(sub_block_bytes.len() as u32).to_le_bytes());
@@ -43,19 +49,25 @@ impl ChainBlock {
 
     /// Deserialize ChainBlock from bytes
     pub fn deserialize(data: &[u8], state: &State) -> Option<Self> {
-        const MIN_SIZE: usize = TXID_SIZE + U32_SIZE; // txid + length
+        const MIN_SIZE: usize = TXID_SIZE + U32_SIZE + U32_SIZE; // txid + btc_height + length
         if data.len() < MIN_SIZE { return None; }
 
         let txid_bytes: [u8; TXID_SIZE] = data[0..TXID_SIZE].try_into().ok()?;
         let btc_txid = Txid::from_byte_array(txid_bytes);
 
-        let sub_block_len = u32::from_le_bytes(data[TXID_SIZE..TXID_SIZE + U32_SIZE].try_into().ok()?) as usize;
-        if data.len() < TXID_SIZE + U32_SIZE + sub_block_len { return None; }
+        let btc_height = u32::from_le_bytes(data[TXID_SIZE..TXID_SIZE + U32_SIZE].try_into().ok()?);
 
-        let sub_block = SubBlock::deserialize(&data[TXID_SIZE + U32_SIZE..TXID_SIZE + U32_SIZE + sub_block_len], state)?;
+        let sub_block_len_offset = TXID_SIZE + U32_SIZE;
+        let sub_block_len = u32::from_le_bytes(data[sub_block_len_offset..sub_block_len_offset + U32_SIZE].try_into().ok()?) as usize;
+
+        let sub_block_offset = sub_block_len_offset + U32_SIZE;
+        if data.len() < sub_block_offset + sub_block_len { return None; }
+
+        let sub_block = SubBlock::deserialize(&data[sub_block_offset..sub_block_offset + sub_block_len], state)?;
 
         Some(Self {
             btc_txid,
+            btc_height,
             sub_block,
         })
     }
@@ -81,10 +93,12 @@ pub struct Indexer {
     /// Database handle (kept alive to maintain connection)
     #[allow(dead_code)]
     db: sled::Db,
-    /// Tree: btc_height (u32) -> ChainBlock
+    /// Tree: sub_chain_height (u32) -> ChainBlock
     pub blocks: sled::Tree,
-    /// Tree: btc_txid (Txid) -> btc_height (u32)
+    /// Tree: btc_txid (Txid) -> sub_chain_height (u32)
     pub txid_index: sled::Tree,
+    /// Tree: metadata (stores latest sub_chain_height)
+    pub metadata: sled::Tree,
     /// Reference to account state (for querying accounts by ID)
     state: Arc<State>,
 }
@@ -95,13 +109,32 @@ impl Indexer {
         let db = sled::open(path)?;
         let blocks = db.open_tree(b"blocks")?;
         let txid_index = db.open_tree(b"txid_index")?;
+        let metadata = db.open_tree(b"metadata")?;
 
         Ok(Self {
             db,
             blocks,
             txid_index,
+            metadata,
             state,
         })
+    }
+
+    /// Get the next sub-chain height
+    fn get_next_height(&self) -> Result<u32, IndexerError> {
+        // Get current height from metadata, or start at 0
+        let height = if let Some(bytes) = self.metadata.get(b"latest_height")? {
+            u32::from_le_bytes(bytes.as_ref().try_into().unwrap()) + 1
+        } else {
+            0
+        };
+        Ok(height)
+    }
+
+    /// Update the latest sub-chain height
+    fn set_latest_height(&self, height: u32) -> Result<(), IndexerError> {
+        self.metadata.insert(b"latest_height", &height.to_le_bytes())?;
+        Ok(())
     }
 
     /// Index a new sub-block at the given Bitcoin height
@@ -111,7 +144,11 @@ impl Indexer {
         btc_height: u32,
         sub_block: SubBlock,
     ) -> Result<(), IndexerError> {
+        // Get next sequential sub-chain height
+        let sub_chain_height = self.get_next_height()?;
+
         tracing::info!(
+            sub_chain_height = sub_chain_height,
             btc_height = btc_height,
             btc_txid = %btc_txid,
             tx_count = sub_block.txs.len(),
@@ -120,20 +157,20 @@ impl Indexer {
 
         let chain_block = ChainBlock {
             btc_txid,
+            btc_height,
             sub_block,
         };
 
-        // Serialize and store
+        // Serialize and store using sub-chain height as key
         let block_bytes = chain_block.serialize(&self.state);
+        self.blocks.insert(&sub_chain_height.to_le_bytes(), block_bytes)?;
 
-        self.blocks.insert(&btc_height.to_le_bytes(), block_bytes)?;
-
-        // Index by txid
+        // Index by txid -> sub_chain_height
         let txid_key: &[u8] = btc_txid.as_ref();
-        self.txid_index.insert(
-            txid_key,
-            &btc_height.to_le_bytes()
-        )?;
+        self.txid_index.insert(txid_key, &sub_chain_height.to_le_bytes())?;
+
+        // Update latest height
+        self.set_latest_height(sub_chain_height)?;
 
         Ok(())
     }
@@ -144,13 +181,13 @@ impl Indexer {
 
         for item in self.blocks.iter() {
             let (key, value) = item?;
-            let height = u32::from_le_bytes(key.as_ref().try_into().unwrap());
+            let sub_chain_height = u32::from_le_bytes(key.as_ref().try_into().unwrap());
             let chain_block = ChainBlock::deserialize(&value, &self.state)
                 .ok_or(IndexerError::Serialization)?;
 
-            let confirmations = current_btc_height.saturating_sub(height) + 1;
+            let confirmations = current_btc_height.saturating_sub(chain_block.btc_height) + 1;
             if confirmations >= FINALITY_DEPTH {
-                finalized.push((height, chain_block));
+                finalized.push((sub_chain_height, chain_block));
             }
         }
 
@@ -158,9 +195,9 @@ impl Indexer {
         Ok(finalized)
     }
 
-    /// Get block by Bitcoin height
-    pub fn get_block_by_height(&self, height: u32) -> Result<Option<ChainBlock>, IndexerError> {
-        let key = height.to_le_bytes();
+    /// Get block by sub-chain height
+    pub fn get_block_by_height(&self, sub_chain_height: u32) -> Result<Option<ChainBlock>, IndexerError> {
+        let key = sub_chain_height.to_le_bytes();
 
         if let Some(value) = self.blocks.get(&key)? {
             let chain_block = ChainBlock::deserialize(&value, &self.state)
@@ -216,13 +253,12 @@ impl Indexer {
         let mut history = Vec::new();
 
         for item in self.blocks.iter() {
-            let (key, value) = item?;
-            let height = u32::from_le_bytes(key.as_ref().try_into().unwrap());
+            let (_, value) = item?;
             let chain_block = ChainBlock::deserialize(&value, &self.state)
                 .ok_or(IndexerError::Serialization)?;
 
             // Only include finalized blocks
-            let confirmations = current_btc_height.saturating_sub(height) + 1;
+            let confirmations = current_btc_height.saturating_sub(chain_block.btc_height) + 1;
             if confirmations < FINALITY_DEPTH {
                 continue;
             }

@@ -3,8 +3,7 @@ pub mod cache;
 
 use std::sync::Arc;
 use anyhow::Result;
-use coins_core::State;
-use coins_indexer::Indexer;
+use coins_indexer::IndexerClient;
 use crate::bitcoin::BitcoinClient;
 use crate::config::ExplorerConfig;
 
@@ -12,8 +11,7 @@ pub use tx_index::TxIndex;
 pub use cache::Cache;
 
 pub struct ExplorerIndexer {
-    pub state: Arc<State>,
-    pub indexer: Arc<Indexer>,
+    pub indexer_client: Arc<IndexerClient>,
     pub tx_index: Arc<TxIndex>,
     pub cache: Arc<Cache>,
     pub bitcoin_client: Arc<BitcoinClient>,
@@ -23,12 +21,9 @@ impl ExplorerIndexer {
     pub fn open(config: &ExplorerConfig) -> Result<Self> {
         tracing::info!("Opening explorer indexer...");
 
-        // Open publisher's databases in read-only mode
-        tracing::info!("Opening state database: {:?}", config.database.state_db);
-        let state = Arc::new(State::open(&config.database.state_db)?);
-
-        tracing::info!("Opening indexer database: {:?}", config.database.indexer_db);
-        let indexer = Arc::new(Indexer::open(&config.database.indexer_db, state.clone())?);
+        // Connect to indexer service via HTTP client
+        tracing::info!("Connecting to indexer service: {}", config.indexer.url);
+        let indexer_client = Arc::new(IndexerClient::new(config.indexer.url.clone()));
 
         // Create explorer-specific transaction index
         tracing::info!("Opening transaction index: {:?}", config.database.tx_index_db);
@@ -48,8 +43,7 @@ impl ExplorerIndexer {
         tracing::info!("Explorer indexer opened successfully");
 
         Ok(Self {
-            state,
-            indexer,
+            indexer_client,
             tx_index,
             cache,
             bitcoin_client,
@@ -62,7 +56,7 @@ impl ExplorerIndexer {
             tracing::info!("Transaction index is empty, building from existing blocks...");
             let start = std::time::Instant::now();
 
-            self.tx_index.build_from_indexer(&self.indexer, &self.state).await?;
+            self.tx_index.build_from_indexer_client(&self.indexer_client).await?;
 
             tracing::info!(
                 duration_ms = start.elapsed().as_millis(),

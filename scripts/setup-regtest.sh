@@ -73,7 +73,6 @@ daemon=1
 # RPC settings
 rpcuser=${RPC_USER}
 rpcpassword=${RPC_PASS}
-rpcport=${RPC_PORT}
 
 # Transaction settings
 fallbackfee=0.00001
@@ -91,6 +90,9 @@ maxconnections=0
 # Resource limits
 dbcache=50
 par=1
+
+[regtest]
+rpcport=${RPC_PORT}
 EOF
 
 # Increase file descriptor limit for bitcoind

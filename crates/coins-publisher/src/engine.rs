@@ -7,9 +7,9 @@ use coins_subchain::Subchain;
 use std::str::FromStr;
 use crate::api::AppState;
 use crate::rpc_backend::RpcBackend;
+use crate::state_adapter::StateAdapter;
 use coins_types::SubBlock;
 use coins_crypto::{G1, SecretKey as BLSSecretKey, aggregate};
-use coins_core::validate_subblock;
 use coins_subchain::{compress, decompress, PublishMode, PublishFormat, publish_subblock};
 use ark_ff::{PrimeField, BigInteger};
 use ark_bn254::Fr;
@@ -34,6 +34,7 @@ pub struct Engine {
     pub anchor_idx: usize,
     pub last_synced: Option<Txid>,
     pub app_state: AppState,
+    pub state_adapter: StateAdapter,
     pub publisher_sk: BLSSecretKey,
     pub publisher_pk: G1,
     pub publish_mode: PublishMode,
@@ -49,6 +50,7 @@ impl Engine {
         key_file: Option<PathBuf>,
         bls_key_file: PathBuf,
         app_state: AppState,
+        state_adapter: StateAdapter,
         publish_mode: PublishMode,
         fee_rate: u64,
     ) -> Result<Self> {
@@ -108,6 +110,7 @@ impl Engine {
             anchor_idx: 0,
             last_synced: None,
             app_state,
+            state_adapter,
             publisher_sk,
             publisher_pk,
             publish_mode,
@@ -182,14 +185,8 @@ impl Engine {
             publisher_pk: self.publisher_pk,
         };
 
-        // Validate sub-block before broadcasting
-        if let Err(e) = validate_subblock(&sub_block, &self.app_state.state) {
-            tracing::error!(error = ?e, "Sub-block validation failed");
-            return Err(anyhow::anyhow!("Sub-block validation failed: {:?}", e));
-        }
-        tracing::debug!("Sub-block validated successfully");
-
-        let sub_block_bytes = sub_block.serialize(&*self.app_state.state);
+        // Serialize sub-block (uses state adapter for compression)
+        let sub_block_bytes = sub_block.serialize(&self.state_adapter);
 
         if self.fee_utxos.is_empty() {
             tracing::warn!("Cannot mine sub-block: No fee UTXOs available");
@@ -270,12 +267,12 @@ impl Engine {
         // Update current anchor for next block
         self.current_anchor = result.new_anchor;
 
-        // Index the sub-block
-        let btc_height = 0u32; // Placeholder
+        // Submit sub-block to indexer for validation and indexing
+        let btc_height = 0u32; // Placeholder - should get actual height from backend
         let data_txid = result.data_tx.compute_txid();
 
-        if let Err(e) = self.app_state.indexer.index_block(data_txid, btc_height, sub_block) {
-            tracing::warn!(error = ?e, "Failed to index sub-block");
+        if let Err(e) = self.app_state.indexer.submit_block(data_txid, btc_height, sub_block).await {
+            tracing::warn!(error = ?e, "Failed to submit sub-block to indexer");
         }
 
         tracing::info!(
@@ -361,12 +358,12 @@ impl Engine {
         // Use primary anchor for tracking
         self.current_anchor = result_primary.new_anchor;
 
-        // Index using primary
+        // Submit to indexer using primary
         let btc_height = 0u32;
         let data_txid = result_primary.data_tx.compute_txid();
 
-        if let Err(e) = self.app_state.indexer.index_block(data_txid, btc_height, sub_block) {
-            tracing::warn!(error = ?e, "Failed to index sub-block");
+        if let Err(e) = self.app_state.indexer.submit_block(data_txid, btc_height, sub_block).await {
+            tracing::warn!(error = ?e, "Failed to submit sub-block to indexer");
         }
 
         tracing::info!(
@@ -494,28 +491,14 @@ impl Engine {
                         .map_err(|e| anyhow::anyhow!("Decompression failed: {}", e))?;
 
                     // Parse sub-block
-                    if let Some(sub_block) = SubBlock::deserialize(&blob, &*self.app_state.state) {
-                        // Validate and apply to state (validate_subblock mutates state on success)
-                        if let Err(e) = validate_subblock(&sub_block, &self.app_state.state) {
-                            tracing::error!(
-                                error = ?e,
-                                anchor_idx = idx,
-                                "Historical sub-block validation failed during IBD"
-                            );
-                        } else {
-                            tracing::debug!(
-                                anchor_idx = idx,
-                                tx_count = sub_block.txs.len(),
-                                "Applied historical transactions to state"
-                            );
-                        }
-
-                        // Index it
-                        self.app_state.indexer.index_block(
+                    if let Some(sub_block) = SubBlock::deserialize(&blob, &self.state_adapter) {
+                        // Submit to indexer for validation and indexing
+                        // The indexer will validate and apply state changes
+                        self.app_state.indexer.submit_block(
                             data_txid,
                             btc_height,
                             sub_block
-                        )?;
+                        ).await?;
 
                         indexed_count += 1;
                         tracing::info!(

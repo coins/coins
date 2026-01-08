@@ -1,6 +1,7 @@
 # TODOs
 
 - run tests on signet [in progress]
+- deploy signet instance for public testing
 - run tests on mainnet
 - build a web-client
 

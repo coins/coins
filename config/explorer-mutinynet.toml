@@ -1,12 +1,10 @@
 # Coins Block Explorer Configuration (Mutinynet)
 
+[indexer]
+# URL to indexer service API
+url = "http://localhost:8083"
+
 [database]
-# Path to publisher's state database (read-only, network-specific)
-state_db = ".data/mutinynet/state.db"
-
-# Path to publisher's indexer database (read-only, network-specific)
-indexer_db = ".data/mutinynet/indexer.db"
-
 # Path to explorer's transaction index database (read-write, explorer-specific, network-isolated)
 tx_index_db = ".data/mutinynet/explorer-tx-index.db"
 

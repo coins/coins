@@ -1,0 +1,19 @@
+# Indexer service configuration for regtest
+
+[database]
+state_db = ".data/regtest/state.db"
+indexer_db = ".data/regtest/indexer.db"
+
+[bitcoin]
+rpc_url = "http://localhost:18443"
+rpc_user = "user"
+rpc_pass = "password"
+network = "regtest"
+
+[server]
+api_port = 8083
+host = "0.0.0.0"
+
+[genesis]
+genesis_pk = "4d62f9b4f640aae666157f746b4300f65a63df6b5e89ba82772d733e17b33fa2"
+genesis_balance = 1000000000000

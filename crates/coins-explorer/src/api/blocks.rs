@@ -21,24 +21,21 @@ pub async fn list_blocks(
     let limit = query.limit();
     let finalized_only = query.finalized_only();
 
-    // Collect all blocks
-    let mut all_blocks: Vec<(u32, ChainBlock)> = Vec::new();
+    // Get blocks from indexer service
+    let blocks = indexer.indexer_client.get_blocks_range(None, None).await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Indexer service error: {}", e)))?;
 
-    for item in indexer.indexer.blocks.iter().rev() {
-        let (key, value) = item
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?;
-
-        let btc_height = u32::from_le_bytes(key.as_ref().try_into().unwrap());
-
-        if let Some(chain_block) = ChainBlock::deserialize(&value, &indexer.state) {
-            let confirmations = current_btc_height.saturating_sub(btc_height) + 1;
+    let mut all_blocks: Vec<(u32, SubBlock)> = blocks.into_iter()
+        .map(|b| {
+            let confirmations = current_btc_height.saturating_sub(b.height) + 1;
             let finalized = confirmations >= FINALITY_DEPTH;
+            (finalized_only && !finalized, (b.height, b.sub_block))
+        })
+        .filter(|(skip, _)| !skip)
+        .map(|(_, pair)| pair)
+        .collect();
 
-            if !finalized_only || finalized {
-                all_blocks.push((btc_height, chain_block));
-            }
-        }
-    }
+    all_blocks.reverse(); // Most recent first
 
     let total_count = all_blocks.len();
 

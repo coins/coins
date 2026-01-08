@@ -41,9 +41,9 @@ pub async fn get_account(
     pk_array.copy_from_slice(&pk_bytes);
     let pk = G1(pk_array);
 
-    // Get account from state
-    let account = indexer.state.get_by_pk(&pk)
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Database error".to_string()))?;
+    // Get account from indexer service
+    let account = indexer.indexer_client.get_account(&pk).await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Indexer service error".to_string()))?;
 
     if let Some(account) = account {
         // Get transaction count
@@ -99,9 +99,9 @@ pub async fn get_account_transactions(
     pk_array.copy_from_slice(&pk_bytes);
     let pk = G1(pk_array);
 
-    // Get account
-    let account = indexer.state.get_by_pk(&pk)
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Database error".to_string()))?
+    // Get account from indexer service
+    let account = indexer.indexer_client.get_account(&pk).await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Indexer service error".to_string()))?
         .ok_or((StatusCode::NOT_FOUND, "Account not found".to_string()))?;
 
     let page = query.page();
@@ -121,17 +121,9 @@ pub async fn get_account_transactions(
             {
                 let confirmations = current_btc_height.saturating_sub(tx_ref.btc_height) + 1;
 
-                // Get btc_txid for this height
-                let key = tx_ref.btc_height.to_le_bytes();
-                let value = indexer.indexer.blocks.get(&key)
-                    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?;
-
-                let btc_txid = if let Some(value) = value {
-                    if let Some(chain_block) = coins_indexer::ChainBlock::deserialize(&value, &indexer.state) {
-                        chain_block.btc_txid.to_string()
-                    } else {
-                        "unknown".to_string()
-                    }
+                // Get btc_txid for this height from indexer service
+                let btc_txid = if let Ok(Some(block)) = indexer.indexer_client.get_block_by_height(tx_ref.btc_height).await {
+                    block.btc_txid
                 } else {
                     "unknown".to_string()
                 };
@@ -173,17 +165,9 @@ pub async fn get_account_transactions(
             {
                 let confirmations = current_btc_height.saturating_sub(tx_ref.btc_height) + 1;
 
-                // Get btc_txid for this height
-                let key = tx_ref.btc_height.to_le_bytes();
-                let value = indexer.indexer.blocks.get(&key)
-                    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)))?;
-
-                let btc_txid = if let Some(value) = value {
-                    if let Some(chain_block) = coins_indexer::ChainBlock::deserialize(&value, &indexer.state) {
-                        chain_block.btc_txid.to_string()
-                    } else {
-                        "unknown".to_string()
-                    }
+                // Get btc_txid for this height from indexer service
+                let btc_txid = if let Ok(Some(block)) = indexer.indexer_client.get_block_by_height(tx_ref.btc_height).await {
+                    block.btc_txid
                 } else {
                     "unknown".to_string()
                 };

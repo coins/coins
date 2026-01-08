@@ -123,7 +123,7 @@ pub enum TxFormat {
 }
 
 /// A batch of transactions together with an aggregated signature.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubBlock {
     pub sigma: G2,
     pub publisher_pk: G1,

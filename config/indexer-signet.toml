@@ -1,0 +1,19 @@
+# Indexer service configuration for signet
+
+[database]
+state_db = ".data/signet/state.db"
+indexer_db = ".data/signet/indexer.db"
+
+[bitcoin]
+rpc_url = "http://localhost:38332"
+rpc_user = "user"
+rpc_pass = "password"
+network = "signet"
+
+[server]
+api_port = 8083
+host = "0.0.0.0"
+
+[genesis]
+genesis_pk = "43878a2a65c154d604cbe7d974d5dad1c63ce4dc2a68f697c45a4a3ef9ab8a21"
+genesis_balance = 1000000000000

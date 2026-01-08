@@ -4,6 +4,8 @@ use bitcoin::Network;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct ExplorerConfig {
+    #[serde(default)]
+    pub indexer: IndexerConfig,
     pub database: DatabaseConfig,
     pub bitcoin: BitcoinConfig,
     pub server: ServerConfig,
@@ -11,6 +13,24 @@ pub struct ExplorerConfig {
     pub cache: CacheConfig,
     #[serde(default)]
     pub updates: UpdatesConfig,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct IndexerConfig {
+    #[serde(default = "default_indexer_url")]
+    pub url: String,
+}
+
+impl Default for IndexerConfig {
+    fn default() -> Self {
+        Self {
+            url: default_indexer_url(),
+        }
+    }
+}
+
+fn default_indexer_url() -> String {
+    "http://localhost:8083".to_string()
 }
 
 impl ExplorerConfig {
@@ -23,8 +43,6 @@ impl ExplorerConfig {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct DatabaseConfig {
-    pub state_db: PathBuf,
-    pub indexer_db: PathBuf,
     pub tx_index_db: PathBuf,
 }
 

@@ -5,15 +5,12 @@ use axum::response::IntoResponse;
 use axum::http::StatusCode;
 use coins_types::Transaction;
 use coins_crypto::{G1, G2, G1_SIZE, G2_SIZE};
-use coins_core::State as CoinState;
-use coins_indexer::Indexer;
+use coins_indexer::IndexerClient;
 use hex;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub state: Arc<CoinState>,
-    #[allow(dead_code)]
-    pub indexer: Arc<Indexer>,
+    pub indexer: Arc<IndexerClient>,
     pub mempool: Arc<Mutex<Vec<(Transaction, G2)>>>,
 }
 
@@ -29,8 +26,8 @@ async fn get_account_by_pk(Path(pk_hex): Path<String>, State(app_state): State<A
     };
     let pk = G1(pk_arr);
 
-    // Query from persistent state
-    match app_state.state.get_by_pk(&pk) {
+    // Query from indexer service
+    match app_state.indexer.get_account(&pk).await {
         Ok(Some(acc)) => Json(acc).into_response(),
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),

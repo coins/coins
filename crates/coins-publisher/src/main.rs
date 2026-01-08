@@ -5,14 +5,12 @@ use clap::Parser;
 use coins_publisher::engine::Engine;
 use coins_publisher::api::{router, AppState};
 use coins_publisher::rpc_backend::RpcBackend;
-use coins_crypto::G1;
-use coins_core::State;
-use coins_indexer::Indexer;
+use coins_publisher::state_adapter::StateAdapter;
+use coins_indexer::IndexerClient;
 use coins_subchain::{PublishMode, PublishFormat};
 use serde::Deserialize;
 use tokio::net::TcpListener;
 use tokio::time::{sleep, Duration};
-use hex;
 
 #[derive(Parser, Debug)]
 #[command(name="coins-publisher", about="Run the Coins publisher service")]
@@ -39,16 +37,12 @@ struct Config {
     keyfile: PathBuf,
     interval: u64,
     network: Network,
-    genesis_pk: String,
-    genesis_balance: u64,
 
     // Optional runtime config
     #[serde(default = "default_api_port")]
     api_port: u16,
-    #[serde(default = "default_state_db")]
-    state_db: PathBuf,
-    #[serde(default = "default_indexer_db")]
-    indexer_db: PathBuf,
+    #[serde(default = "default_indexer_url")]
+    indexer_url: String,
     #[serde(default = "default_bls_keyfile")]
     bls_keyfile: PathBuf,
 
@@ -97,12 +91,8 @@ fn default_api_port() -> u16 {
     8080  // Regtest default; signet uses 8081 (set in config)
 }
 
-fn default_state_db() -> PathBuf {
-    PathBuf::from(".data/regtest/state.db")
-}
-
-fn default_indexer_db() -> PathBuf {
-    PathBuf::from(".data/regtest/indexer.db")
+fn default_indexer_url() -> String {
+    "http://localhost:8083".to_string()
 }
 
 fn default_bls_keyfile() -> PathBuf {
@@ -134,35 +124,16 @@ async fn main() -> anyhow::Result<()> {
     let config_str = fs::read_to_string(opts.config)?;
     let config: Config = toml::from_str(&config_str)?;
 
-    // Initialize persistent state
-    let state = Arc::new(State::open(&config.state_db)?);
-    tracing::info!(path = %config.state_db.display(), "Opened persistent state database");
+    // Initialize indexer client
+    let indexer_client = Arc::new(IndexerClient::new(config.indexer_url.clone()));
+    tracing::info!(url = %config.indexer_url, "Connected to indexer service");
 
-    // Parse genesis public key
-    let pk_bytes = hex::decode(&config.genesis_pk)?;
-    let pk_arr: [u8; 32] = pk_bytes.try_into().map_err(|_| anyhow::anyhow!("invalid genesis_pk length"))?;
-    let genesis_pk = G1(pk_arr);
-
-    // Create or load genesis account
-    if state.get_by_pk(&genesis_pk)?.is_none() {
-        let genesis_account = state.create_account(genesis_pk)?;
-        tracing::info!(id = genesis_account.id.0, "Created genesis account");
-
-        // Set genesis balance (this is a demo - in production this would be more controlled)
-        let mut acc = genesis_account;
-        acc.balance = config.genesis_balance;
-        state.apply_batch(&[acc])?;
-        tracing::info!(balance = config.genesis_balance, "Set genesis balance");
-    }
-
-    // Initialize indexer
-    let indexer = Arc::new(Indexer::open(&config.indexer_db, state.clone())?);
-    tracing::info!(path = %config.indexer_db.display(), "Opened indexer database");
+    // Create state adapter for validation/serialization
+    let state_adapter = StateAdapter::new(indexer_client.clone());
 
     // Create app state
     let app_state = AppState {
-        state: state.clone(),
-        indexer: indexer.clone(),
+        indexer: indexer_client.clone(),
         mempool: Arc::new(std::sync::Mutex::new(Vec::new())),
     };
     let router = router(app_state.clone());
@@ -226,6 +197,7 @@ async fn main() -> anyhow::Result<()> {
         Some(config.keyfile.clone()),
         config.bls_keyfile.clone(),
         app_state,
+        state_adapter,
         publish_mode,
         fee_rate,
     ).await?;
