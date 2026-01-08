@@ -200,8 +200,8 @@ impl Engine {
         // Ensure all anchor transactions up to the current index are on-chain.
         // We broadcast them best-effort; if they are already in the chain/mempool
         // the node will just return an error which we can safely ignore.
-        for idx in 0..=self.anchor_idx {
-            let _ = self.broadcast(&txs[idx]).await;
+        for tx in txs.iter().take(self.anchor_idx + 1) {
+            let _ = self.broadcast(tx).await;
         }
 
         let anchor_tx = &txs[self.anchor_idx];

@@ -5,7 +5,7 @@
 //!  - input:   the previous successor UTXO (taproot key-path spend)
 //!  - output0: the next successor UTXO (pays back to the same address)
 //!  - output1: a 0-sat OP_TRUE anchor which publishers can spend to attach a
-//!              sub-block (publish tx).
+//!   sub-block (publish tx).
 //!
 
 
@@ -62,7 +62,7 @@ impl Subchain {
         // Pay-to-Anchor (BIP-431): OP_1 OP_PUSHBYTES_2 0x4e 0x73  – zero-value, empty witness
         let anchor_spk = Builder::new()
             .push_opcode(bitcoin::opcodes::all::OP_PUSHNUM_1) // OP_1 (witness-version 1)
-            .push_slice(&[0x4e, 0x73])                        // "Ns" tag
+            .push_slice([0x4e, 0x73])                        // "Ns" tag
             .into_script();
 
         Transaction {

@@ -86,10 +86,7 @@ impl RpcBackend {
     /// Ensure wallet exists, create if needed
     fn ensure_wallet(rpc: &RpcClient, wallet_name: &str) -> Result<()> {
         // List existing wallets
-        let wallets: Vec<String> = match rpc.list_wallets() {
-            Ok(w) => w,
-            Err(_) => Vec::new(),
-        };
+        let wallets: Vec<String> = rpc.list_wallets().unwrap_or_default();
 
         // If wallet is already loaded, we're done
         if wallets.contains(&wallet_name.to_string()) {
@@ -427,7 +424,7 @@ impl RpcBackend {
         // transactions may have 0 fees as long as the package fee rate is sufficient
         let hex_txs: Vec<String> = txs
             .iter()
-            .map(|tx| bitcoin::consensus::encode::serialize_hex(tx))
+            .map(bitcoin::consensus::encode::serialize_hex)
             .collect();
 
         tracing::debug!(

@@ -12,6 +12,7 @@ use coins_types::Transaction;
 use coins_crypto::{G1, SecretKey};
 use coins_core::State;
 use coins_indexer::Indexer;
+// Note: hex and bincode marked as unused by clippy, but test is outdated from architecture refactor
 use hex;
 use bincode;
 

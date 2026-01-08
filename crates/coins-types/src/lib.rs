@@ -144,15 +144,15 @@ impl SubBlock {
         S: SubBlockState,
     {
         let tx_count = self.txs.len() as u16;
-        let format_bytes = (tx_count as usize + 7) / 8; // ceil(tx_count/8)
+        let format_bytes = (tx_count as usize).div_ceil(8); // ceil(tx_count/8)
 
         let mut v = Vec::new();
 
         // Sigma (64 bytes)
-        v.extend_from_slice(&bincode_serialize(&self.sigma, bin_config()).expect("sigma"));
+        v.extend_from_slice(&bincode_serialize(self.sigma, bin_config()).expect("sigma"));
 
         // Publisher PK (32 bytes) - always canonical to avoid bootstrapping issues
-        v.extend_from_slice(&bincode_serialize(&self.publisher_pk, bin_config()).expect("pk"));
+        v.extend_from_slice(&bincode_serialize(self.publisher_pk, bin_config()).expect("pk"));
 
         // TX count (2 bytes)
         v.extend_from_slice(&tx_count.to_le_bytes());
@@ -211,7 +211,7 @@ impl SubBlock {
         };
 
         let tx_count = u16::from_le_bytes([count_bytes[0], count_bytes[1]]) as usize;
-        let format_bytes = (tx_count + 7) / 8;
+        let format_bytes = tx_count.div_ceil(8);
 
         if rest.len() < format_bytes { return None; }
         let (format_bits, mut tx_data) = rest.split_at(format_bytes);

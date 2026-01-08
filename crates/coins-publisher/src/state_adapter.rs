@@ -33,9 +33,9 @@ impl SubBlockState for StateAdapter {
     }
 
     fn get_pk_by_account_id(&self, id: u32) -> Option<G1> {
-        // This is only needed for deserialization during IBD
-        // For now we don't support this in the adapter
-        // TODO: Add indexer endpoint for account-by-id lookup
+        // Required for deserializing compact transactions during Initial Block Download (IBD).
+        // Not yet implemented: would need a new indexer API endpoint like GET /accounts/by-id/:id
+        // that returns the public key for a given account ID.
         tracing::warn!(account_id = id, "get_pk_by_account_id not yet supported in StateAdapter");
         None
     }

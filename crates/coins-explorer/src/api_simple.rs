@@ -54,7 +54,11 @@ async fn get_account(
     let pk = coins_crypto::G1(pk_array);
 
     match state.indexer_client.get_account(&pk).await {
-        Ok(Some(account)) => Ok(Json(serde_json::to_value(account).unwrap())),
+        Ok(Some(account)) => {
+            serde_json::to_value(account)
+                .map(Json)
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+        }
         Ok(None) => Err(StatusCode::NOT_FOUND),
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
     }
@@ -64,7 +68,11 @@ async fn get_latest_block(
     State(state): State<SimpleAppState>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     match state.indexer_client.get_latest_block().await {
-        Ok(Some(block)) => Ok(Json(serde_json::to_value(block).unwrap())),
+        Ok(Some(block)) => {
+            serde_json::to_value(block)
+                .map(Json)
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+        }
         Ok(None) => Err(StatusCode::NOT_FOUND),
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
     }
@@ -75,7 +83,11 @@ async fn get_block(
     Path(height): Path<u32>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     match state.indexer_client.get_block_by_height(height).await {
-        Ok(Some(block)) => Ok(Json(serde_json::to_value(block).unwrap())),
+        Ok(Some(block)) => {
+            serde_json::to_value(block)
+                .map(Json)
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+        }
         Ok(None) => Err(StatusCode::NOT_FOUND),
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
     }
@@ -86,7 +98,11 @@ async fn get_blocks_range(
     Query(query): Query<BlocksRangeQuery>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     match state.indexer_client.get_blocks_range(query.from, query.to).await {
-        Ok(blocks) => Ok(Json(serde_json::to_value(blocks).unwrap())),
+        Ok(blocks) => {
+            serde_json::to_value(blocks)
+                .map(Json)
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+        }
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
     }
 }
@@ -95,7 +111,11 @@ async fn get_stats(
     State(state): State<SimpleAppState>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     match state.indexer_client.get_stats().await {
-        Ok(stats) => Ok(Json(serde_json::to_value(stats).unwrap())),
+        Ok(stats) => {
+            serde_json::to_value(stats)
+                .map(Json)
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+        }
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
     }
 }

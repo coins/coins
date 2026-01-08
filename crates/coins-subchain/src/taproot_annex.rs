@@ -66,7 +66,7 @@ fn compile_taproot_annex_tx(
     // Build anchor scriptPubkey (OP_1 + 0x4e73 "Ns" tag)
     let anchor_spk = Builder::new()
         .push_opcode(bitcoin::opcodes::all::OP_PUSHNUM_1)
-        .push_slice(&[0x4e, 0x73])
+        .push_slice([0x4e, 0x73])
         .into_script();
 
     let mut tx = Transaction {
@@ -121,7 +121,7 @@ fn compile_taproot_annex_tx(
 
     let msg = Message::from_digest_slice(&sighash[..]).expect("32 bytes");
     let tweaked: TweakedKeypair = fee_keypair.tap_tweak(&secp, None);
-    let signature = secp.sign_schnorr(&msg, &tweaked.as_keypair());
+    let signature = secp.sign_schnorr(&msg, tweaked.as_keypair());
     let signature = bitcoin::taproot::Signature {
         signature,
         sighash_type,
@@ -137,7 +137,7 @@ fn compile_taproot_annex_tx(
 
 /// Helper: compute vbytes from weight.
 fn weight_to_vbytes(w: u64) -> u64 {
-    (w + 3) / 4
+    w.div_ceil(4)
 }
 
 /// High-level function to publish blob via Taproot annex.

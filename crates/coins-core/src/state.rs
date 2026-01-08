@@ -100,7 +100,7 @@ impl State {
     pub fn insert_account(&self, acct: &Account) -> Result<(), StateError> {
         let id_key = acct.id.0.to_le_bytes();
         let bytes: Vec<u8> = bincode_serialize(acct, bin_config())?;
-        self.accounts.insert(id_key.to_vec(), bytes)?;
+        self.accounts.insert(id_key, bytes)?;
         self.pk_index.insert(acct.pk.0, id_key.to_vec())?;
         Ok(())
     }

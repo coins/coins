@@ -160,7 +160,7 @@ fn compile_op_return_tx(
 
 /// Helper: compute vbytes from weight (BIP-141).
 fn weight_to_vbytes(w: u64) -> u64 {
-    (w + WEIGHT_UNITS_PER_VBYTE - 1) / WEIGHT_UNITS_PER_VBYTE
+    w.div_ceil(WEIGHT_UNITS_PER_VBYTE)
 }
 
 /// High-level function to publish blob via OP_RETURN.

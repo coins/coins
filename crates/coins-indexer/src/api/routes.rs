@@ -2,7 +2,7 @@ use axum::{
     extract::{Path, Query, State as AxumState},
     http::StatusCode,
     response::IntoResponse,
-    routing::{get, post},
+    routing::get,
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -45,13 +45,25 @@ async fn get_account(
     }
 }
 
-/// Get account transaction history (TODO: implement proper history tracking)
+/// Get account transaction history
 async fn get_account_transactions(
-    AxumState(_state): AxumState<AppState>,
-    Path(_pk_hex): Path<String>,
+    AxumState(state): AxumState<AppState>,
+    Path(pk_hex): Path<String>,
 ) -> Result<Json<Vec<Transaction>>, StatusCode> {
-    // TODO: Implement transaction history tracking
-    Ok(Json(vec![]))
+    let pk_bytes = hex::decode(&pk_hex).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let pk_arr: [u8; 32] = pk_bytes.try_into().map_err(|_| StatusCode::BAD_REQUEST)?;
+    let pk = G1(pk_arr);
+
+    // Get current Bitcoin height from latest block, or use a high number if no blocks yet
+    let current_btc_height = match state.indexer.get_latest_block() {
+        Ok(Some(block)) => block.btc_height,
+        _ => u32::MAX, // If no blocks, use max height to include all blocks
+    };
+
+    match state.indexer.get_account_history(&pk, current_btc_height) {
+        Ok(history) => Ok(Json(history)),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
 }
 
 /// Get latest block

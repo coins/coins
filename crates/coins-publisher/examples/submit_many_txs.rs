@@ -10,7 +10,6 @@ use reqwest::blocking::Client;
 use serde_json::json;
 use ark_ff::PrimeField;
 use ark_bn254::Fr;
-use ark_serialize::CanonicalSerialize;
 
 const PUBLISHER_URL: &str = "http://localhost:8080";
 
@@ -35,8 +34,8 @@ fn get_account(pk_hex: &str) -> Result<Account, Box<dyn std::error::Error>> {
 fn submit_tx(tx: &Transaction, sig: &G2) -> Result<(), Box<dyn std::error::Error>> {
     let client = Client::new();
     let url = format!("{}/tx", PUBLISHER_URL);
-    let tx_bytes = bincode::serde::encode_to_vec(&tx, bincode::config::standard())?;
-    let sig_bytes = bincode::serde::encode_to_vec(&sig, bincode::config::standard())?;
+    let tx_bytes = bincode::serde::encode_to_vec(tx, bincode::config::standard())?;
+    let sig_bytes = bincode::serde::encode_to_vec(sig, bincode::config::standard())?;
     let body = json!({
         "tx": hex::encode(tx_bytes),
         "signature": hex::encode(sig_bytes)

@@ -163,7 +163,7 @@ impl Indexer {
 
         // Serialize and store using sub-chain height as key
         let block_bytes = chain_block.serialize(&self.state);
-        self.blocks.insert(&sub_chain_height.to_le_bytes(), block_bytes)?;
+        self.blocks.insert(sub_chain_height.to_le_bytes(), block_bytes)?;
 
         // Index by txid -> sub_chain_height
         let txid_key: &[u8] = btc_txid.as_ref();
@@ -199,7 +199,7 @@ impl Indexer {
     pub fn get_block_by_height(&self, sub_chain_height: u32) -> Result<Option<ChainBlock>, IndexerError> {
         let key = sub_chain_height.to_le_bytes();
 
-        if let Some(value) = self.blocks.get(&key)? {
+        if let Some(value) = self.blocks.get(key)? {
             let chain_block = ChainBlock::deserialize(&value, &self.state)
                 .ok_or(IndexerError::Serialization)?;
             Ok(Some(chain_block))

@@ -6,7 +6,6 @@ use axum::http::StatusCode;
 use coins_types::Transaction;
 use coins_crypto::{G1, G2, G1_SIZE, G2_SIZE};
 use coins_indexer::IndexerClient;
-use hex;
 
 #[derive(Clone)]
 pub struct AppState {

@@ -70,7 +70,7 @@ fn main() -> Result<()> {
     let network = parse_network(&config.network).expect("invalid network");
 
     // Load existing key or create new one
-    let keyfile = config.keyfile.as_ref().map(|p| p.as_path()).unwrap_or_else(|| {
+    let keyfile = config.keyfile.as_deref().unwrap_or_else(|| {
         std::path::Path::new(".data/keys/subchain_sk.hex")
     });
 

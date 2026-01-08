@@ -5,7 +5,6 @@ use ark_bn254::{Fr, G1Projective};
 use ark_ff::{PrimeField, BigInteger};
 use std::fs;
 use std::path::PathBuf;
-use hex;
 use coins_types::{Account, Transaction};
 use bincode::serde::encode_to_vec;
 use ark_ec::Group;

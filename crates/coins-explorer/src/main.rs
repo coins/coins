@@ -4,10 +4,8 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use coins_explorer::ExplorerConfig;
+use coins_explorer::{ExplorerConfig, simple_router};
 use coins_indexer::IndexerClient;
-
-mod api_simple;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -46,7 +44,7 @@ async fn main() -> Result<()> {
     tracing::info!("Connected to indexer service");
 
     // Create simple proxy router
-    let app = api_simple::simple_router(indexer_client);
+    let app = simple_router(indexer_client);
 
     // Start server
     let addr = format!("{}:{}", config.server.host, config.server.api_port);

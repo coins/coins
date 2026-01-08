@@ -74,8 +74,8 @@ impl TestUser {
         let client = Client::new();
         let url = format!("{}/tx", PUBLISHER_URL);
 
-        let tx_bytes = bincode::serde::encode_to_vec(&tx, bincode::config::standard())?;
-        let sig_bytes = bincode::serde::encode_to_vec(&sig, bincode::config::standard())?;
+        let tx_bytes = bincode::serde::encode_to_vec(tx, bincode::config::standard())?;
+        let sig_bytes = bincode::serde::encode_to_vec(sig, bincode::config::standard())?;
 
         let body = json!({
             "tx": hex::encode(tx_bytes),
