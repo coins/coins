@@ -118,12 +118,22 @@ impl IndexerClient {
     }
 
     /// Get account transaction history
-    pub async fn get_account_transactions(&self, pk: &G1) -> Result<Vec<Transaction>> {
+    pub async fn get_account_transactions(&self, pk: &G1) -> Result<Vec<TransactionWithStatus>> {
         let pk_hex = hex::encode(pk.0);
         let url = format!("{}/accounts/{}/transactions", self.base_url, pk_hex);
         let txs = self.client.get(&url).send().await?.error_for_status()?.json().await?;
         Ok(txs)
     }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TransactionWithStatus {
+    #[serde(flatten)]
+    pub tx: Transaction,
+    pub btc_height: u32,
+    pub confirmations: u32,
+    pub finalized: bool,
+    pub confirmations_remaining: u32,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

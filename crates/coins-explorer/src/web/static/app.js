@@ -377,8 +377,8 @@ class ExplorerApp {
                         <td>
                             <code>${block.btc_txid}</code>
                             <div style="margin-top: 0.5rem;">
-                                <a href="https://mempool.space/signet/tx/${block.btc_txid}" target="_blank" class="button is-small is-link">
-                                    View on mempool.space
+                                <a href="https://mutinynet.com/tx/${block.btc_txid}" target="_blank" class="button is-small is-link">
+                                    View on Mutinynet Explorer
                                 </a>
                             </div>
                         </td>
@@ -478,57 +478,93 @@ class ExplorerApp {
                     </tr>
                 </table>
             </div>
+
+            <h2 class="title is-4" style="margin-top: 2rem;">Transaction History</h2>
+            <div id="account-txs">
+                <div class="loading"></div>
+            </div>
         `;
+
+        // Load transaction history
+        this.loadAccountTransactions(pk_hex);
     }
 
-    async loadAccountTransactions(pk, page = 0) {
-        const data = await this.fetchAPI(`/accounts/${pk}/transactions?page=${page}&limit=20`);
-        const container = document.getElementById('account-txs');
+    async loadAccountTransactions(pk) {
+        try {
+            const transactions = await this.fetchAPI(`/accounts/${pk}/transactions`);
+            const container = document.getElementById('account-txs');
 
-        const totalPages = Math.ceil(data.total_count / data.limit);
+            if (!transactions || transactions.length === 0) {
+                container.innerHTML = `
+                    <div class="notification is-info">
+                        <p>No transaction history found for this account.</p>
+                        <p class="help">This shows transactions where this account received funds.</p>
+                    </div>
+                `;
+                return;
+            }
 
-        container.innerHTML = `
-            <table class="table is-fullwidth is-striped is-hoverable">
-                <thead>
-                    <tr>
-                        <th>BTC Height</th>
-                        <th>Type</th>
-                        <th>From</th>
-                        <th>To</th>
-                        <th>Amount</th>
-                        <th>Fee</th>
-                        <th>Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${data.transactions.map(tx => `
-                        <tr>
-                            <td>
-                                <a onclick="app.navigate('block', {height: ${tx.btc_height}})">
-                                    ${tx.btc_height}
-                                </a>
-                            </td>
-                            <td>
-                                <span class="${tx.tx_type === 'sent' ? 'tx-sent' : 'tx-received'}">
-                                    ${tx.tx_type === 'sent' ? '↗ Sent' : '↘ Received'}
-                                </span>
-                            </td>
-                            <td>${tx.sender_id}</td>
-                            <td class="mono truncate">${tx.recipient_pk.substring(0, 16)}...</td>
-                            <td>${tx.amount}</td>
-                            <td>${tx.fee}</td>
-                            <td>
-                                <span class="${tx.finalized ? 'status-finalized' : 'status-pending'}">
-                                    ${tx.finalized ? '✓' : '⏳'}
-                                </span>
-                            </td>
-                        </tr>
-                    `).join('')}
-                </tbody>
-            </table>
+            container.innerHTML = `
+                <div class="box">
+                    <table class="table is-fullwidth is-striped is-hoverable">
+                        <thead>
+                            <tr>
+                                <th>From Account</th>
+                                <th>Amount</th>
+                                <th>Fee</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${transactions.map(tx => {
+                                let statusBadge;
+                                if (tx.finalized) {
+                                    statusBadge = '<span class="tag is-success">Confirmed</span>';
+                                } else if (tx.confirmations === 0) {
+                                    // Transaction is in mempool (btc_height = 0)
+                                    statusBadge = `<span class="status-tooltip">
+                                           <span class="tag is-warning" style="cursor: help;">Unconfirmed</span>
+                                           <span class="tooltip-text">in mempool</span>
+                                       </span>`;
+                                } else {
+                                    // Transaction has some confirmations but not finalized yet
+                                    statusBadge = `<span class="status-tooltip">
+                                           <span class="tag is-warning" style="cursor: help;">Unconfirmed</span>
+                                           <span class="tooltip-text">${tx.confirmations_remaining} block${tx.confirmations_remaining !== 1 ? 's' : ''} remaining</span>
+                                       </span>`;
+                                }
 
-            ${totalPages > 1 ? this.renderPagination(page, totalPages, () => this.loadAccountTransactions(pk, page)) : ''}
-        `;
+                                return `
+                                    <tr>
+                                        <td>
+                                            <strong>#${tx.sender_id}</strong>
+                                        </td>
+                                        <td><strong style="color: #23d160;">${tx.amount} sats</strong></td>
+                                        <td>${tx.fee} sats</td>
+                                        <td>
+                                            ${statusBadge}
+                                        </td>
+                                    </tr>
+                                `;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                    <p class="help">
+                        Showing ${transactions.length} received transaction${transactions.length !== 1 ? 's' : ''}
+                        ${transactions.filter(tx => !tx.finalized).length > 0
+                            ? ` (${transactions.filter(tx => !tx.finalized).length} pending finalization)`
+                            : ''}
+                    </p>
+                </div>
+            `;
+        } catch (error) {
+            const container = document.getElementById('account-txs');
+            container.innerHTML = `
+                <div class="notification is-warning">
+                    Error loading transactions: ${error.message}
+                </div>
+            `;
+        }
     }
 
     renderPagination(currentPage, totalPages, callback = null) {

@@ -7,9 +7,10 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use bitcoin::Txid;
+use bitcoincore_rpc::RpcApi;
 use coins_crypto::G1;
 use coins_types::{Account, SubBlock, Transaction};
-use crate::api::AppState;
+use super::AppState;
 
 /// Create the API router
 pub fn create_router(app_state: AppState) -> Router {
@@ -45,25 +46,67 @@ async fn get_account(
     }
 }
 
-/// Get account transaction history
+/// Get account transaction history with confirmation status
 async fn get_account_transactions(
     AxumState(state): AxumState<AppState>,
     Path(pk_hex): Path<String>,
-) -> Result<Json<Vec<Transaction>>, StatusCode> {
+) -> Result<Json<Vec<TransactionWithStatus>>, StatusCode> {
     let pk_bytes = hex::decode(&pk_hex).map_err(|_| StatusCode::BAD_REQUEST)?;
     let pk_arr: [u8; 32] = pk_bytes.try_into().map_err(|_| StatusCode::BAD_REQUEST)?;
     let pk = G1(pk_arr);
 
-    // Get current Bitcoin height from latest block, or use a high number if no blocks yet
-    let current_btc_height = match state.indexer.get_latest_block() {
-        Ok(Some(block)) => block.btc_height,
-        _ => u32::MAX, // If no blocks, use max height to include all blocks
-    };
+    // Get current Bitcoin height and setup RPC client
+    let rpc_client = bitcoincore_rpc::Client::new(&state.rpc_url, state.rpc_auth.clone())
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    match state.indexer.get_account_history(&pk, current_btc_height) {
-        Ok(history) => Ok(Json(history)),
-        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    let current_btc_height = rpc_client.get_block_count()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)? as u32;
+
+    let mut history = Vec::new();
+
+    // Iterate through all blocks (both finalized and unfinalized)
+    for item in state.indexer.blocks.iter() {
+        let (_, value) = item.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let chain_block = coins_indexer::ChainBlock::deserialize(&value, &state.state)
+            .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        // Find transactions involving this public key
+        for tx in &chain_block.sub_block.txs {
+            if &tx.recipient_pk == &pk {
+                // If btc_height is 0, we don't have the actual Bitcoin block height yet
+                let (confirmations, finalized, confirmations_remaining) = if chain_block.btc_height == 0 {
+                    // Show as unconfirmed/in mempool until background task updates the height
+                    // This avoids showing incorrect status during the brief window between
+                    // when tx confirms and when background task updates btc_height
+                    (0, false, coins_indexer::FINALITY_DEPTH)
+                } else {
+                    // Block is confirmed on Bitcoin - calculate confirmations
+                    let confs = if current_btc_height >= chain_block.btc_height {
+                        current_btc_height.saturating_sub(chain_block.btc_height) + 1
+                    } else {
+                        0
+                    };
+                    let final_status = confs >= coins_indexer::FINALITY_DEPTH;
+                    let remaining = if final_status {
+                        0
+                    } else {
+                        coins_indexer::FINALITY_DEPTH.saturating_sub(confs)
+                    };
+                    (confs, final_status, remaining)
+                };
+
+                history.push(TransactionWithStatus {
+                    tx: tx.clone(),
+                    btc_height: chain_block.btc_height,
+                    confirmations,
+                    finalized,
+                    confirmations_remaining,
+                });
+            }
+        }
     }
+
+    Ok(Json(history))
 }
 
 /// Get latest block
@@ -251,4 +294,14 @@ struct NetworkStats {
     pub total_blocks: u32,
     pub total_accounts: u64,
     pub total_supply: u64,
+}
+
+#[derive(Serialize)]
+struct TransactionWithStatus {
+    #[serde(flatten)]
+    pub tx: Transaction,
+    pub btc_height: u32,
+    pub confirmations: u32,
+    pub finalized: bool,
+    pub confirmations_remaining: u32,
 }

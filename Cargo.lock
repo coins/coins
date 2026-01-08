@@ -822,6 +822,7 @@ dependencies = [
  "axum",
  "bincode 2.0.1",
  "bitcoin",
+ "bitcoincore-rpc",
  "coins-core",
  "coins-crypto",
  "coins-types",

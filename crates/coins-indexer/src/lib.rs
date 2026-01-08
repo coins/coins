@@ -100,7 +100,7 @@ pub struct Indexer {
     /// Tree: metadata (stores latest sub_chain_height)
     pub metadata: sled::Tree,
     /// Reference to account state (for querying accounts by ID)
-    state: Arc<State>,
+    pub state: Arc<State>,
 }
 
 impl Indexer {
@@ -272,5 +272,33 @@ impl Indexer {
         }
 
         Ok(history)
+    }
+
+    /// Update the Bitcoin height for a block (when it gets confirmed)
+    pub fn update_btc_height(&self, sub_chain_height: u32, new_btc_height: u32) -> Result<(), IndexerError> {
+        let key = sub_chain_height.to_le_bytes();
+
+        if let Some(value) = self.blocks.get(&key)? {
+            let mut chain_block = ChainBlock::deserialize(&value, &self.state)
+                .ok_or(IndexerError::Serialization)?;
+
+            // Update the btc_height
+            chain_block.btc_height = new_btc_height;
+
+            // Serialize and store back
+            let block_bytes = chain_block.serialize(&self.state);
+            self.blocks.insert(&key, block_bytes)?;
+
+            tracing::info!(
+                sub_chain_height = sub_chain_height,
+                btc_height = new_btc_height,
+                btc_txid = %chain_block.btc_txid,
+                "Updated Bitcoin block height"
+            );
+
+            Ok(())
+        } else {
+            Err(IndexerError::BlockNotFound(sub_chain_height))
+        }
     }
 }

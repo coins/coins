@@ -181,6 +181,49 @@ body {
     background-color: #f14668;
 }
 
+/* Custom tooltip for status badges */
+.status-tooltip {
+    position: relative;
+    display: inline-block;
+}
+
+.status-tooltip .tooltip-text {
+    visibility: hidden;
+    opacity: 0;
+    background-color: #363636;
+    color: white;
+    text-align: center;
+    padding: 8px 12px;
+    border-radius: 8px;
+    position: absolute;
+    z-index: 1000;
+    bottom: 125%;
+    left: 50%;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    font-size: 0.85rem;
+    font-weight: normal;
+    transition: opacity 0.1s, visibility 0.1s;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    pointer-events: none;
+}
+
+.status-tooltip .tooltip-text::after {
+    content: "";
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    margin-left: -5px;
+    border-width: 5px;
+    border-style: solid;
+    border-color: #363636 transparent transparent transparent;
+}
+
+.status-tooltip:hover .tooltip-text {
+    visibility: visible;
+    opacity: 1;
+}
+
 /* Responsive tweaks */
 @media screen and (max-width: 768px) {
     .block-detail-grid {

@@ -215,6 +215,11 @@ async fn main() -> anyhow::Result<()> {
 
     loop {
         tracing::debug!("Main loop iteration started");
+
+        // Sync with indexer to catch any blocks we missed (e.g. after restart)
+        engine.sync_from_indexer().await?;
+        tracing::debug!("Synced with indexer");
+
         engine.refresh_anchor().await?;
         tracing::debug!("Anchor refreshed");
         engine.refresh_fee_utxos().await?;

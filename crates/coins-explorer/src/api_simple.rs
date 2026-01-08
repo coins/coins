@@ -28,6 +28,7 @@ pub fn simple_router(indexer_client: Arc<IndexerClient>) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/api/v1/accounts/:pk", get(get_account))
+        .route("/api/v1/accounts/:pk/transactions", get(get_account_transactions))
         .route("/api/v1/blocks/latest", get(get_latest_block))
         .route("/api/v1/blocks/:height", get(get_block))
         .route("/api/v1/blocks", get(get_blocks_range))
@@ -60,6 +61,29 @@ async fn get_account(
                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
         }
         Ok(None) => Err(StatusCode::NOT_FOUND),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+async fn get_account_transactions(
+    State(state): State<SimpleAppState>,
+    Path(pk_hex): Path<String>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let pk_bytes = hex::decode(&pk_hex).map_err(|_| StatusCode::BAD_REQUEST)?;
+    if pk_bytes.len() != 32 {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let mut pk_array = [0u8; 32];
+    pk_array.copy_from_slice(&pk_bytes);
+    let pk = coins_crypto::G1(pk_array);
+
+    match state.indexer_client.get_account_transactions(&pk).await {
+        Ok(transactions) => {
+            serde_json::to_value(transactions)
+                .map(Json)
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+        }
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
     }
 }

@@ -253,8 +253,32 @@ impl Engine {
         // Package relay: anchor_tx + data_tx
         if let Err(e) = self.broadcast_package(&[anchor_tx.clone(), result.data_tx.clone()]).await {
             tracing::warn!(error = %e, "Package relay failed, falling back to individual broadcasts");
-            self.broadcast(anchor_tx).await?;
-            self.broadcast(&result.data_tx).await?;
+
+            // Try individual broadcasts - if these fail, it might be because another publisher
+            // or our previous instance already used this anchor
+            if let Err(anchor_err) = self.broadcast(anchor_tx).await {
+                let err_msg = anchor_err.to_string();
+                if err_msg.contains("txn-already-known") ||
+                   err_msg.contains("already in utxo set") ||
+                   err_msg.contains("already in block chain") {
+                    tracing::warn!("Anchor transaction already broadcast/confirmed, skipping this mining cycle");
+                    // Don't advance anchor - we didn't actually mine a new block
+                    return Ok(());
+                }
+                // For other errors, log but don't crash - let the next iteration retry
+                tracing::error!(error = %anchor_err, "Failed to broadcast anchor transaction");
+                return Ok(());
+            }
+
+            if let Err(data_err) = self.broadcast(&result.data_tx).await {
+                let err_msg = data_err.to_string();
+                if err_msg.contains("bad-txns-inputs-missingorspent") {
+                    tracing::warn!("Data transaction inputs missing/spent - anchor was likely used by another publisher");
+                    return Ok(());
+                }
+                tracing::error!(error = %data_err, "Failed to broadcast data transaction");
+                return Ok(());
+            }
         } else {
             tracing::info!(
                 format = ?format,
@@ -264,11 +288,12 @@ impl Engine {
             );
         }
 
-        // Update current anchor for next block
+        // Update anchor immediately - we assume the broadcast will succeed
         self.current_anchor = result.new_anchor;
+        self.anchor_idx += 1;
 
         // Submit sub-block to indexer for validation and indexing
-        let btc_height = 0u32; // Placeholder - should get actual height from backend
+        let btc_height = 0u32; // Placeholder - will be updated by indexer's background task
         let data_txid = result.data_tx.compute_txid();
 
         if let Err(e) = self.app_state.indexer.submit_block(data_txid, btc_height, sub_block).await {
@@ -277,6 +302,7 @@ impl Engine {
 
         tracing::info!(
             anchor = %self.current_anchor.txid,
+            anchor_idx = self.anchor_idx,
             format = ?format,
             "Successfully mined new sub-block"
         );
@@ -317,8 +343,29 @@ impl Engine {
         // Broadcast primary package (critical)
         if let Err(e) = self.broadcast_package(&[anchor_tx.clone(), result_primary.data_tx.clone()]).await {
             tracing::warn!(error = %e, "Primary package relay failed, using individual broadcasts");
-            self.broadcast(anchor_tx).await?;
-            self.broadcast(&result_primary.data_tx).await?;
+
+            // Try individual broadcasts with error handling
+            if let Err(anchor_err) = self.broadcast(anchor_tx).await {
+                let err_msg = anchor_err.to_string();
+                if err_msg.contains("txn-already-known") ||
+                   err_msg.contains("already in utxo set") ||
+                   err_msg.contains("already in block chain") {
+                    tracing::warn!("Anchor transaction already broadcast, skipping this mining cycle");
+                    return Ok(());
+                }
+                tracing::error!(error = %anchor_err, "Failed to broadcast anchor transaction");
+                return Ok(());
+            }
+
+            if let Err(data_err) = self.broadcast(&result_primary.data_tx).await {
+                let err_msg = data_err.to_string();
+                if err_msg.contains("bad-txns-inputs-missingorspent") {
+                    tracing::warn!("Data transaction inputs missing/spent - anchor was likely used");
+                    return Ok(());
+                }
+                tracing::error!(error = %data_err, "Failed to broadcast data transaction");
+                return Ok(());
+            }
         } else {
             tracing::info!(
                 format = ?primary,
@@ -355,8 +402,9 @@ impl Engine {
             }
         }
 
-        // Use primary anchor for tracking
+        // Update anchor immediately - assume broadcast will succeed
         self.current_anchor = result_primary.new_anchor;
+        self.anchor_idx += 1;
 
         // Submit to indexer using primary
         let btc_height = 0u32;
@@ -368,8 +416,24 @@ impl Engine {
 
         tracing::info!(
             anchor = %self.current_anchor.txid,
+            anchor_idx = self.anchor_idx,
             "Successfully mined dual-format sub-block"
         );
+
+        Ok(())
+    }
+
+    /// Sync with indexer to catch up on any blocks we missed (e.g. after restart or if another publisher mined)
+    pub async fn sync_from_indexer(&mut self) -> Result<()> {
+        // This function is called periodically to ensure we're in sync with the indexer
+        // If the indexer has blocks we didn't mine (e.g. because we restarted or another publisher mined them),
+        // we need to advance our anchor accordingly
+
+        // The indexer_ibd() function already handles this by scanning the blockchain and indexing
+        // any blocks it finds. We just need to make sure our anchor_idx is correct afterwards.
+
+        // After indexer_ibd completes, we should refresh our anchor to match reality
+        self.refresh_anchor().await?;
 
         Ok(())
     }
