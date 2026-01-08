@@ -34,8 +34,9 @@ SUBCHAIN_LINK="${SUBCHAIN_DIR}/subchain_mutinynet.bin"
 
 cd "$PROJECT_ROOT"
 
-echo -e "${YELLOW}[1/8] Cleaning up...${NC}"
+echo -e "${YELLOW}[1/9] Cleaning up...${NC}"
 pkill -9 coins-publisher 2>/dev/null || true
+pkill -9 coins-indexer 2>/dev/null || true
 sleep 2
 
 # Clean up old mutinynet-specific data (preserve other networks)
@@ -45,7 +46,7 @@ rm -rf "${NETWORK_DIR}" 2>/dev/null || true
 mkdir -p "${SUBCHAIN_DIR}" "${KEYS_DIR}"
 echo -e "${GREEN}✓ Cleanup complete${NC}\n"
 
-echo -e "${YELLOW}[2/8] Testing connection to remote mutinynet node...${NC}"
+echo -e "${YELLOW}[2/9] Testing connection to remote mutinynet node...${NC}"
 
 # Test connection to remote node
 if bitcoin-cli -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcconnect="${RPC_HOST}" -rpcport="${RPC_PORT}" getblockchaininfo &>/dev/null; then
@@ -58,11 +59,11 @@ else
     exit 1
 fi
 
-echo -e "${YELLOW}[3/8] Building...${NC}"
-cargo build --release --bin subchain-setup --bin coins-publisher &>/dev/null
+echo -e "${YELLOW}[3/9] Building...${NC}"
+cargo build --release --bin subchain-setup --bin coins-publisher --bin coins-indexer &>/dev/null
 echo -e "${GREEN}✓ Build complete${NC}\n"
 
-echo -e "${YELLOW}[4/8] Generating subchain...${NC}"
+echo -e "${YELLOW}[4/9] Generating subchain...${NC}"
 cat > /tmp/subchain_mutinynet.toml <<EOF
 count = ${SUBCHAIN_COUNT}
 network = "signet"
@@ -121,18 +122,33 @@ ln -sf "$(basename ${SUBCHAIN_FILE})" "${SUBCHAIN_LINK}"
 echo -e "${GREEN}✓ Subchain created: $(basename ${SUBCHAIN_FILE})${NC}"
 echo -e "${BLUE}→ Linked to: subchain_mutinynet.bin${NC}\n"
 
-echo -e "${YELLOW}[5/8] Setting up test accounts...${NC}"
+echo -e "${YELLOW}[5/9] Setting up test accounts...${NC}"
 cargo run --release --example setup_test_accounts "${NETWORK_DIR}/state.db" &>/dev/null
 echo -e "${GREEN}✓ Test accounts created${NC}\n"
 
-echo -e "${YELLOW}[6/8] Creating wallet on remote node...${NC}"
+echo -e "${YELLOW}[6/9] Creating wallet on remote node...${NC}"
 # Try to create wallet, ignore error if it already exists
 bitcoin-cli -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcconnect="${RPC_HOST}" -rpcport="${RPC_PORT}" \
     createwallet "coins-publisher" true 2>/dev/null || true
 echo -e "${GREEN}✓ Wallet ready${NC}\n"
 
-echo -e "${YELLOW}[7/8] Starting publisher...${NC}"
+echo -e "${YELLOW}[7/9] Starting indexer...${NC}"
 mkdir -p "${NETWORK_DIR}/logs"
+./target/release/coins-indexer --config config/indexer-mutinynet.toml > "${NETWORK_DIR}/logs/indexer.log" 2>&1 &
+IDX_PID=$!
+echo "$IDX_PID" > "${NETWORK_DIR}/indexer.pid"
+
+echo -n "Waiting for indexer"
+for i in {1..30}; do
+    if curl -s http://localhost:8083/health &>/dev/null; then
+        echo ""; break
+    fi
+    echo -n "."; sleep 1
+done
+
+echo -e "${GREEN}✓ Indexer running (PID: ${IDX_PID})${NC}\n"
+
+echo -e "${YELLOW}[8/9] Starting publisher...${NC}"
 ./target/release/coins-publisher --config config/publisher-mutinynet.toml > "${NETWORK_DIR}/logs/publisher.log" 2>&1 &
 PUB_PID=$!
 echo "$PUB_PID" > "${NETWORK_DIR}/publisher.pid"

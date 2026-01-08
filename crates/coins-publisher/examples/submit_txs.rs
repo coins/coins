@@ -6,27 +6,30 @@
 //! 3. Waits for mining
 //! 4. Verifies balances
 //!
-//! Usage: cargo run --example submit_txs
+//! Environment variables:
+//!   PUBLISHER_URL - Publisher API URL (default: http://localhost:8080)
+//!   KEYS_DIR      - Directory containing alice_sk.hex and bob_sk.hex (default: .data/test-keys)
+//!
+//! Usage: KEYS_DIR=.data/mutinynet/test-keys PUBLISHER_URL=http://localhost:8082 cargo run --example submit_txs
 
-use coins_crypto::{SecretKey, G1, G2, sign};
-use coins_types::{Transaction, Account};
+use ark_bn254::Fr;
+use ark_ff::PrimeField;
+use ark_serialize::CanonicalSerialize;
+use coins_crypto::{sign, G1, G2, SecretKey};
+use coins_types::{Account, Transaction};
+use reqwest::blocking::Client;
+use serde_json::json;
 use std::path::Path;
 use std::thread::sleep;
 use std::time::Duration;
-use reqwest::blocking::Client;
-use serde_json::json;
-use ark_ff::PrimeField;
-use ark_bn254::Fr;
-use ark_serialize::CanonicalSerialize;
 
 fn get_publisher_url() -> String {
     std::env::var("PUBLISHER_URL").unwrap_or_else(|_| "http://localhost:8080".to_string())
 }
 
-const PUBLISHER_URL: &str = "http://localhost:8080";
-
-// Alice PK from setup_test_accounts
-const ALICE_PK: &str = "2fa09cfde49a9c593bee32d5297a413d5ee2f8956cd8a2324fb8e523b2196d8f";
+fn get_keys_dir() -> String {
+    std::env::var("KEYS_DIR").unwrap_or_else(|_| ".data/test-keys".to_string())
+}
 
 fn load_or_generate_key(path: &str) -> Result<SecretKey, Box<dyn std::error::Error>> {
     let key_path = Path::new(path);
@@ -37,6 +40,10 @@ fn load_or_generate_key(path: &str) -> Result<SecretKey, Box<dyn std::error::Err
         let fr = Fr::from_le_bytes_mod_order(&bytes);
         Ok(SecretKey(fr))
     } else {
+        // Create parent directory if needed
+        if let Some(parent) = key_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
         let sk = SecretKey::random();
         let mut bytes = Vec::new();
         sk.0.serialize_uncompressed(&mut bytes)?;
@@ -86,10 +93,17 @@ fn submit_tx(tx: &Transaction, sig: &G2) -> Result<(), Box<dyn std::error::Error
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== Submit Test Transactions ===\n");
 
+    let keys_dir = get_keys_dir();
+    let publisher_url = get_publisher_url();
+    println!("Config:");
+    println!("  KEYS_DIR:      {}", keys_dir);
+    println!("  PUBLISHER_URL: {}", publisher_url);
+    println!();
+
     // Load keys
     println!("Step 1: Loading keypairs...");
-    let alice_sk = load_or_generate_key(".data/test-keys/alice_sk.hex")?;
-    let bob_sk = load_or_generate_key(".data/test-keys/bob_sk.hex")?;
+    let alice_sk = load_or_generate_key(&format!("{}/alice_sk.hex", keys_dir))?;
+    let bob_sk = load_or_generate_key(&format!("{}/bob_sk.hex", keys_dir))?;
 
     let alice_pk_bytes = alice_sk.public_key();
     let bob_pk_bytes = bob_sk.public_key();
@@ -105,16 +119,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let alice_before = get_account(&alice_pk_hex)?;
     let bob_before = get_account(&bob_pk_hex)?;
 
-    println!("  Alice (ID {}): balance={}, nonce={}",
-             alice_before.id.0, alice_before.balance, alice_before.nonce);
-    println!("  Bob (ID {}): balance={}, nonce={}",
-             bob_before.id.0, bob_before.balance, bob_before.nonce);
+    println!(
+        "  Alice (ID {}): balance={}, nonce={}",
+        alice_before.id.0, alice_before.balance, alice_before.nonce
+    );
+    println!(
+        "  Bob (ID {}): balance={}, nonce={}",
+        bob_before.id.0, bob_before.balance, bob_before.nonce
+    );
     println!();
 
     if alice_before.balance < 200 {
-        println!("⚠️  Alice doesn't have enough balance ({}). Please fund Alice first.", alice_before.balance);
-        println!("   Expected Alice PK: {}", ALICE_PK);
-        println!("   Actual Alice PK:   {}", alice_pk_hex);
+        println!(
+            "Warning: Alice doesn't have enough balance ({}). Transaction may fail.",
+            alice_before.balance
+        );
+        println!("  Run setup_test_accounts first to fund Alice.");
         return Ok(());
     }
 
@@ -133,12 +153,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("  Submitting TX: Alice -> Bob (100 tokens, fee 1)...");
     submit_tx(&tx, &sig)?;
-    println!("    ✓ Submitted");
+    println!("    Submitted");
     println!();
 
     // Wait for mining
     println!("Step 4: Waiting for publisher to mine sub-block...");
-    println!("  (Publisher mines every 30 seconds)");
+    println!("  (Publisher mines every 30-60 seconds depending on config)");
 
     for i in 1..=6 {
         sleep(Duration::from_secs(5));
@@ -156,48 +176,77 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let alice_after = get_account(&alice_pk_hex)?;
     let bob_after = get_account(&bob_pk_hex)?;
 
-    println!("  Alice (ID {}): balance={} (was {}), nonce={} (was {})",
-             alice_after.id.0, alice_after.balance, alice_before.balance,
-             alice_after.nonce, alice_before.nonce);
-    println!("  Bob (ID {}): balance={} (was {}), nonce={} (was {})",
-             bob_after.id.0, bob_after.balance, bob_before.balance,
-             bob_after.nonce, bob_before.nonce);
+    println!(
+        "  Alice (ID {}): balance={} (was {}), nonce={} (was {})",
+        alice_after.id.0,
+        alice_after.balance,
+        alice_before.balance,
+        alice_after.nonce,
+        alice_before.nonce
+    );
+    println!(
+        "  Bob (ID {}): balance={} (was {}), nonce={} (was {})",
+        bob_after.id.0,
+        bob_after.balance,
+        bob_before.balance,
+        bob_after.nonce,
+        bob_before.nonce
+    );
     println!();
 
     // Calculate expected balances
-    let alice_expected = alice_before.balance - 100 - 1;  // amount + fee
-    let bob_expected = bob_before.balance + 100;  // amount
+    let alice_expected = alice_before.balance - 100 - 1; // amount + fee
+    let bob_expected = bob_before.balance + 100; // amount
 
     println!("Step 6: Validation...");
 
     let mut success = true;
 
     if alice_after.balance == alice_expected {
-        println!("  ✓ Alice balance correct: {} (expected {})", alice_after.balance, alice_expected);
+        println!(
+            "  Alice balance correct: {} (expected {})",
+            alice_after.balance, alice_expected
+        );
     } else {
-        println!("  ✗ Alice balance INCORRECT: got {}, expected {}", alice_after.balance, alice_expected);
+        println!(
+            "  Alice balance INCORRECT: got {}, expected {}",
+            alice_after.balance, alice_expected
+        );
         success = false;
     }
 
     if bob_after.balance == bob_expected {
-        println!("  ✓ Bob balance correct: {} (expected {})", bob_after.balance, bob_expected);
+        println!(
+            "  Bob balance correct: {} (expected {})",
+            bob_after.balance, bob_expected
+        );
     } else {
-        println!("  ✗ Bob balance INCORRECT: got {}, expected {}", bob_after.balance, bob_expected);
+        println!(
+            "  Bob balance INCORRECT: got {}, expected {}",
+            bob_after.balance, bob_expected
+        );
         success = false;
     }
 
     if alice_after.nonce == alice_before.nonce + 1 {
-        println!("  ✓ Alice nonce incremented correctly: {} -> {}", alice_before.nonce, alice_after.nonce);
+        println!(
+            "  Alice nonce incremented correctly: {} -> {}",
+            alice_before.nonce, alice_after.nonce
+        );
     } else {
-        println!("  ✗ Alice nonce INCORRECT: got {}, expected {}", alice_after.nonce, alice_before.nonce + 1);
+        println!(
+            "  Alice nonce INCORRECT: got {}, expected {}",
+            alice_after.nonce,
+            alice_before.nonce + 1
+        );
         success = false;
     }
 
     println!();
     if success {
-        println!("=== ✓ E2E Test PASSED ===\n");
+        println!("=== E2E Test PASSED ===\n");
     } else {
-        println!("=== ✗ E2E Test FAILED ===\n");
+        println!("=== E2E Test FAILED ===\n");
     }
 
     Ok(())
