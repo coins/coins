@@ -1,5 +1,9 @@
 # Indexer service configuration for mutinynet signet
 
+# Subchain configuration for autonomous block discovery
+subchain = ".data/mutinynet/subchains/subchain_mutinynet.bin"
+wallet_name = "coins-indexer"
+
 [database]
 state_db = ".data/mutinynet/state.db"
 indexer_db = ".data/mutinynet/indexer.db"

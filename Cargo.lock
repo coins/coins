@@ -732,6 +732,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b94f61472cee1439c0b966b47e3aca9ae07e45d070759512cd390ea2bebc6675"
 
 [[package]]
+name = "coins-bitcoin-rpc"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bitcoin",
+ "bitcoincore-rpc",
+ "hex",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "coins-client"
 version = "0.1.0"
 dependencies = [
@@ -822,9 +835,10 @@ dependencies = [
  "axum",
  "bincode 2.0.1",
  "bitcoin",
- "bitcoincore-rpc",
+ "coins-bitcoin-rpc",
  "coins-core",
  "coins-crypto",
+ "coins-subchain",
  "coins-types",
  "hex",
  "reqwest 0.11.27",
@@ -852,8 +866,8 @@ dependencies = [
  "axum",
  "bincode 2.0.1",
  "bitcoin",
- "bitcoincore-rpc",
  "clap",
+ "coins-bitcoin-rpc",
  "coins-core",
  "coins-crypto",
  "coins-indexer",

@@ -131,12 +131,21 @@ bitcoin-cli -regtest -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport=
 echo -e "${GREEN}✓ Wallet created${NC}"
 echo ""
 
-echo -e "${YELLOW}[4/9] Building project...${NC}"
-cargo build --release --bin subchain-setup --bin coins-publisher &>/dev/null
+echo -e "${YELLOW}[4/10] Creating indexer wallet...${NC}"
+# Create watch-only wallet for indexer
+bitcoin-cli -regtest -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport="${RPC_PORT}" \
+    createwallet "coins-indexer" true false "" false true &>/dev/null
+
+echo -e "${GREEN}✓ Wallet created${NC}"
+echo ""
+
+echo -e "${YELLOW}[5/10] Building project...${NC}"
+cargo build --release --bin subchain-setup --bin coins-publisher --bin coins-indexer --bin coins-client \
+    --example get_pk &>/dev/null
 echo -e "${GREEN}✓ Build complete${NC}"
 echo ""
 
-echo -e "${YELLOW}[5/9] Generating subchain with funding...${NC}"
+echo -e "${YELLOW}[6/10] Generating subchain with funding...${NC}"
 
 # Create subchain config
 cat > /tmp/subchain_regtest.toml <<EOF
@@ -199,14 +208,14 @@ SUBCHAIN_SIZE=$(du -h "${SUBCHAIN_FILE}" | awk '{print $1}')
 echo -e "${GREEN}✓ Subchain created (${SUBCHAIN_SIZE})${NC}"
 echo ""
 
-echo -e "${YELLOW}[6/9] Determining publisher address and mining blocks...${NC}"
+echo -e "${YELLOW}[7/10] Determining publisher address and mining blocks...${NC}"
 # Create directories
 mkdir -p "${KEYS_DIR}"
 
 # Start publisher briefly to determine publisher address
 echo -e "  ${BLUE}→ Starting publisher temporarily to get publisher address...${NC}"
 mkdir -p .data/regtest/logs
-./target/release/coins-publisher --config config/publisher.toml > .data/regtest/logs/publisher_temp.log 2>&1 &
+./target/release/coins-publisher --config config/publisher-regtest.toml > .data/regtest/logs/publisher_temp.log 2>&1 &
 TEMP_PUB_PID=$!
 
 # Wait for publisher to initialize and log its address
@@ -237,13 +246,54 @@ BLOCK_COUNT=$(bitcoin-cli -regtest -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PA
 echo -e "${GREEN}✓ Mined 150 blocks (total: ${BLOCK_COUNT})${NC}"
 echo ""
 
-echo -e "${YELLOW}[7/9] Setting up test accounts...${NC}"
-cargo run --release --example setup_test_accounts &>/dev/null
-echo -e "${GREEN}✓ Test accounts created${NC}"
+echo -e "${YELLOW}[8/11] Creating test keypairs...${NC}"
+mkdir -p .data/regtest/test-keys
+
+# Create fixed genesis secret key (sk=2, matches config/indexer-regtest.toml genesis_pk)
+echo "0200000000000000000000000000000000000000000000000000000000000000" > .data/regtest/test-keys/genesis_sk.hex
+echo -e "  ${GREEN}✓ Genesis key created${NC}"
+
+# Create Alice and Bob keypairs using coins-client
+./target/release/coins-client --keyfile .data/regtest/test-keys/alice_sk.hex init 2>&1 | grep -q "stored" && echo -e "  ${GREEN}✓ Alice key created${NC}" || echo -e "  ${GREEN}✓ Alice key exists${NC}"
+./target/release/coins-client --keyfile .data/regtest/test-keys/bob_sk.hex init 2>&1 | grep -q "stored" && echo -e "  ${GREEN}✓ Bob key created${NC}" || echo -e "  ${GREEN}✓ Bob key exists${NC}"
+
+echo -e "${GREEN}✓ Test keypairs ready${NC}"
 echo ""
 
-echo -e "${YELLOW}[8/9] Starting publisher...${NC}"
-./target/release/coins-publisher --config config/publisher.toml > .data/regtest/logs/publisher.log 2>&1 &
+echo -e "${YELLOW}[9/11] Starting indexer...${NC}"
+mkdir -p .data/regtest/logs
+RUST_LOG=coins_indexer=debug ./target/release/coins-indexer --config config/indexer-regtest.toml > .data/regtest/logs/indexer.log 2>&1 &
+INDEXER_PID=$!
+echo "$INDEXER_PID" > .data/regtest/indexer.pid
+
+# Wait for indexer to start
+echo -n "Waiting for indexer to start"
+for i in {1..30}; do
+    if curl -s http://localhost:8083/health &>/dev/null; then
+        echo ""
+        break
+    fi
+    if ! kill -0 $INDEXER_PID 2>/dev/null; then
+        echo ""
+        echo -e "${RED}✗ Indexer crashed. Check .data/regtest/logs/indexer.log${NC}"
+        tail -20 .data/regtest/logs/indexer.log
+        exit 1
+    fi
+    echo -n "."
+    sleep 1
+done
+
+if ! curl -s http://localhost:8083/health &>/dev/null; then
+    echo ""
+    echo -e "${RED}✗ Indexer failed to start${NC}"
+    exit 1
+fi
+
+echo -e "${GREEN}✓ Indexer running (PID: ${INDEXER_PID})${NC}"
+echo ""
+
+echo -e "${YELLOW}[10/11] Starting publisher...${NC}"
+./target/release/coins-publisher --config config/publisher-regtest.toml > .data/regtest/logs/publisher.log 2>&1 &
 PUBLISHER_PID=$!
 echo "$PUBLISHER_PID" > .data/regtest/publisher.pid
 
@@ -273,8 +323,62 @@ fi
 echo -e "${GREEN}✓ Publisher running (PID: ${PUBLISHER_PID})${NC}"
 echo ""
 
-echo -e "${YELLOW}[9/9] Running integration test...${NC}"
-cargo run --release --example submit_txs 2>&1 | tail -5
+echo -e "${YELLOW}[11/11] Funding test accounts from genesis...${NC}"
+
+# Get Alice and Bob public keys
+ALICE_PK=$(./target/release/examples/get_pk .data/regtest/test-keys/alice_sk.hex)
+BOB_PK=$(./target/release/examples/get_pk .data/regtest/test-keys/bob_sk.hex)
+echo -e "  Alice PK: ${ALICE_PK}"
+echo -e "  Bob PK: ${BOB_PK}"
+
+# Fund Alice from genesis (10000 tokens)
+echo -e "  ${BLUE}→ Sending 10000 tokens from Genesis to Alice...${NC}"
+./target/release/coins-client --keyfile .data/regtest/test-keys/genesis_sk.hex --publisher-url http://localhost:8080 \
+    send --recipient-pk "$ALICE_PK" --amount 10000 2>&1 | grep -E "success|fail" || echo -e "    Transaction submitted"
+
+# Wait for publisher to mine the transaction
+echo -e "  ${BLUE}→ Waiting 35 seconds for publisher to mine sub-block...${NC}"
+sleep 35
+
+# Mine a Bitcoin block to confirm the transactions
+echo -e "  ${BLUE}→ Mining Bitcoin block to confirm transactions...${NC}"
+bitcoin-cli -regtest -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport="${RPC_PORT}" \
+    generatetoaddress 1 "${FEE_ADDR}" &>/dev/null
+
+# Wait for indexer to discover and process the block
+echo -e "  ${BLUE}→ Waiting 15 seconds for indexer discovery...${NC}"
+sleep 15
+
+# Fund Bob from Alice (1000 tokens)
+echo -e "  ${BLUE}→ Sending 1000 tokens from Alice to Bob...${NC}"
+./target/release/coins-client --keyfile .data/regtest/test-keys/alice_sk.hex --publisher-url http://localhost:8080 \
+    send --recipient-pk "$BOB_PK" --amount 1000 2>&1 | grep -E "success|fail" || echo -e "    Transaction submitted"
+
+# Wait for another mining cycle
+echo -e "  ${BLUE}→ Waiting 35 seconds for publisher to mine sub-block...${NC}"
+sleep 35
+
+# Mine another Bitcoin block
+bitcoin-cli -regtest -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport="${RPC_PORT}" \
+    generatetoaddress 1 "${FEE_ADDR}" &>/dev/null
+
+# Wait for indexer
+echo -e "  ${BLUE}→ Waiting 15 seconds for indexer discovery...${NC}"
+sleep 15
+
+# Verify accounts were created
+echo -e "  ${BLUE}→ Verifying accounts...${NC}"
+ALICE_BAL=$(curl -s "http://localhost:8080/account/${ALICE_PK}" | jq -r '.balance // "not found"')
+BOB_BAL=$(curl -s "http://localhost:8080/account/${BOB_PK}" | jq -r '.balance // "not found"')
+
+echo -e "  Alice balance: ${ALICE_BAL}"
+echo -e "  Bob balance: ${BOB_BAL}"
+
+if [ "$ALICE_BAL" != "not found" ] && [ "$BOB_BAL" != "not found" ]; then
+    echo -e "${GREEN}✓ Test accounts funded and verified${NC}"
+else
+    echo -e "${YELLOW}⚠ Test accounts may not be ready yet (check logs)${NC}"
+fi
 
 echo ""
 echo -e "${GREEN}========================================${NC}"
@@ -287,7 +391,7 @@ echo -e "Blocks:   ${BLOCK_COUNT}"
 echo -e "Logs:     .data/regtest/logs/publisher.log"
 echo ""
 echo -e "${BLUE}Run tests with:${NC}"
-echo -e "  cargo run --release --example submit_txs"
+echo -e "  ./scripts/test-regtest.sh"
 echo ""
 echo -e "${BLUE}Query accounts:${NC}"
 echo -e "  curl http://localhost:8080/account/<pubkey_hex>"

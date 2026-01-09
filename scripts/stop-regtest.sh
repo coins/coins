@@ -30,6 +30,24 @@ else
     fi
 fi
 
+# Stop indexer using PID file
+if [ -f "${NETWORK_DIR}/indexer.pid" ]; then
+    PID=$(cat "${NETWORK_DIR}/indexer.pid")
+    if kill -9 "$PID" 2>/dev/null; then
+        echo -e "${GREEN}✓ Stopped indexer (PID: $PID)${NC}"
+    else
+        echo "  (indexer not running)"
+    fi
+    rm -f "${NETWORK_DIR}/indexer.pid"
+else
+    # Fallback: kill any indexer
+    if pkill -9 coins-indexer 2>/dev/null; then
+        echo -e "${GREEN}✓ Stopped indexer${NC}"
+    else
+        echo "  (indexer not running)"
+    fi
+fi
+
 # Stop bitcoind gracefully first
 bitcoin-cli -regtest -rpcuser=user -rpcpassword=password -rpcport=18443 stop &>/dev/null || true
 sleep 3
@@ -48,6 +66,9 @@ if [ -f "${BITCOIN_DATADIR}/regtest/.lock" ]; then
 fi
 if [ -f "${BITCOIN_DATADIR}/regtest/wallets/coins-publisher/.walletlock" ]; then
     rm -f "${BITCOIN_DATADIR}/regtest/wallets/coins-publisher/.walletlock"
+fi
+if [ -f "${BITCOIN_DATADIR}/regtest/wallets/coins-indexer/.walletlock" ]; then
+    rm -f "${BITCOIN_DATADIR}/regtest/wallets/coins-indexer/.walletlock"
 fi
 
 echo -e "${GREEN}All services stopped${NC}"

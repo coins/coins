@@ -11,6 +11,7 @@ use coins_core::State;
 pub mod finality;
 pub mod query;
 pub mod client;
+pub mod discovery;
 
 pub use finality::FINALITY_DEPTH;
 pub use client::IndexerClient;

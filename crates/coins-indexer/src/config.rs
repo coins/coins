@@ -7,6 +7,8 @@ pub struct IndexerConfig {
     pub bitcoin: BitcoinConfig,
     pub server: ServerConfig,
     pub genesis: GenesisConfig,
+    pub subchain: PathBuf,
+    pub wallet_name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

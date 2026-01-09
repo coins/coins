@@ -6,7 +6,7 @@ use bitcoin::secp256k1::{Secp256k1, SecretKey};
 use coins_subchain::Subchain;
 use std::str::FromStr;
 use crate::api::AppState;
-use crate::rpc_backend::RpcBackend;
+use coins_bitcoin_rpc::RpcBackend;
 use crate::state_adapter::StateAdapter;
 use coins_types::SubBlock;
 use coins_crypto::{G1, SecretKey as BLSSecretKey, aggregate};
@@ -292,14 +292,6 @@ impl Engine {
         self.current_anchor = result.new_anchor;
         self.anchor_idx += 1;
 
-        // Submit sub-block to indexer for validation and indexing
-        let btc_height = 0u32; // Placeholder - will be updated by indexer's background task
-        let data_txid = result.data_tx.compute_txid();
-
-        if let Err(e) = self.app_state.indexer.submit_block(data_txid, btc_height, sub_block).await {
-            tracing::warn!(error = ?e, "Failed to submit sub-block to indexer");
-        }
-
         tracing::info!(
             anchor = %self.current_anchor.txid,
             anchor_idx = self.anchor_idx,
@@ -405,14 +397,6 @@ impl Engine {
         // Update anchor immediately - assume broadcast will succeed
         self.current_anchor = result_primary.new_anchor;
         self.anchor_idx += 1;
-
-        // Submit to indexer using primary
-        let btc_height = 0u32;
-        let data_txid = result_primary.data_tx.compute_txid();
-
-        if let Err(e) = self.app_state.indexer.submit_block(data_txid, btc_height, sub_block).await {
-            tracing::warn!(error = ?e, "Failed to submit sub-block to indexer");
-        }
 
         tracing::info!(
             anchor = %self.current_anchor.txid,
@@ -558,12 +542,6 @@ impl Engine {
                     if let Some(sub_block) = SubBlock::deserialize(&blob, &self.state_adapter) {
                         // Submit to indexer for validation and indexing
                         // The indexer will validate and apply state changes
-                        self.app_state.indexer.submit_block(
-                            data_txid,
-                            btc_height,
-                            sub_block
-                        ).await?;
-
                         indexed_count += 1;
                         tracing::info!(
                             anchor_idx = idx,

@@ -11,9 +11,10 @@ path = "src/main.rs"
 coins-types = { path = "../coins-types" }
 coins-crypto = { path = "../coins-crypto" }
 coins-core = { path = "../coins-core" }
+coins-subchain = { path = "../coins-subchain" }
+coins-bitcoin-rpc = { path = "../coins-bitcoin-rpc" }
 sled = "0.34"
 bitcoin = { version = "0.32", features = ["serde"] }
-bitcoincore-rpc = "0.19.0"
 thiserror = "1"
 serde = { version = "1", features = ["derive"] }
 bincode = { version = "2.0.1", features = ["serde"] }

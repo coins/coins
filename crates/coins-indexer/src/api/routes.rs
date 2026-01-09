@@ -6,8 +6,6 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
-use bitcoin::Txid;
-use bitcoincore_rpc::RpcApi;
 use coins_crypto::G1;
 use coins_types::{Account, SubBlock, Transaction};
 use super::AppState;
@@ -20,7 +18,7 @@ pub fn create_router(app_state: AppState) -> Router {
         .route("/accounts/:pk/transactions", get(get_account_transactions))
         .route("/blocks/latest", get(get_latest_block))
         .route("/blocks/:height", get(get_block_by_height))
-        .route("/blocks", get(get_blocks_range).post(submit_block))
+        .route("/blocks", get(get_blocks_range))
         .route("/stats", get(get_stats))
         .with_state(app_state)
 }
@@ -55,12 +53,11 @@ async fn get_account_transactions(
     let pk_arr: [u8; 32] = pk_bytes.try_into().map_err(|_| StatusCode::BAD_REQUEST)?;
     let pk = G1(pk_arr);
 
-    // Get current Bitcoin height and setup RPC client
-    let rpc_client = bitcoincore_rpc::Client::new(&state.rpc_url, state.rpc_auth.clone())
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let current_btc_height = rpc_client.get_block_count()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)? as u32;
+    // Get current Bitcoin height from latest indexed block
+    let current_btc_height = match state.indexer.get_latest_block() {
+        Ok(Some(block)) if block.btc_height > 0 => block.btc_height,
+        _ => 0, // If no blocks or btc_height is 0, use 0 (all unconfirmed)
+    };
 
     let mut history = Vec::new();
 
@@ -193,82 +190,6 @@ struct ChainBlockResponse {
     pub btc_height: u32,  // Bitcoin block height where this was anchored
     pub btc_txid: String,
     pub sub_block: SubBlock,
-}
-
-#[derive(Deserialize)]
-struct SubmitBlockRequest {
-    pub btc_txid: String,
-    pub btc_height: u32,
-    pub sub_block: SubBlock,
-}
-
-/// Submit a new block for indexing (called by publisher after mining)
-/// Indexer validates transactions and applies state changes.
-async fn submit_block(
-    AxumState(state): AxumState<AppState>,
-    Json(req): Json<SubmitBlockRequest>,
-) -> Result<StatusCode, StatusCode> {
-    let txid: Txid = req.btc_txid.parse().map_err(|_| StatusCode::BAD_REQUEST)?;
-
-    // Validate and apply state changes from the sub-block
-    let mut updated_accounts = Vec::new();
-
-    for tx in &req.sub_block.txs {
-        // Get sender account by ID
-        let sender_account_id = coins_types::AccountId(tx.sender_id);
-        let mut sender = state.state
-            .get_account(sender_account_id)
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-            .ok_or(StatusCode::BAD_REQUEST)?;
-
-        // Validate balance (amount + fee)
-        let total_cost = (tx.amount as u64) + (tx.fee as u64);
-        if sender.balance < total_cost {
-            tracing::warn!("Insufficient balance: {} < {}", sender.balance, total_cost);
-            return Err(StatusCode::BAD_REQUEST);
-        }
-
-        // Update sender
-        sender.balance -= total_cost;
-        sender.nonce += 1;
-        updated_accounts.push(sender);
-
-        // Get or create recipient account
-        let recipient = match state.state.get_by_pk(&tx.recipient_pk) {
-            Ok(Some(mut acc)) => {
-                acc.balance += tx.amount as u64;
-                acc
-            }
-            Ok(None) => {
-                // Create new account for recipient
-                let mut new_acc = state.state.create_account(tx.recipient_pk)
-                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-                new_acc.balance = tx.amount as u64;
-                new_acc
-            }
-            Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
-        };
-        updated_accounts.push(recipient);
-    }
-
-    // Apply state changes atomically
-    state.state
-        .apply_batch(&updated_accounts)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    // Index the block
-    state.indexer
-        .index_block(txid, req.btc_height, req.sub_block)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    tracing::info!(
-        btc_height = req.btc_height,
-        btc_txid = %txid,
-        tx_count = updated_accounts.len() / 2,
-        "Block submitted and indexed"
-    );
-
-    Ok(StatusCode::CREATED)
 }
 
 /// Get network statistics

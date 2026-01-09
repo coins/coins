@@ -9,6 +9,7 @@ members = [
     "crates/coins-subchain",
     "crates/coins-client",
     "crates/coins-explorer",
+    "crates/coins-bitcoin-rpc",
 ]
 
 [workspace.package]

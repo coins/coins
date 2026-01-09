@@ -1,5 +1,9 @@
 # Indexer service configuration for regtest
 
+# Subchain configuration for autonomous block discovery
+subchain = ".data/regtest/subchains/subchain_regtest.bin"
+wallet_name = "coins-indexer"
+
 [database]
 state_db = ".data/regtest/state.db"
 indexer_db = ".data/regtest/indexer.db"
@@ -15,5 +19,5 @@ api_port = 8083
 host = "0.0.0.0"
 
 [genesis]
-genesis_pk = "4d62f9b4f640aae666157f746b4300f65a63df6b5e89ba82772d733e17b33fa2"
+genesis_pk = "d3cf876dc108c2d3a81c8716a91678d9851518685b04859b021a132ee7440603"
 genesis_balance = 1000000000000

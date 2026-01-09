@@ -21,8 +21,6 @@ const RESCAN_POLL_INTERVAL_MS: u64 = 100;
 const MIN_UTXO_CONFIRMATIONS: usize = 1;
 /// Maximum transactions to query in listtransactions
 const MAX_TRANSACTION_HISTORY: i64 = 100_000;
-/// Maximum blocks to scan when searching for spending TX
-const MAX_SPENDING_TX_SCAN_BLOCKS: u32 = 100;
 /// Getblock verbosity level for full transaction data
 const GETBLOCK_VERBOSITY_FULL: u8 = 2;
 
@@ -249,7 +247,7 @@ impl RpcBackend {
     }
 
     /// Ensure an address has been imported to the wallet (no rescan)
-    async fn ensure_address_imported(&self, address: &Address) -> Result<()> {
+    pub async fn ensure_address_imported(&self, address: &Address) -> Result<()> {
         self.ensure_address_imported_internal(address, false).await
     }
 
@@ -581,14 +579,56 @@ impl RpcBackend {
         }
 
         // Output is spent! Now we need to find the spending TX
-        // Strategy: Get the block containing the spent output, then scan forward
-        // because the spending TX must be in the same block or a later block
+        // Strategy: First check mempool, then scan confirmed blocks
 
         let tx_result: Result<serde_json::Value, _> = self.rpc.call(
             "getrawtransaction",
             &[json!(outpoint.txid.to_string()), json!(true)], // verbose=true
         );
 
+        let outpoint_txid_str = outpoint.txid.to_string();
+
+        // First, try to find the spending tx in the mempool
+        // This handles the case where both anchor and data tx are unconfirmed
+        if let Ok(mempool) = self.rpc.call::<serde_json::Value>("getrawmempool", &[json!(true)]) {
+            if let Some(mempool_obj) = mempool.as_object() {
+                for (mempool_txid, _tx_info) in mempool_obj {
+                    // Get full transaction to check inputs
+                    if let Ok(tx_data) = self.rpc.call::<serde_json::Value>(
+                        "getrawtransaction",
+                        &[json!(mempool_txid), json!(true)],
+                    ) {
+                        if let Some(inputs) = tx_data.get("vin").and_then(|v| v.as_array()) {
+                            for input in inputs {
+                                let input_txid = input.get("txid").and_then(|v| v.as_str());
+                                let input_vout = input.get("vout").and_then(|v| v.as_u64());
+
+                                if let (Some(txid_str), Some(vout)) = (input_txid, input_vout) {
+                                    if txid_str == outpoint_txid_str && vout == outpoint.vout as u64 {
+                                        // Found the spending TX in mempool!
+                                        let spending_txid = mempool_txid
+                                            .parse::<Txid>()
+                                            .context("Failed to parse spending txid")?;
+
+                                        if let Some(hex_str) = tx_data.get("hex").and_then(|v| v.as_str()) {
+                                            let bytes = hex::decode(hex_str)
+                                                .context("Failed to decode transaction hex")?;
+                                            let spending_tx = bitcoin::consensus::deserialize::<Transaction>(&bytes)
+                                                .context("Failed to deserialize transaction")?;
+
+                                            // Return with height 0 to indicate mempool (unconfirmed)
+                                            return Ok(Some((spending_txid, spending_tx, 0)));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Not in mempool, scan confirmed blocks
         if let Ok(tx_data) = tx_result {
             // Get the block containing the output being spent
             if let Some(start_blockhash) = tx_data.get("blockhash").and_then(|v| v.as_str()) {
@@ -608,10 +648,9 @@ impl RpcBackend {
                         .and_then(|v| v.as_u64())
                         .unwrap_or(0) as u32;
 
-                    // Scan from start_height to chain tip (or up to MAX_SPENDING_TX_SCAN_BLOCKS ahead max)
-                    let max_scan_height = std::cmp::min(chain_height, start_height + MAX_SPENDING_TX_SCAN_BLOCKS);
-
-                    for scan_height in start_height..=max_scan_height {
+                    // Scan backwards from chain tip to start_height (anchor block)
+                    // This finds recent spending txs quickly (the common case)
+                    for scan_height in (start_height..=chain_height).rev() {
                         // Get block hash at this height
                         let blockhash_result: Result<String, _> =
                             self.rpc.call("getblockhash", &[json!(scan_height)]);
@@ -631,7 +670,7 @@ impl RpcBackend {
                                                 let input_vout = input.get("vout").and_then(|v| v.as_u64());
 
                                                 if let (Some(txid_str), Some(vout)) = (input_txid, input_vout) {
-                                                    if txid_str == outpoint.txid.to_string()
+                                                    if txid_str == outpoint_txid_str
                                                         && vout == outpoint.vout as u64
                                                     {
                                                         // Found the spending TX!
@@ -642,7 +681,7 @@ impl RpcBackend {
                                                                 .parse::<Txid>()
                                                                 .context("Failed to parse spending txid")?;
 
-                                                            // Parse transaction from hex in block response (more efficient than separate RPC call)
+                                                            // Parse transaction from hex in block response
                                                             if let Some(hex_str) = tx_obj.get("hex").and_then(|v| v.as_str()) {
                                                                 let bytes = hex::decode(hex_str)
                                                                     .context("Failed to decode transaction hex")?;

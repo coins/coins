@@ -4,7 +4,7 @@ use bitcoin::Network;
 use clap::Parser;
 use coins_publisher::engine::Engine;
 use coins_publisher::api::{router, AppState};
-use coins_publisher::rpc_backend::RpcBackend;
+use coins_bitcoin_rpc::RpcBackend;
 use coins_publisher::state_adapter::StateAdapter;
 use coins_indexer::IndexerClient;
 use coins_subchain::{PublishMode, PublishFormat};
