@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # IBD (Initial Block Download) E2E Test
 # Tests that a second node can sync historical sub-blocks from Bitcoin
 
@@ -21,7 +21,15 @@ RPC_USER="user"
 RPC_PASS="password"
 RPC_PORT="18443"
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-BITCOIN_DATADIR="${PROJECT_ROOT}/.data/regtest/bitcoin"
+NETWORK_DIR="${PROJECT_ROOT}/.data/regtest"
+BITCOIN_DATADIR="${NETWORK_DIR}/bitcoin"
+SUBCHAIN_DIR="${NETWORK_DIR}/subchains"
+KEYS_DIR="${NETWORK_DIR}/keys"
+SUBCHAIN_FILE="${SUBCHAIN_DIR}/subchain_regtest.bin"
+
+# Genesis configuration (must match config/indexer-regtest.toml)
+GENESIS_PK="d3cf876dc108c2d3a81c8716a91678d9851518685b04859b021a132ee7440603"
+GENESIS_SK="0200000000000000000000000000000000000000000000000000000000000000"
 
 cd "$PROJECT_ROOT"
 
@@ -30,382 +38,415 @@ cleanup() {
     echo -e "\n${YELLOW}Cleaning up...${NC}"
     pkill -f "coins-publisher.*node1" 2>/dev/null || true
     pkill -f "coins-publisher.*node2" 2>/dev/null || true
+    pkill -f "coins-indexer.*node1" 2>/dev/null || true
+    pkill -f "coins-indexer.*node2" 2>/dev/null || true
     # Don't delete logs - they're useful for debugging
-    rm -rf /tmp/node1 /tmp/node2 2>/dev/null || true
 }
 
 trap cleanup EXIT
 
-# Stop any running publishers and reset Bitcoin regtest to ensure fresh state
-echo -e "${YELLOW}Resetting Bitcoin regtest for fresh test environment...${NC}"
-pkill -f "coins-publisher" 2>/dev/null || true
+# Stop any running services and reset Bitcoin regtest
+echo -e "${YELLOW}[1/11] Resetting environment...${NC}"
+pkill -9 coins-publisher 2>/dev/null || true
+pkill -9 coins-indexer 2>/dev/null || true
 bitcoin-cli -regtest -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_PORT stop 2>/dev/null || true
 sleep 3
 
-# Remove regtest data to start fresh
-rm -rf "${BITCOIN_DATADIR}" 2>/dev/null || true
+# Clean up old data
+rm -rf "${NETWORK_DIR}" 2>/dev/null || true
+rm -rf /tmp/node1 /tmp/node2 /tmp/test-keys 2>/dev/null || true
+mkdir -p "${SUBCHAIN_DIR}" "${KEYS_DIR}" "${NETWORK_DIR}/logs"
+mkdir -p /tmp/node1 /tmp/node2 /tmp/test-keys
+
+# Start fresh bitcoind
 mkdir -p "${BITCOIN_DATADIR}"
+cat > "${BITCOIN_DATADIR}/bitcoin.conf" <<EOF
+regtest=1
+server=1
+daemon=1
+rpcuser=${RPC_USER}
+rpcpassword=${RPC_PASS}
+fallbackfee=0.00001
+txindex=1
+acceptnonstdtxn=1
+listen=0
+discover=0
+dnsseed=0
+[regtest]
+rpcport=${RPC_PORT}
+EOF
 
-# Restart bitcoind with non-standard tx support for Taproot annex
-bitcoind -regtest -daemon -datadir="${BITCOIN_DATADIR}" -fallbackfee=0.00001 -txindex=1 -acceptnonstdtxn=1 -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_PORT
-sleep 5
+bitcoind -datadir="${BITCOIN_DATADIR}" -conf="${BITCOIN_DATADIR}/bitcoin.conf" 2>&1 | grep -v "file descriptors" || true
+sleep 2
 
-# Mine initial blocks and fund the subchain
-echo -e "${YELLOW}Setting up fresh regtest chain...${NC}"
-# Create wallet with private keys enabled
-bitcoin-cli -regtest -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_PORT createwallet "test-wallet" false || {
-    echo -e "${YELLOW}Note: Wallet may already exist${NC}"
-}
+echo -n "Waiting for bitcoind"
+for i in {1..30}; do
+    if bitcoin-cli -regtest -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_PORT getblockchaininfo &>/dev/null; then
+        echo ""
+        break
+    fi
+    echo -n "."
+    sleep 1
+done
+echo -e "${GREEN}✓ Bitcoin Core started${NC}\n"
 
-# Mine blocks to get coins (need 101+ for coinbase maturity)
-ADDR=$(bitcoin-cli -regtest -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_PORT -rpcwallet=test-wallet getnewaddress)
-bitcoin-cli -regtest -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_PORT generatetoaddress 150 "$ADDR" &>/dev/null
-echo -e "${GREEN}✓ Mined 150 blocks${NC}"
+echo -e "${YELLOW}[2/11] Creating wallets...${NC}"
+bitcoin-cli -regtest -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_PORT \
+    createwallet "coins-publisher" true false "" false true &>/dev/null || true
+bitcoin-cli -regtest -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_PORT \
+    createwallet "coins-indexer" true false "" false true &>/dev/null || true
+bitcoin-cli -regtest -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_PORT \
+    createwallet "test-wallet" false &>/dev/null || true
+echo -e "${GREEN}✓ Wallets created${NC}\n"
 
-# Generate fresh subchain for this regtest environment
-echo -e "  ${BLUE}→ Generating fresh subchain...${NC}"
+echo -e "${YELLOW}[3/11] Building project...${NC}"
+cargo build --release --bin subchain-setup --bin coins-publisher --bin coins-indexer --bin coins-client \
+    --example get_pk &>/dev/null
+echo -e "${GREEN}✓ Build complete${NC}\n"
 
-# Clean up old subchain data to ensure fresh keys
-rm -rf .data/subchains .data/keys 2>/dev/null || true
-mkdir -p .data/subchains .data/keys
-
-# Create subchain config
+echo -e "${YELLOW}[4/11] Generating subchain...${NC}"
 cat > /tmp/subchain_config.toml <<EOF
 count = 100
 network = "regtest"
-output = ".data/subchains/subchain_regtest.bin"
+output = "${SUBCHAIN_FILE}"
 EOF
 
-# Step 1: Run subchain-setup to get the generated address (will error, but we capture the address)
+# Get subchain address
 SUBCHAIN_ADDR=$(
     (echo "") | ./target/release/subchain-setup --config /tmp/subchain_config.toml 2>&1 | \
-    grep "Generated one-time address:" | \
-    awk '{print $4}'
+    grep "Generated one-time address:" | awk '{print $4}'
 )
 
 if [ -z "$SUBCHAIN_ADDR" ]; then
     echo -e "${RED}✗ Failed to generate subchain address${NC}"
     exit 1
 fi
+echo -e "  Subchain address: $SUBCHAIN_ADDR"
 
-echo -e "  ${BLUE}→ Subchain address: $SUBCHAIN_ADDR${NC}"
+# Mine blocks to subchain address
+bitcoin-cli -regtest -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_PORT \
+    generatetoaddress 101 "$SUBCHAIN_ADDR" &>/dev/null
 
-# Step 2: Mine blocks directly to subchain address to get mature coinbase UTXOs
-echo -e "  ${BLUE}→ Mining blocks to subchain address...${NC}"
-bitcoin-cli -regtest -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_PORT generatetoaddress 10 "$SUBCHAIN_ADDR" &>/dev/null
-
-# Mine additional blocks to mature the coinbase (need 100 confirmations)
-echo -e "  ${BLUE}→ Mining blocks to mature coinbase...${NC}"
-bitcoin-cli -regtest -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_PORT generatetoaddress 95 "$ADDR" &>/dev/null
-
-# Step 3: Find a mature UTXO using scantxoutset
-echo -e "  ${BLUE}→ Finding mature UTXO...${NC}"
+# Get UTXO
 UTXO_INFO=$(bitcoin-cli -regtest -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_PORT \
     scantxoutset start "[\"addr($SUBCHAIN_ADDR)\"]" | \
     jq -r '.unspents[0] | "\(.txid):\(.vout) \((.amount*100000000)|floor)"')
-
 UTXO_OUTPOINT=$(echo "$UTXO_INFO" | awk '{print $1}')
 UTXO_VALUE=$(echo "$UTXO_INFO" | awk '{print $2}')
 
-if [ -z "$UTXO_OUTPOINT" ] || [ "$UTXO_OUTPOINT" = "null:null" ]; then
-    echo -e "${RED}✗ Failed to find UTXO${NC}"
-    exit 1
-fi
-
-echo -e "  ${BLUE}→ Found UTXO: $UTXO_OUTPOINT ($UTXO_VALUE sats)${NC}"
-
-# Step 4: Generate subchain file with the UTXO
-echo -e "  ${BLUE}→ Building subchain file...${NC}"
+# Generate subchain file
 printf "%s\n%s\n" "$UTXO_OUTPOINT" "$UTXO_VALUE" | \
     ./target/release/subchain-setup --config /tmp/subchain_config.toml &>/dev/null
 
-# Verify subchain was created
-if [ ! -f ".data/subchains/subchain_regtest.bin" ]; then
+if [ ! -f "$SUBCHAIN_FILE" ]; then
     echo -e "${RED}✗ Subchain file not created${NC}"
     exit 1
 fi
+echo -e "${GREEN}✓ Subchain generated (100 transactions)${NC}\n"
 
-echo -e "${GREEN}✓ Fresh subchain generated (100 transactions)${NC}"
+echo -e "${YELLOW}[5/11] Creating test keypairs...${NC}"
+echo "$GENESIS_SK" > /tmp/test-keys/genesis_sk.hex
+./target/release/coins-client --keyfile /tmp/test-keys/alice_sk.hex init &>/dev/null
+ALICE_PK=$(./target/release/examples/get_pk /tmp/test-keys/alice_sk.hex)
+echo -e "  Genesis PK: ${GENESIS_PK}"
+echo -e "  Alice PK: ${ALICE_PK}"
+echo -e "${GREEN}✓ Keypairs ready${NC}\n"
 
-echo -e "${YELLOW}[1/8] Creating test configurations...${NC}"
+echo -e "${YELLOW}[6/11] Creating Node 1 configuration...${NC}"
+# Create Node 1 indexer config
+cat > /tmp/node1/indexer.toml <<EOF
+subchain = "${SUBCHAIN_FILE}"
+wallet_name = "coins-indexer"
 
-# Create Node 1 config (port 8080, default DBs)
-mkdir -p /tmp/node1
-SUBCHAIN_PATH="$(pwd)/.data/subchains/subchain_regtest.bin"
-KEYFILE_PATH="$(pwd)/.data/keys/publisher_sk.hex"
-
-cat > /tmp/node1/publisher.toml <<EOF
-# Node 1 Configuration (Primary node)
-rpc_url = "http://localhost:$RPC_PORT"
-rpc_user = "$RPC_USER"
-rpc_pass = "$RPC_PASS"
-rpc_wallet = "coins-publisher"
-
-subchain = "$SUBCHAIN_PATH"
-keyfile = "$KEYFILE_PATH"
-interval = 60
-network = "regtest"
-genesis_pk = "43878a2a65c154d604cbe7d974d5dad1c63ce4dc2a68f697c45a4a3ef9ab8a21"
-genesis_balance = 1000000000000
-
-# Node 1 runtime config
-api_port = 8080
+[database]
 state_db = "/tmp/node1/state.db"
 indexer_db = "/tmp/node1/indexer.db"
-bls_keyfile = "/tmp/node1/publisher_bls_sk.hex"
-EOF
 
-# Create Node 2 config (port 8081, separate DBs)
-mkdir -p /tmp/node2
-cat > /tmp/node2/publisher.toml <<EOF
-# Node 2 Configuration (IBD node)
-rpc_url = "http://localhost:$RPC_PORT"
-rpc_user = "$RPC_USER"
-rpc_pass = "$RPC_PASS"
-rpc_wallet = "coins-publisher"
-
-subchain = "$SUBCHAIN_PATH"
-keyfile = "$KEYFILE_PATH"
-interval = 60
+[bitcoin]
+rpc_url = "http://localhost:${RPC_PORT}"
+rpc_user = "${RPC_USER}"
+rpc_pass = "${RPC_PASS}"
 network = "regtest"
-genesis_pk = "43878a2a65c154d604cbe7d974d5dad1c63ce4dc2a68f697c45a4a3ef9ab8a21"
-genesis_balance = 1000000000000
 
-# Node 2 runtime config (different port and DBs)
-api_port = 8081
-state_db = "/tmp/node2/state.db"
-indexer_db = "/tmp/node2/indexer.db"
-bls_keyfile = "/tmp/node2/publisher_bls_sk.hex"
+[server]
+api_port = 8083
+host = "0.0.0.0"
+
+[genesis]
+genesis_pk = "${GENESIS_PK}"
+genesis_balance = 1000000000000
 EOF
 
-echo -e "${GREEN}✓ Configurations created${NC}"
+# Create Node 1 publisher config
+cat > /tmp/node1/publisher.toml <<EOF
+rpc_url = "http://localhost:${RPC_PORT}"
+rpc_user = "${RPC_USER}"
+rpc_pass = "${RPC_PASS}"
+rpc_wallet = "coins-publisher"
+subchain = "${SUBCHAIN_FILE}"
+keyfile = "${KEYS_DIR}/publisher_sk.hex"
+interval = 30
+network = "regtest"
+indexer_url = "http://localhost:8083"
+api_port = 8080
+publish_format = "op_return"
+fee_rate_sat_per_vb = 4
+EOF
 
-echo -e "${YELLOW}[2/8] Setting up test accounts...${NC}"
-# Setup Alice and Bob in both node databases (needed for transaction validation)
-cargo run --release --example setup_test_accounts /tmp/node1/state.db &>/dev/null
-cargo run --release --example setup_test_accounts /tmp/node2/state.db &>/dev/null
-echo -e "${GREEN}✓ Test accounts created for both nodes${NC}"
+echo -e "${GREEN}✓ Node 1 configuration created${NC}\n"
 
-echo -e "${YELLOW}[3/8] Determining Node 1's fee address...${NC}"
-# Start publisher briefly to determine fee address
-./target/release/coins-publisher --config /tmp/node1/publisher.toml > /tmp/publisher_temp.log 2>&1 &
+echo -e "${YELLOW}[7/11] Funding publisher and starting Node 1...${NC}"
+# Start publisher briefly to get its address
+./target/release/coins-publisher --config /tmp/node1/publisher.toml > /tmp/node1/publisher_temp.log 2>&1 &
 TEMP_PID=$!
 sleep 5
-
-# Extract fee address from logs (handle both "Publisher" and "Aggregator" for backwards compatibility)
-FEE_ADDR=$(grep -E "(Publisher|Aggregator) initialized" /tmp/publisher_temp.log | grep -o 'bcrt1q[a-z0-9]*' | head -1)
-
-if [ -z "$FEE_ADDR" ]; then
-    echo -e "${RED}✗ Could not determine fee address${NC}"
-    echo -e "${YELLOW}Publisher log output:${NC}"
-    cat /tmp/publisher_temp.log
-    kill $TEMP_PID 2>/dev/null || true
-    exit 1
-fi
-
-echo -e "  ${BLUE}→ Fee address: $FEE_ADDR${NC}"
-
-# Stop the temporary publisher
+FEE_ADDR=$(grep "Publisher initialized" /tmp/node1/publisher_temp.log | grep -oE 'bcrt1[a-z0-9]+' | head -1)
 kill $TEMP_PID 2>/dev/null || true
 sleep 2
-echo -e "${GREEN}✓ Fee address determined${NC}"
 
-echo -e "${YELLOW}[4/8] Funding fee address...${NC}"
-# Mine blocks to fee address BEFORE starting the main publisher
-echo -e "  ${BLUE}→ Mining 50 blocks to fee address...${NC}"
-bitcoin-cli -regtest -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_PORT generatetoaddress 50 "$FEE_ADDR" &>/dev/null
-
-# Send additional funds via transaction
-echo -e "  ${BLUE}→ Sending additional funds to fee address...${NC}"
-bitcoin-cli -regtest -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_PORT -rpcwallet=test-wallet sendtoaddress "$FEE_ADDR" 10 &>/dev/null
-bitcoin-cli -regtest -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_PORT generatetoaddress 1 "$FEE_ADDR" &>/dev/null
-echo -e "${GREEN}✓ Fee address funded (51 blocks + 1 transaction)${NC}"
-
-echo -e "${YELLOW}[5/8] Starting Node 1 (Primary)...${NC}"
-./target/release/coins-publisher --config /tmp/node1/publisher.toml > /tmp/publisher-node1.log 2>&1 &
-NODE1_PID=$!
-
-# Wait for Node 1 to start and rescan blockchain
-echo -e "  ${BLUE}→ Waiting for blockchain rescan to complete...${NC}"
-sleep 10
-if ! kill -0 $NODE1_PID 2>/dev/null; then
-    echo -e "${RED}✗ Node 1 failed to start${NC}"
-    tail -20 /tmp/publisher-node1.log
+if [ -z "$FEE_ADDR" ]; then
+    echo -e "${RED}✗ Could not determine publisher address${NC}"
+    cat /tmp/node1/publisher_temp.log
     exit 1
 fi
+echo -e "  Publisher address: $FEE_ADDR"
 
-if ! curl -s http://localhost:8080/health &>/dev/null; then
-    echo -e "${RED}✗ Node 1 API not responding${NC}"
-    exit 1
-fi
+# Mine blocks to fund publisher
+bitcoin-cli -regtest -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_PORT \
+    generatetoaddress 150 "$FEE_ADDR" &>/dev/null
+echo -e "  ${GREEN}✓ Publisher funded (150 blocks)${NC}"
 
-echo -e "${GREEN}✓ Node 1 running (PID: $NODE1_PID, API: 8080)${NC}"
-
-echo -e "${YELLOW}[6/8] Submitting transactions to Node 1...${NC}"
-
-# Submit test transactions using submit_txs example
-# (Uses Alice and Bob keys from .data/test-keys/)
-BOB_PK="5e74734c69fbb261c4c936d375df870f2a6af117f811a5c88f8c3328f291c012"
-
-# Submit transaction
-cargo run --release --example submit_txs > /tmp/submit_output.log 2>&1 || {
-    echo -e "${RED}✗ Failed to submit transactions${NC}"
-    cat /tmp/submit_output.log
-    exit 1
-}
-
-echo -e "${GREEN}✓ Transactions submitted${NC}"
-
-echo -e "${YELLOW}[7/8] Waiting for sub-block to be broadcast (watching logs)...${NC}"
-# Wait for Node 1 to broadcast the package
+# Start Node 1 indexer
+./target/release/coins-indexer --config /tmp/node1/indexer.toml > /tmp/node1/indexer.log 2>&1 &
+NODE1_INDEXER_PID=$!
+echo -n "  Starting indexer"
 for i in {1..30}; do
-    if grep -q "Package broadcasted successfully" /tmp/publisher-node1.log 2>/dev/null; then
-        echo -e "${GREEN}✓ Package broadcast detected${NC}"
+    if curl -s http://localhost:8083/health &>/dev/null; then
+        echo ""
         break
     fi
+    echo -n "."
     sleep 1
 done
 
-if ! grep -q "Package broadcasted successfully" /tmp/publisher-node1.log 2>/dev/null; then
-    echo -e "${RED}✗ Package was not broadcast within 30 seconds${NC}"
-    tail -50 /tmp/publisher-node1.log
+if ! curl -s http://localhost:8083/health &>/dev/null; then
+    echo -e "\n${RED}✗ Node 1 indexer failed to start${NC}"
+    tail -20 /tmp/node1/indexer.log
     exit 1
 fi
+echo -e "  ${GREEN}✓ Indexer running (PID: $NODE1_INDEXER_PID, port 8083)${NC}"
 
-# Extract connector and data TXIDs (extract 64-char hex strings)
-PACKAGE_LINE=$(grep "Package broadcasted successfully" /tmp/publisher-node1.log | tail -1)
+# Start Node 1 publisher
+./target/release/coins-publisher --config /tmp/node1/publisher.toml > /tmp/node1/publisher.log 2>&1 &
+NODE1_PUBLISHER_PID=$!
+echo -n "  Starting publisher"
+for i in {1..30}; do
+    if curl -s http://localhost:8080/health &>/dev/null; then
+        echo ""
+        break
+    fi
+    echo -n "."
+    sleep 1
+done
+
+if ! curl -s http://localhost:8080/health &>/dev/null; then
+    echo -e "\n${RED}✗ Node 1 publisher failed to start${NC}"
+    tail -20 /tmp/node1/publisher.log
+    exit 1
+fi
+echo -e "  ${GREEN}✓ Publisher running (PID: $NODE1_PUBLISHER_PID, port 8080)${NC}"
+echo -e "${GREEN}✓ Node 1 running${NC}\n"
+
+echo -e "${YELLOW}[8/11] Submitting transaction (Genesis -> Alice)...${NC}"
+./target/release/coins-client --keyfile /tmp/test-keys/genesis_sk.hex --publisher-url http://localhost:8080 \
+    send --recipient-pk "$ALICE_PK" --amount 100 2>&1 | grep -E "success|fail|error" || echo "  Transaction submitted"
+echo -e "${GREEN}✓ Transaction submitted${NC}\n"
+
+echo -e "${YELLOW}[9/11] Waiting for sub-block broadcast and mining...${NC}"
+echo -n "  Waiting for broadcast"
+for i in {1..60}; do
+    if grep -q "Package broadcasted successfully" /tmp/node1/publisher.log 2>/dev/null; then
+        echo ""
+        break
+    fi
+    echo -n "."
+    sleep 1
+done
+
+if ! grep -q "Package broadcasted successfully" /tmp/node1/publisher.log 2>/dev/null; then
+    echo -e "\n${RED}✗ Package was not broadcast within 60 seconds${NC}"
+    tail -50 /tmp/node1/publisher.log
+    exit 1
+fi
+echo -e "  ${GREEN}✓ Package broadcast detected${NC}"
+
+# Extract TXIDs
+PACKAGE_LINE=$(grep "Package broadcasted successfully" /tmp/node1/publisher.log | tail -1)
 CONNECTOR_TXID=$(echo "$PACKAGE_LINE" | grep -o '[a-f0-9]\{64\}' | head -1)
 DATA_TXID=$(echo "$PACKAGE_LINE" | grep -o '[a-f0-9]\{64\}' | tail -1)
-echo "Connector TXID: $CONNECTOR_TXID"
-echo "Data TXID: $DATA_TXID"
+echo -e "  Connector TXID: $CONNECTOR_TXID"
+echo -e "  Data TXID: $DATA_TXID"
 
-# Mine a block IMMEDIATELY (within the same second) to confirm the package before it can be RBF'd
-echo -e "${YELLOW}[8/8] Mining block IMMEDIATELY to confirm package...${NC}"
-# Get address from subchain file
-if [ -f ".data/subchains/subchain_regtest.bin" ]; then
-    MINING_ADDR=$(./target/release/subchain-setup --print-address .data/subchains/subchain_regtest.bin)
-else
-    echo -e "${RED}✗ Subchain file not found${NC}"
-    exit 1
-fi
+# Mine block to confirm
+BLOCKHASH=$(bitcoin-cli -regtest -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_PORT \
+    generatetoaddress 1 "$FEE_ADDR" | jq -r '.[0]')
+echo -e "  ${GREEN}✓ Block mined: ${BLOCKHASH:0:16}...${NC}"
 
-if [ -z "$MINING_ADDR" ]; then
-    echo -e "${RED}✗ Failed to extract address from subchain${NC}"
-    exit 1
-fi
-
-# Check mempool BEFORE mining
-echo -e "  ${BLUE}→ Checking mempool before mining...${NC}"
-MEMPOOL_BEFORE=$(bitcoin-cli -regtest -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_PORT getrawmempool)
-echo "Mempool TX count: $(echo "$MEMPOOL_BEFORE" | jq 'length')"
-if echo "$MEMPOOL_BEFORE" | jq -e ".[] | select(. == \"$CONNECTOR_TXID\")" &>/dev/null; then
-    echo -e "${GREEN}✓ Connector TX in mempool${NC}"
-else
-    echo -e "${YELLOW}⚠ Connector TX NOT in mempool${NC}"
-fi
-
-# Mine the block
-BLOCKHASH=$(bitcoin-cli -regtest -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_PORT generatetoaddress 1 "$MINING_ADDR" | jq -r '.[0]')
-echo -e "${GREEN}✓ Block mined: $BLOCKHASH${NC}"
-
-# Check what TXs are in the block
-BLOCK_TXS=$(bitcoin-cli -regtest -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_PORT getblock "$BLOCKHASH" | jq '.tx')
-echo "Block TX count: $(echo "$BLOCK_TXS" | jq 'length')"
-echo "Block TXs: $(echo "$BLOCK_TXS" | jq -c '.')"
-
-# Verify the connector TX is in the block
-sleep 2
-if echo "$BLOCK_TXS" | jq -e ".[] | select(. == \"$CONNECTOR_TXID\")" &>/dev/null; then
-    echo -e "${GREEN}✓ Connector TX confirmed in block${NC}"
-else
-    echo -e "${RED}✗ Connector TX not in mined block${NC}"
-    echo "Connector TX info: $CONNECTOR_TXID"
-    echo -e "\nChecking mempool..."
-    MEMPOOL=$(bitcoin-cli -regtest -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_PORT getrawmempool)
-    echo "$MEMPOOL"
-    if echo "$MEMPOOL" | grep -q "$CONNECTOR_TXID"; then
-        echo -e "${YELLOW}Connector TX is in mempool but not yet mined. Mining another block...${NC}"
-        bitcoin-cli -regtest -rpcuser=$RPC_USER -rpcpassword=$RPC_PASS -rpcport=$RPC_PORT generatetoaddress 1 "$MINING_ADDR" &>/dev/null
-        sleep 2
-    else
-        echo -e "${RED}Connector TX not in mempool or blockchain${NC}"
-        exit 1
+# Wait for indexer to discover and process the block
+echo -n "  Waiting for indexer to process"
+ALICE_BAL_NODE1=""
+for i in {1..60}; do
+    ALICE_BAL_NODE1=$(curl -s "http://localhost:8083/accounts/${ALICE_PK}" | jq -r '.balance // "null"')
+    if [ "$ALICE_BAL_NODE1" != "null" ] && [ "$ALICE_BAL_NODE1" != "0" ] && [ -n "$ALICE_BAL_NODE1" ]; then
+        echo ""
+        break
     fi
-fi
+    echo -n "."
+    sleep 2
+done
 
-# Stop Node 1 now that transactions are confirmed
-kill $NODE1_PID 2>/dev/null || true
-sleep 1
-echo -e "${GREEN}✓ Node 1 stopped${NC}"
+echo -e "  Alice balance on Node 1: ${ALICE_BAL_NODE1}"
 
-echo -e "${GREEN}✓ Sub-block and connector TX confirmed in blockchain${NC}"
-
-echo -e "${YELLOW}[9/9] Starting Node 2 (IBD node with fresh databases)...${NC}"
-./target/release/coins-publisher --config /tmp/node2/publisher.toml > /tmp/publisher-node2.log 2>&1 &
-NODE2_PID=$!
-
-# Wait for Node 2 to start and perform IBD
-sleep 5
-if ! kill -0 $NODE2_PID 2>/dev/null; then
-    echo -e "${RED}✗ Node 2 failed to start${NC}"
-    tail -20 /tmp/publisher-node2.log
+if [ "$ALICE_BAL_NODE1" == "null" ] || [ "$ALICE_BAL_NODE1" == "0" ] || [ -z "$ALICE_BAL_NODE1" ]; then
+    echo -e "${RED}✗ Alice balance not found on Node 1${NC}"
+    echo "Indexer logs:"
+    tail -30 /tmp/node1/indexer.log
     exit 1
 fi
+echo -e "${GREEN}✓ Transaction confirmed on Node 1${NC}\n"
+
+echo -e "${YELLOW}[10/11] Stopping Node 1 and starting Node 2 (fresh IBD)...${NC}"
+kill $NODE1_PUBLISHER_PID 2>/dev/null || true
+kill $NODE1_INDEXER_PID 2>/dev/null || true
+sleep 2
+echo -e "  ${GREEN}✓ Node 1 stopped${NC}"
+
+# Create Node 2 configuration (different ports and databases)
+cat > /tmp/node2/indexer.toml <<EOF
+subchain = "${SUBCHAIN_FILE}"
+wallet_name = "coins-indexer"
+
+[database]
+state_db = "/tmp/node2/state.db"
+indexer_db = "/tmp/node2/indexer.db"
+
+[bitcoin]
+rpc_url = "http://localhost:${RPC_PORT}"
+rpc_user = "${RPC_USER}"
+rpc_pass = "${RPC_PASS}"
+network = "regtest"
+
+[server]
+api_port = 8084
+host = "0.0.0.0"
+
+[genesis]
+genesis_pk = "${GENESIS_PK}"
+genesis_balance = 1000000000000
+EOF
+
+cat > /tmp/node2/publisher.toml <<EOF
+rpc_url = "http://localhost:${RPC_PORT}"
+rpc_user = "${RPC_USER}"
+rpc_pass = "${RPC_PASS}"
+rpc_wallet = "coins-publisher"
+subchain = "${SUBCHAIN_FILE}"
+keyfile = "${KEYS_DIR}/publisher_sk.hex"
+interval = 30
+network = "regtest"
+indexer_url = "http://localhost:8084"
+api_port = 8081
+publish_format = "op_return"
+fee_rate_sat_per_vb = 4
+EOF
+
+# Start Node 2 indexer
+./target/release/coins-indexer --config /tmp/node2/indexer.toml > /tmp/node2/indexer.log 2>&1 &
+NODE2_INDEXER_PID=$!
+echo -n "  Starting Node 2 indexer"
+for i in {1..30}; do
+    if curl -s http://localhost:8084/health &>/dev/null; then
+        echo ""
+        break
+    fi
+    echo -n "."
+    sleep 1
+done
+
+if ! curl -s http://localhost:8084/health &>/dev/null; then
+    echo -e "\n${RED}✗ Node 2 indexer failed to start${NC}"
+    tail -20 /tmp/node2/indexer.log
+    exit 1
+fi
+echo -e "  ${GREEN}✓ Node 2 indexer running (PID: $NODE2_INDEXER_PID, port 8084)${NC}"
+
+# Start Node 2 publisher
+./target/release/coins-publisher --config /tmp/node2/publisher.toml > /tmp/node2/publisher.log 2>&1 &
+NODE2_PUBLISHER_PID=$!
+echo -n "  Starting Node 2 publisher"
+for i in {1..30}; do
+    if curl -s http://localhost:8081/health &>/dev/null; then
+        echo ""
+        break
+    fi
+    echo -n "."
+    sleep 1
+done
 
 if ! curl -s http://localhost:8081/health &>/dev/null; then
-    echo -e "${RED}✗ Node 2 API not responding${NC}"
+    echo -e "\n${RED}✗ Node 2 publisher failed to start${NC}"
+    tail -20 /tmp/node2/publisher.log
     exit 1
 fi
+echo -e "  ${GREEN}✓ Node 2 publisher running (PID: $NODE2_PUBLISHER_PID, port 8081)${NC}"
+echo -e "${GREEN}✓ Node 2 running (fresh databases)${NC}\n"
 
-echo -e "${GREEN}✓ Node 2 running (PID: $NODE2_PID, API: 8081)${NC}"
+echo -e "${YELLOW}[11/11] Verifying IBD sync...${NC}"
+# Wait for Node 2 to perform IBD and discover Alice's account
+echo -n "  Waiting for IBD to complete"
+ALICE_BAL_NODE2=""
+for i in {1..90}; do
+    ALICE_BAL_NODE2=$(curl -s "http://localhost:8084/accounts/${ALICE_PK}" | jq -r '.balance // "null"')
+    if [ "$ALICE_BAL_NODE2" != "null" ] && [ "$ALICE_BAL_NODE2" != "0" ] && [ -n "$ALICE_BAL_NODE2" ]; then
+        echo ""
+        break
+    fi
+    echo -n "."
+    sleep 2
+done
 
-echo -e "${YELLOW}Waiting for IBD to complete and verifying state...${NC}"
-sleep 30
+echo -e "  Alice balance on Node 2: ${ALICE_BAL_NODE2}"
 
-# Expected balance (from submit_txs example - transfers 100 from Alice to Bob)
-EXPECTED_BOB_BALANCE=100
-
-# Get Node 2's state
-BOB_STATE_NODE2=$(curl -s http://localhost:8081/account/$BOB_PK)
-BOB_BALANCE_NODE2=$(echo "$BOB_STATE_NODE2" | jq -r '.balance')
-
-GENESIS_STATE_NODE2=$(curl -s http://localhost:8081/account/$GENESIS_PK)
-GENESIS_BALANCE_NODE2=$(echo "$GENESIS_STATE_NODE2" | jq -r '.balance')
-
+# Verify balances match
 echo ""
-echo "Expected: Bob balance = $EXPECTED_BOB_BALANCE"
-echo "Node 2 (IBD):  Bob balance = $BOB_BALANCE_NODE2"
-echo ""
+echo -e "  Expected (from Node 1): ${ALICE_BAL_NODE1}"
+echo -e "  Got (from Node 2 IBD): ${ALICE_BAL_NODE2}"
 
-# Verify balance matches expected
-if [ "$EXPECTED_BOB_BALANCE" != "$BOB_BALANCE_NODE2" ]; then
-    echo -e "${RED}✗ IBD FAILED: Bob balance mismatch${NC}"
-    echo "Expected: $EXPECTED_BOB_BALANCE"
-    echo "Got:      $BOB_BALANCE_NODE2"
+if [ "$ALICE_BAL_NODE2" == "null" ] || [ "$ALICE_BAL_NODE2" == "0" ] || [ -z "$ALICE_BAL_NODE2" ]; then
+    echo -e "${RED}✗ IBD FAILED: Node 2 did not sync Alice's balance${NC}"
     echo ""
-    echo "Node 2 logs:"
-    tail -100 /tmp/publisher-node2.log
+    echo "Node 2 indexer logs:"
+    tail -50 /tmp/node2/indexer.log
     exit 1
 fi
 
-if [ "$BOB_BALANCE_NODE2" == "null" ] || [ "$BOB_BALANCE_NODE2" == "0" ] || [ -z "$BOB_BALANCE_NODE2" ]; then
-    echo -e "${RED}✗ IBD FAILED: Node 2 did not sync transactions (Bob balance: $BOB_BALANCE_NODE2)${NC}"
-    echo "Node 2 logs:"
-    tail -100 /tmp/publisher-node2.log
+if [ "$ALICE_BAL_NODE1" != "$ALICE_BAL_NODE2" ]; then
+    echo -e "${RED}✗ IBD FAILED: Balance mismatch${NC}"
+    echo "Node 1: $ALICE_BAL_NODE1"
+    echo "Node 2: $ALICE_BAL_NODE2"
     exit 1
 fi
 
-echo -e "${GREEN}✓ State verification passed${NC}"
-echo -e "${GREEN}✓ Bob balance consistent: $BOB_BALANCE_NODE2${NC}"
-echo -e "${GREEN}✓ Genesis balance on Node 2: $GENESIS_BALANCE_NODE2${NC}"
+echo -e "${GREEN}✓ Balances match!${NC}"
 
 # Cleanup
-kill $NODE2_PID 2>/dev/null || true
+kill $NODE2_PUBLISHER_PID 2>/dev/null || true
+kill $NODE2_INDEXER_PID 2>/dev/null || true
 
 echo ""
 echo -e "${GREEN}========================================${NC}"
-echo -e "${GREEN}   IBD E2E Test PASSED ✓${NC}"
+echo -e "${GREEN}   IBD E2E Test PASSED${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo ""
 echo "Node 2 successfully synced sub-blocks via IBD"
-echo "Both nodes have consistent state"
+echo "Both nodes have consistent state (Alice balance: $ALICE_BAL_NODE2)"
