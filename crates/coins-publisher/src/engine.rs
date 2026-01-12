@@ -2,7 +2,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use anyhow::Result;
 use bitcoin::{Address, Amount, Network, OutPoint, PrivateKey, Txid, CompressedPublicKey};
-use bitcoin::secp256k1::{Secp256k1, SecretKey};
+use bitcoin::secp256k1::{Secp256k1, SecretKey, XOnlyPublicKey};
+use bitcoin::key::Keypair;
 use coins_subchain::Subchain;
 use std::str::FromStr;
 use crate::api::AppState;
@@ -80,7 +81,24 @@ impl Engine {
         let secp = Secp256k1::new();
         let pk = PrivateKey::new(fee_sk, network);
         let fee_pk = CompressedPublicKey::from_private_key(&secp, &pk).expect("private key");
-        let fee_addr = Address::p2wpkh(&fee_pk, network);
+
+        // Choose address type based on publish format:
+        // - TaprootAnnex requires P2TR (segwit v1) for the annex feature
+        // - OpReturn and others use P2WPKH (segwit v0)
+        let fee_addr = match &publish_mode {
+            PublishMode::Single(PublishFormat::TaprootAnnex) |
+            PublishMode::Dual { primary: PublishFormat::TaprootAnnex, .. } |
+            PublishMode::Dual { secondary: PublishFormat::TaprootAnnex, .. } => {
+                // Create P2TR address for Taproot annex compatibility
+                let keypair = Keypair::from_secret_key(&secp, &fee_sk);
+                let (x_only_pk, _parity) = XOnlyPublicKey::from_keypair(&keypair);
+                Address::p2tr(&secp, x_only_pk, None, network)
+            }
+            _ => {
+                // Use P2WPKH for OP_RETURN and other formats
+                Address::p2wpkh(&fee_pk, network)
+            }
+        };
 
         // ---------- publisher BLS secret key ----------
         let publisher_sk = if bls_key_file.exists() {
