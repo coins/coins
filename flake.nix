@@ -31,6 +31,7 @@
             # Script utilities
             jq
             curl
+            lsof
           ];
 
           shellHook = ''

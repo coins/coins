@@ -118,8 +118,25 @@ fn main() -> Result<()> {
     let value_sat: u64 = value_input.trim().parse().map_err(|_| anyhow!("value must be a number"))?;
     let value = Amount::from_sat(value_sat);
 
+    println!("\nEnter the block height where the funding transaction was confirmed (optional, press ENTER to skip):");
+    print!("> ");
+    io::stdout().flush().unwrap();
+    let mut height_input = String::new();
+    io::stdin().read_line(&mut height_input)?;
+    let genesis_height: Option<u32> = if height_input.trim().is_empty() {
+        None
+    } else {
+        Some(height_input.trim().parse().map_err(|_| anyhow!("block height must be a number"))?)
+    };
+
     println!("\nBuilding subchain…");
-    let sc = Subchain::generate_with_private_key(config.count, outpoint, value, network, &pk);
+    let mut sc = Subchain::generate_with_private_key(config.count, outpoint, value, network, &pk);
+
+    // Set genesis height if provided (optimizes indexer scanning)
+    if let Some(height) = genesis_height {
+        sc.set_genesis_height(height);
+        println!("Genesis height set to: {}", height);
+    }
 
     let blob = sc.encode();
     fs::write(&config.output, &blob)?;

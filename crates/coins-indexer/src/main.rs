@@ -116,8 +116,22 @@ async fn main() -> Result<()> {
         }
     });
 
-    // Create application state (no RPC access needed anymore)
-    let app_state = AppState::new(state, indexer.clone());
+    // Start confirmation status update task
+    let indexer_confirm = indexer.clone();
+    let rpc_backend_confirm = rpc_backend.clone();
+    let subchain_confirm = subchain.clone();
+    tokio::spawn(async move {
+        if let Err(e) = coins_indexer::discovery::update_confirmation_statuses(
+            indexer_confirm,
+            rpc_backend_confirm,
+            subchain_confirm,
+        ).await {
+            tracing::error!("Confirmation status update task failed: {}", e);
+        }
+    });
+
+    // Create application state
+    let app_state = AppState::new(state, indexer.clone(), rpc_backend.clone(), config.bitcoin.network.clone());
 
     // Create router
     let app = create_router(app_state)

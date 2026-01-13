@@ -138,6 +138,16 @@ impl Indexer {
         Ok(())
     }
 
+    /// Get the latest sub-chain height
+    pub fn get_latest_height(&self) -> Result<Option<u32>, IndexerError> {
+        if let Some(bytes) = self.metadata.get(b"latest_height")? {
+            let height = u32::from_le_bytes(bytes.as_ref().try_into().unwrap());
+            Ok(Some(height))
+        } else {
+            Ok(None)
+        }
+    }
+
     /// Index a new sub-block at the given Bitcoin height
     pub fn index_block(
         &self,

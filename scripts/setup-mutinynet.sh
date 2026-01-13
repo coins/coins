@@ -113,7 +113,11 @@ while true; do
 done
 
 echo -e "${BLUE}→ Generating subchain file...${NC}"
-printf "%s\n%s\n" "${UTXO_OUTPOINT}" "${UTXO_VALUE}" | \
+
+# Get current block height for genesis_height optimization
+GENESIS_HEIGHT=$(bitcoin-cli -signet -rpcconnect="${RPC_HOST}" -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport="${RPC_PORT}" getblockcount)
+
+printf "%s\n%s\n%s\n" "${UTXO_OUTPOINT}" "${UTXO_VALUE}" "${GENESIS_HEIGHT}" | \
     ./target/release/subchain-setup --config /tmp/subchain_mutinynet.toml &>/dev/null
 
 # Create symlink to latest subchain
@@ -176,10 +180,10 @@ echo -e "${YELLOW}[9/10] Checking publisher funding...${NC}"
 # Extract publisher address from logs (wait for publisher to initialize)
 echo -n "Waiting for publisher to initialize"
 PUBLISHER_ADDR=""
-for i in {1..30}; do
-    # Strip ANSI codes and extract address (tb1... format for testnet/signet)
-    PUBLISHER_ADDR=$(grep "Publisher initialized" "${NETWORK_DIR}/logs/publisher.log" 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' | grep -oE 'publisher_address=(tb1[a-z0-9]+)' | cut -d= -f2 | head -1)
-    if [ -n "$PUBLISHER_ADDR" ]; then
+for i in {1..120}; do
+    # Query publisher API for its address
+    PUBLISHER_ADDR=$(curl -s http://localhost:8082/address 2>/dev/null | jq -r '.address' 2>/dev/null)
+    if [ -n "$PUBLISHER_ADDR" ] && [ "$PUBLISHER_ADDR" != "null" ] && [ "$PUBLISHER_ADDR" != "" ]; then
         echo ""
         break
     fi
@@ -187,9 +191,9 @@ for i in {1..30}; do
     sleep 1
 done
 
-if [ -z "$PUBLISHER_ADDR" ]; then
+if [ -z "$PUBLISHER_ADDR" ] || [ "$PUBLISHER_ADDR" == "null" ] || [ "$PUBLISHER_ADDR" == "" ]; then
     echo ""
-    echo -e "${RED}✗ Could not determine publisher address from logs${NC}"
+    echo -e "${RED}✗ Could not get publisher address from API${NC}"
     echo -e "${YELLOW}Last 20 lines of publisher log:${NC}"
     tail -20 "${NETWORK_DIR}/logs/publisher.log"
     exit 1

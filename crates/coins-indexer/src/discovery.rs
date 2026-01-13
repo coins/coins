@@ -87,9 +87,9 @@ pub async fn discover_blocks_loop(
                     break; // Stop checking further anchors
                 }
                 Some(output_status) if !output_status.spent => {
-                    // Anchor exists but not spent yet
-                    tracing::debug!(anchor_idx = idx, "Anchor not spent yet");
-                    break; // Stop checking further anchors
+                    // Anchor exists but not spent yet - publisher may skip it
+                    tracing::debug!(anchor_idx = idx, "Anchor not spent yet, checking next");
+                    continue; // Check next anchor (publisher may skip anchors)
                 }
                 Some(_) => {
                     // Anchor is spent! Find the spending transaction
@@ -281,6 +281,7 @@ pub async fn scan_historical_anchors(
     }
 
     // Check each anchor transaction
+    // Anchors are always used sequentially, so we can stop at the first unbroadcast one
     let anchor_txs = subchain.reconstruct_txs();
     let mut indexed_count = 0;
     let mut skipped_count = 0;
@@ -291,6 +292,15 @@ pub async fn scan_historical_anchors(
 
         // Check if anchor exists and is spent
         let status = rpc_backend.get_output_status(&anchor_txid, 1).await?;
+
+        // If anchor was never broadcast, stop scanning (anchors are sequential)
+        if status.is_none() {
+            tracing::debug!(
+                anchor_idx = idx,
+                "Anchor not broadcast yet, stopping IBD scan (anchors are sequential)"
+            );
+            break;
+        }
 
         if let Some(output_status) = status {
             if output_status.spent {
@@ -346,4 +356,139 @@ pub async fn scan_historical_anchors(
     );
 
     Ok(())
+}
+
+/// Background task to update btc_height for blocks that were initially discovered in mempool
+pub async fn update_confirmation_statuses(
+    indexer: Arc<Indexer>,
+    rpc_backend: Arc<RpcBackend>,
+    subchain: Arc<Subchain>,
+) -> Result<()> {
+    tracing::info!("Starting confirmation status update task");
+
+    loop {
+        tokio::time::sleep(Duration::from_secs(30)).await;
+
+        // Get all blocks from indexer
+        let latest_height = match indexer.get_latest_height() {
+            Ok(Some(h)) => h,
+            Ok(None) => {
+                tracing::debug!("No blocks indexed yet");
+                continue;
+            }
+            Err(e) => {
+                tracing::warn!(error = ?e, "Failed to get latest height");
+                continue;
+            }
+        };
+
+        // Reconstruct anchor transactions from subchain
+        let anchor_txs = subchain.reconstruct_txs();
+
+        // Check each block for confirmation updates
+        let mut updated_count = 0;
+        let mut pending_count = 0;
+
+        for sub_chain_height in 0..=latest_height {
+            let chain_block = match indexer.get_block_by_height(sub_chain_height) {
+                Ok(Some(block)) => block,
+                Ok(None) => continue,
+                Err(e) => {
+                    tracing::warn!(
+                        sub_chain_height = sub_chain_height,
+                        error = ?e,
+                        "Failed to read block"
+                    );
+                    continue;
+                }
+            };
+
+            // Only process unconfirmed blocks (btc_height == 0)
+            if chain_block.btc_height == 0 {
+                let data_txid = chain_block.btc_txid;
+
+                // Note: We don't store which anchor was used for each block.
+                // Publishers can use anchors out of order, so sub_chain_height != anchor_idx.
+                // Solution: Search through all anchors to find which one was spent by this data_txid.
+
+                let mut found = false;
+
+                for (anchor_idx, anchor_tx) in anchor_txs.iter().enumerate() {
+                    let anchor_txid = anchor_tx.compute_txid();
+                    let anchor_outpoint = OutPoint::new(anchor_txid, 1);
+
+                    // Query for the spending transaction of this anchor
+                    match rpc_backend.get_spending_tx(&anchor_outpoint).await {
+                        Ok(Some((queried_txid, _tx, btc_height))) => {
+                            // Check if this is the transaction we're looking for
+                            if queried_txid == data_txid {
+                                found = true;
+
+                                if btc_height > 0 {
+                                    // Transaction is now confirmed! Update the height
+                                    if let Err(e) = indexer.update_btc_height(sub_chain_height, btc_height) {
+                                        tracing::error!(
+                                            sub_chain_height = sub_chain_height,
+                                            btc_height = btc_height,
+                                            data_txid = %data_txid,
+                                            anchor_idx = anchor_idx,
+                                            error = ?e,
+                                            "Failed to update btc_height"
+                                        );
+                                    } else {
+                                        tracing::info!(
+                                            sub_chain_height = sub_chain_height,
+                                            btc_height = btc_height,
+                                            data_txid = %data_txid,
+                                            anchor_idx = anchor_idx,
+                                            "Updated btc_height for confirmed block"
+                                        );
+                                        updated_count += 1;
+                                    }
+                                } else {
+                                    // Still in mempool
+                                    tracing::debug!(
+                                        sub_chain_height = sub_chain_height,
+                                        data_txid = %data_txid,
+                                        anchor_idx = anchor_idx,
+                                        "Transaction still in mempool"
+                                    );
+                                    pending_count += 1;
+                                }
+                                break; // Found it, no need to check other anchors
+                            }
+                        }
+                        Ok(None) => {
+                            // Anchor not spent yet, continue to next anchor
+                        }
+                        Err(e) => {
+                            // Error querying this anchor, log and continue
+                            tracing::debug!(
+                                anchor_idx = anchor_idx,
+                                error = ?e,
+                                "Failed to query anchor spending status"
+                            );
+                        }
+                    }
+                }
+
+                if !found {
+                    tracing::warn!(
+                        sub_chain_height = sub_chain_height,
+                        data_txid = %data_txid,
+                        "Could not find which anchor was spent by this transaction"
+                    );
+                    pending_count += 1;
+                }
+            }
+        }
+
+        if updated_count > 0 || pending_count > 0 {
+            tracing::info!(
+                updated_count = updated_count,
+                pending_count = pending_count,
+                "Confirmation status update cycle complete"
+            );
+        }
+    }
 }

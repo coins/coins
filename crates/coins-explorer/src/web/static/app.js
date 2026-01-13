@@ -4,11 +4,15 @@ class ExplorerApp {
         this.currentView = 'home';
         this.currentPage = 0;
         this.apiBase = '/api/v1';
+        this.network = 'regtest'; // Default, will be updated from API
 
         // WebSocket disabled in simple proxy mode
         // this.initWebSocket();
         document.getElementById('connection-status').textContent = '● Simple Mode';
         document.getElementById('connection-status').className = 'tag is-info';
+
+        // Fetch network info
+        this.fetchNetworkInfo();
 
         // Navigate to hash or home
         this.navigateFromHash();
@@ -20,6 +24,37 @@ class ExplorerApp {
         window.addEventListener('hashchange', () => {
             this.navigateFromHash();
         });
+    }
+
+    async fetchNetworkInfo() {
+        try {
+            const stats = await this.fetchAPI('/stats');
+            if (stats && stats.network) {
+                this.network = stats.network;
+            }
+        } catch (error) {
+            console.warn('Could not fetch network info:', error);
+        }
+    }
+
+    getBitcoinExplorerUrl(txid) {
+        // Return explorer URL based on network
+        if (!txid) return null;
+
+        switch (this.network.toLowerCase()) {
+            case 'mutinynet':
+                return `https://mutinynet.com/tx/${txid}`;
+            case 'signet':
+                return `https://mempool.space/signet/tx/${txid}`;
+            case 'testnet':
+                return `https://mempool.space/testnet/tx/${txid}`;
+            case 'mainnet':
+            case 'bitcoin':
+                return `https://mempool.space/tx/${txid}`;
+            case 'regtest':
+            default:
+                return null; // No public explorer for regtest
+        }
     }
 
     navigateFromHash() {
@@ -145,11 +180,51 @@ class ExplorerApp {
                     await this.renderHome();
             }
         } catch (error) {
-            content.innerHTML = `
-                <div class="notification is-danger">
-                    <strong>Error:</strong> ${error.message}
-                </div>
-            `;
+            if (error.message === 'INDEXER_UNAVAILABLE') {
+                content.innerHTML = `
+                    <div class="modal is-active">
+                        <div class="modal-background"></div>
+                        <div class="modal-content">
+                            <div class="box" style="max-width: 600px; margin: 0 auto;">
+                                <article class="message is-warning">
+                                    <div class="message-header">
+                                        <p>⚠️ Indexer Service Unavailable</p>
+                                    </div>
+                                    <div class="message-body">
+                                        <p><strong>The Coins indexer service is not reachable.</strong></p>
+                                        <br>
+                                        <p>This could mean:</p>
+                                        <ul style="margin-left: 1.5rem; margin-top: 0.5rem;">
+                                            <li>The indexer service is not running</li>
+                                            <li>The indexer is starting up</li>
+                                            <li>There's a network connectivity issue</li>
+                                        </ul>
+                                        <br>
+                                        <p><strong>To fix this:</strong></p>
+                                        <ol style="margin-left: 1.5rem; margin-top: 0.5rem;">
+                                            <li>Check if the indexer is running on port 8083</li>
+                                            <li>Start the indexer with: <code>./target/release/coins-indexer --config config/indexer-regtest.toml</code></li>
+                                            <li>Or run the setup script: <code>./scripts/setup-regtest.sh</code></li>
+                                        </ol>
+                                        <br>
+                                        <div style="text-align: center;">
+                                            <button class="button is-primary" onclick="location.reload()">
+                                                🔄 Retry Connection
+                                            </button>
+                                        </div>
+                                    </div>
+                                </article>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else {
+                content.innerHTML = `
+                    <div class="notification is-danger">
+                        <strong>Error:</strong> ${error.message}
+                    </div>
+                `;
+            }
         }
     }
 
@@ -518,19 +593,26 @@ class ExplorerApp {
                         <tbody>
                             ${transactions.map(tx => {
                                 let statusBadge;
+                                // Get explorer URL if we have a btc_txid (even if btc_height is 0 for mempool)
+                                const explorerUrl = tx.btc_txid ? this.getBitcoinExplorerUrl(tx.btc_txid) : null;
+                                const isClickable = explorerUrl !== null;
+                                const clickableStyle = isClickable ? 'cursor: pointer;' : '';
+                                const onclickAttr = isClickable ? `onclick="window.open('${explorerUrl}', '_blank')"` : '';
+                                const hoverAttrs = isClickable ? `onmouseover="this.style.filter='brightness(0.85)'" onmouseout="this.style.filter=''"` : '';
+
                                 if (tx.finalized) {
-                                    statusBadge = '<span class="tag is-success">Confirmed</span>';
+                                    statusBadge = `<span class="tag is-success" style="${clickableStyle}" ${onclickAttr} ${hoverAttrs} title="${isClickable ? 'View on Bitcoin explorer' : ''}">Confirmed</span>`;
                                 } else if (tx.confirmations === 0) {
                                     // Transaction is in mempool (btc_height = 0)
                                     statusBadge = `<span class="status-tooltip">
-                                           <span class="tag is-warning" style="cursor: help;">Unconfirmed</span>
-                                           <span class="tooltip-text">in mempool</span>
+                                           <span class="tag is-warning" style="cursor: help; ${clickableStyle}" ${onclickAttr} ${hoverAttrs}>Unconfirmed</span>
+                                           <span class="tooltip-text">in mempool${isClickable ? ' (click to view on Bitcoin explorer)' : ''}</span>
                                        </span>`;
                                 } else {
                                     // Transaction has some confirmations but not finalized yet
                                     statusBadge = `<span class="status-tooltip">
-                                           <span class="tag is-warning" style="cursor: help;">Unconfirmed</span>
-                                           <span class="tooltip-text">${tx.confirmations_remaining} block${tx.confirmations_remaining !== 1 ? 's' : ''} remaining</span>
+                                           <span class="tag is-warning" style="cursor: help; ${clickableStyle}" ${onclickAttr} ${hoverAttrs}>Unconfirmed</span>
+                                           <span class="tooltip-text">${tx.confirmations_remaining} block${tx.confirmations_remaining !== 1 ? 's' : ''} remaining${isClickable ? ' (click to view on Bitcoin explorer)' : ''}</span>
                                        </span>`;
                                 }
 
@@ -628,14 +710,26 @@ class ExplorerApp {
     }
 
     async fetchAPI(endpoint) {
-        const response = await fetch(this.apiBase + endpoint);
+        try {
+            const response = await fetch(this.apiBase + endpoint);
 
-        if (!response.ok) {
-            const text = await response.text();
-            throw new Error(`API Error: ${response.status} - ${text}`);
+            if (!response.ok) {
+                // Check if it's a server error (500+) which usually means indexer is down
+                if (response.status >= 500) {
+                    throw new Error('INDEXER_UNAVAILABLE');
+                }
+                const text = await response.text();
+                throw new Error(`API Error: ${response.status} - ${text}`);
+            }
+
+            return await response.json();
+        } catch (error) {
+            // Network errors (indexer completely unreachable)
+            if (error.message === 'Failed to fetch' || error.name === 'TypeError') {
+                throw new Error('INDEXER_UNAVAILABLE');
+            }
+            throw error;
         }
-
-        return await response.json();
     }
 }
 

@@ -53,10 +53,16 @@ async fn get_account_transactions(
     let pk_arr: [u8; 32] = pk_bytes.try_into().map_err(|_| StatusCode::BAD_REQUEST)?;
     let pk = G1(pk_arr);
 
-    // Get current Bitcoin height from latest indexed block
-    let current_btc_height = match state.indexer.get_latest_block() {
-        Ok(Some(block)) if block.btc_height > 0 => block.btc_height,
-        _ => 0, // If no blocks or btc_height is 0, use 0 (all unconfirmed)
+    // Get current Bitcoin blockchain height (not the latest indexed block's height)
+    let current_btc_height = match state.rpc_backend.get_current_height().await {
+        Ok(height) => height,
+        Err(_) => {
+            // Fallback to using latest indexed block if RPC fails
+            match state.indexer.get_latest_block() {
+                Ok(Some(block)) if block.btc_height > 0 => block.btc_height,
+                _ => 0,
+            }
+        }
     };
 
     let mut history = Vec::new();
@@ -95,6 +101,7 @@ async fn get_account_transactions(
                 history.push(TransactionWithStatus {
                     tx: tx.clone(),
                     btc_height: chain_block.btc_height,
+                    btc_txid: chain_block.btc_txid.to_string(),
                     confirmations,
                     finalized,
                     confirmations_remaining,
@@ -207,6 +214,7 @@ async fn get_stats(
         total_blocks,
         total_accounts,
         total_supply,
+        network: state.network.clone(),
     }))
 }
 
@@ -215,6 +223,7 @@ struct NetworkStats {
     pub total_blocks: u32,
     pub total_accounts: u64,
     pub total_supply: u64,
+    pub network: String,
 }
 
 #[derive(Serialize)]
@@ -222,6 +231,7 @@ struct TransactionWithStatus {
     #[serde(flatten)]
     pub tx: Transaction,
     pub btc_height: u32,
+    pub btc_txid: String,
     pub confirmations: u32,
     pub finalized: bool,
     pub confirmations_remaining: u32,

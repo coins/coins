@@ -494,6 +494,7 @@ impl Engine {
         let mut indexed_count = 0;
 
         // For each anchor transaction, check if its anchor was spent
+        // Anchors are always used sequentially, so we can stop at the first unbroadcast one
         for (idx, anchor_tx) in txs.iter().enumerate() {
             let anchor_txid = anchor_tx.compute_txid();
             let anchor_outpoint = OutPoint::new(anchor_txid, ANCHOR_OUTPUT_INDEX);
@@ -510,9 +511,11 @@ impl Engine {
             if anchor_status.is_none() {
                 tracing::debug!(
                     anchor_idx = idx,
-                    "Anchor not broadcast yet (anchor output doesn't exist)"
+                    "Anchor not broadcast yet, stopping IBD scan (anchors are sequential)"
                 );
-                continue; // Anchor not yet broadcast
+                // Anchors are always used sequentially, so if this one isn't broadcast,
+                // none of the subsequent ones will be either
+                break;
             }
 
             // Check if anchor is spent

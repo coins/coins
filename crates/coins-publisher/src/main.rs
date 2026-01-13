@@ -131,10 +131,12 @@ async fn main() -> anyhow::Result<()> {
     // Create state adapter for validation/serialization
     let state_adapter = StateAdapter::new(indexer_client.clone());
 
-    // Create app state
+    // Create app state (fee_addr will be set after engine initialization)
+    let fee_addr_shared = Arc::new(std::sync::Mutex::new(String::new()));
     let app_state = AppState {
         indexer: indexer_client.clone(),
         mempool: Arc::new(std::sync::Mutex::new(Vec::new())),
+        fee_addr: fee_addr_shared.clone(),
     };
     let router = router(app_state.clone());
     let api_addr = format!("0.0.0.0:{}", config.api_port);
@@ -204,6 +206,11 @@ async fn main() -> anyhow::Result<()> {
 
     // Perform Initial Block Downsync to find current anchor and fee UTXOs
     engine.ibd().await?;
+
+    // Update the shared fee_addr in AppState now that engine is initialized
+    if let Ok(mut addr) = fee_addr_shared.lock() {
+        *addr = engine.fee_addr.to_string();
+    }
 
     let total_sats: bitcoin::Amount = engine.fee_utxos.iter().map(|u| u.value).sum();
     tracing::info!(

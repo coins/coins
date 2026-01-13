@@ -131,6 +131,7 @@ pub struct TransactionWithStatus {
     #[serde(flatten)]
     pub tx: Transaction,
     pub btc_height: u32,
+    pub btc_txid: String,
     pub confirmations: u32,
     pub finalized: bool,
     pub confirmations_remaining: u32,
@@ -156,4 +157,5 @@ pub struct NetworkStats {
     pub total_blocks: u32,
     pub total_accounts: u64,
     pub total_supply: u64,
+    pub network: String,
 }

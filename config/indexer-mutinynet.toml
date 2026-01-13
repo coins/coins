@@ -12,7 +12,7 @@ indexer_db = ".data/mutinynet/indexer.db"
 rpc_url = "http://168.119.139.152:38332"
 rpc_user = "bitcoin"
 rpc_pass = "8723nasd0932n"
-network = "signet"
+network = "mutinynet"
 
 [server]
 api_port = 8083

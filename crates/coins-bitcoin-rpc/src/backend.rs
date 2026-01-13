@@ -385,10 +385,22 @@ impl RpcBackend {
 
     pub async fn get_output_status(&self, txid: &Txid, vout: u32) -> Result<Option<OutputStatus>> {
         // First check if transaction exists at all
-        let tx_exists = matches!(
+        // Try base RPC first (works with txindex or for mempool txs)
+        let tx_exists_base = matches!(
             self.rpc.call::<Option<String>>("getrawtransaction", &[json!(txid.to_string())]),
             Ok(Some(_))
         );
+
+        // If that fails, try wallet RPC (works for wallet transactions without txindex)
+        let tx_exists = if !tx_exists_base {
+            let wallet_rpc = self.wallet_rpc()?;
+            matches!(
+                wallet_rpc.call::<Option<serde_json::Value>>("gettransaction", &[json!(txid.to_string())]),
+                Ok(Some(_))
+            )
+        } else {
+            true
+        };
 
         if !tx_exists {
             // Transaction not found (never broadcast or pruned)
@@ -502,9 +514,9 @@ impl RpcBackend {
     }
 
     pub async fn get_address_transactions(&self, address: &Address) -> Result<Vec<(Txid, u32)>> {
-        // Ensure address is imported with full blockchain rescan
-        // This is needed for IBD to find historical transactions
-        self.ensure_address_imported_with_rescan(address).await?;
+        // Ensure address is imported (without rescan - it should already be imported from IBD)
+        // Use the no-rescan version since we import during discover_blocks_loop
+        self.ensure_address_imported(address).await?;
 
         let wallet_rpc = self.wallet_rpc()?;
 
@@ -545,21 +557,34 @@ impl RpcBackend {
         Ok(txs)
     }
 
-    pub async fn get_transaction(&self, txid: &Txid) -> Result<Option<Transaction>> {
+    pub async fn get_transaction(&self, txid: &Txid) -> Result<serde_json::Value> {
         // Use base RPC (doesn't need wallet)
-        let result: Result<String, _> = self.rpc.call("getrawtransaction", &[json!(txid.to_string())]);
+        // Returns verbose JSON with blockhash if confirmed
+        let result: serde_json::Value = self.rpc.call(
+            "getrawtransaction",
+            &[json!(txid.to_string()), json!(true)] // verbose=true
+        )?;
 
-        match result {
-            Ok(hex_str) => {
-                // Decode hex to Transaction
-                let bytes = hex::decode(&hex_str)
-                    .context("Failed to decode transaction hex")?;
-                let tx = bitcoin::consensus::deserialize::<Transaction>(&bytes)
-                    .context("Failed to deserialize transaction")?;
-                Ok(Some(tx))
-            }
-            Err(_) => Ok(None), // TX not found
-        }
+        Ok(result)
+    }
+
+    pub async fn get_block_by_hash(&self, blockhash: &str) -> Result<serde_json::Value> {
+        // Get block info by hash
+        let result: serde_json::Value = self.rpc.call(
+            "getblock",
+            &[json!(blockhash)]
+        )?;
+
+        Ok(result)
+    }
+
+    pub async fn get_current_height(&self) -> Result<u32> {
+        // Get current blockchain height
+        let info: serde_json::Value = self.rpc.call("getblockchaininfo", &[])?;
+        let height = info["blocks"]
+            .as_u64()
+            .ok_or_else(|| anyhow!("Missing blocks in getblockchaininfo"))?;
+        Ok(height as u32)
     }
 
     pub async fn get_spending_tx(&self, outpoint: &OutPoint) -> Result<Option<(Txid, Transaction, u32)>> {
@@ -581,10 +606,19 @@ impl RpcBackend {
         // Output is spent! Now we need to find the spending TX
         // Strategy: First check mempool, then scan confirmed blocks
 
+        // Try getrawtransaction first (works with txindex or for mempool/wallet txs)
         let tx_result: Result<serde_json::Value, _> = self.rpc.call(
             "getrawtransaction",
             &[json!(outpoint.txid.to_string()), json!(true)], // verbose=true
         );
+
+        // If that fails, try wallet RPC as fallback (works for watch-only wallet transactions)
+        let tx_result = if tx_result.is_err() {
+            let wallet_rpc = self.wallet_rpc()?;
+            wallet_rpc.call("gettransaction", &[json!(outpoint.txid.to_string())])
+        } else {
+            tx_result
+        };
 
         let outpoint_txid_str = outpoint.txid.to_string();
 

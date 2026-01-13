@@ -196,7 +196,11 @@ echo -e "  ${GREEN}✓ Found UTXO: ${UTXO_OUTPOINT} (${UTXO_VALUE} sats)${NC}"
 
 # Step 4: Generate subchain with the UTXO
 echo -e "  ${BLUE}→ Generating subchain file (${SUBCHAIN_COUNT} transactions)...${NC}"
-printf "%s\n%s\n" "${UTXO_OUTPOINT}" "${UTXO_VALUE}" | \
+
+# Get current block height for genesis_height optimization
+GENESIS_HEIGHT=$(bitcoin-cli -regtest -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport="${RPC_PORT}" getblockcount)
+
+printf "%s\n%s\n%s\n" "${UTXO_OUTPOINT}" "${UTXO_VALUE}" "${GENESIS_HEIGHT}" | \
     ./target/release/subchain-setup --config /tmp/subchain_regtest.toml &>/dev/null
 
 if [ ! -f "${SUBCHAIN_FILE}" ]; then
@@ -218,18 +222,22 @@ mkdir -p .data/regtest/logs
 ./target/release/coins-publisher --config config/publisher-regtest.toml > .data/regtest/logs/publisher_temp.log 2>&1 &
 TEMP_PUB_PID=$!
 
-# Wait for publisher to initialize and log its address
-sleep 5
-
-# Extract publisher address from log
-FEE_ADDR=$(grep "Publisher initialized" .data/regtest/logs/publisher_temp.log | grep -oE 'bcrt1[a-z0-9]+' | head -1)
+# Wait for publisher to initialize and query its address from API
+FEE_ADDR=""
+for i in {1..10}; do
+    FEE_ADDR=$(curl -s http://localhost:8082/address 2>/dev/null | jq -r '.address' 2>/dev/null)
+    if [ -n "$FEE_ADDR" ] && [ "$FEE_ADDR" != "null" ] && [ "$FEE_ADDR" != "" ]; then
+        break
+    fi
+    sleep 1
+done
 
 # Stop temporary publisher
 kill $TEMP_PUB_PID 2>/dev/null || true
 sleep 2
 
-if [ -z "$FEE_ADDR" ]; then
-    echo -e "${RED}✗ Failed to get publisher address${NC}"
+if [ -z "$FEE_ADDR" ] || [ "$FEE_ADDR" == "null" ] || [ "$FEE_ADDR" == "" ]; then
+    echo -e "${RED}✗ Failed to get publisher address from API${NC}"
     cat .data/regtest/logs/publisher_temp.log
     exit 1
 fi
