@@ -136,6 +136,10 @@ echo -e "  ${GREEN}✓ Genesis key created${NC}"
 ./target/release/coins-client --keyfile "${KEYS_DIR}/alice_sk.hex" init 2>&1 | grep -q "stored" && echo -e "  ${GREEN}✓ Alice key created${NC}" || echo -e "  ${GREEN}✓ Alice key exists${NC}"
 ./target/release/coins-client --keyfile "${KEYS_DIR}/bob_sk.hex" init 2>&1 | grep -q "stored" && echo -e "  ${GREEN}✓ Bob key created${NC}" || echo -e "  ${GREEN}✓ Bob key exists${NC}"
 
+# Initialize nonce files for client nonce tracking
+echo "0" > "${KEYS_DIR}/alice_sk.nonce"
+echo "0" > "${KEYS_DIR}/bob_sk.nonce"
+
 echo -e "${GREEN}✓ Test keypairs ready${NC}\n"
 
 echo -e "${YELLOW}[6/10] Creating wallet on remote node...${NC}"
@@ -201,25 +205,20 @@ fi
 
 echo -e "  Publisher address: ${PUBLISHER_ADDR}"
 
-# Check if publisher has enough Bitcoin for transaction fees
-# Minimum: ~50,000 sats for at least 10 publishes at 4 sat/vb
-MIN_PUBLISHER_SATS=50000
-
+# Check publisher Bitcoin balance for transaction fees
 PUBLISHER_BALANCE=$(bitcoin-cli -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcconnect="${RPC_HOST}" -rpcport="${RPC_PORT}" \
     scantxoutset start "[\"addr(${PUBLISHER_ADDR})\"]" 2>/dev/null | \
     jq -r '.total_amount * 100000000 | floor' 2>/dev/null || echo "0")
 
-if [ "$PUBLISHER_BALANCE" -ge "$MIN_PUBLISHER_SATS" ]; then
+if [ "$PUBLISHER_BALANCE" -gt 0 ]; then
     echo -e "${GREEN}✓ Publisher funded: ${PUBLISHER_BALANCE} sats${NC}\n"
 else
     echo -e "${YELLOW}⚠️  PUBLISHER FUNDING REQUIRED${NC}"
     echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo -e "The publisher needs Bitcoin to pay transaction fees.\n"
     echo -e "${BLUE}  Address: ${PUBLISHER_ADDR}${NC}"
-    echo -e "${BLUE}  Current: ${PUBLISHER_BALANCE} sats${NC}"
-    echo -e "${BLUE}  Minimum: ${MIN_PUBLISHER_SATS} sats${NC}\n"
     echo -e "${BLUE}  Faucet: https://faucet.mutinynet.com${NC}"
-    echo -e "${BLUE}  Recommended: 0.001 BTC (100,000 sats)${NC}\n"
+    echo -e "${BLUE}  Recommended: 20,000 sats (~10 publishes)${NC}\n"
     echo -e "Waiting for funding (~1 min for confirmation)..."
     echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
 
@@ -232,7 +231,7 @@ else
             scantxoutset start "[\"addr(${PUBLISHER_ADDR})\"]" 2>/dev/null | \
             jq -r '.total_amount * 100000000 | floor' 2>/dev/null || echo "0")
 
-        if [ "$PUBLISHER_BALANCE" -ge "$MIN_PUBLISHER_SATS" ]; then
+        if [ "$PUBLISHER_BALANCE" -gt 0 ]; then
             echo -e "${GREEN}✓ Publisher funded: ${PUBLISHER_BALANCE} sats${NC}\n"
             break
         fi
@@ -240,7 +239,6 @@ else
         WAIT_COUNT=$((WAIT_COUNT + 1))
         if [ $WAIT_COUNT -ge $MAX_WAIT ]; then
             echo -e "${RED}✗ Timeout waiting for publisher funding${NC}"
-            echo -e "${YELLOW}You can fund it later and restart, or continue without test account funding${NC}"
             exit 1
         fi
 

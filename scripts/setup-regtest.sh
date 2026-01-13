@@ -265,6 +265,10 @@ echo -e "  ${GREEN}✓ Genesis key created${NC}"
 ./target/release/coins-client --keyfile .data/regtest/test-keys/alice_sk.hex init 2>&1 | grep -q "stored" && echo -e "  ${GREEN}✓ Alice key created${NC}" || echo -e "  ${GREEN}✓ Alice key exists${NC}"
 ./target/release/coins-client --keyfile .data/regtest/test-keys/bob_sk.hex init 2>&1 | grep -q "stored" && echo -e "  ${GREEN}✓ Bob key created${NC}" || echo -e "  ${GREEN}✓ Bob key exists${NC}"
 
+# Initialize nonce files for client nonce tracking
+echo "0" > .data/regtest/test-keys/alice_sk.nonce
+echo "0" > .data/regtest/test-keys/bob_sk.nonce
+
 echo -e "${GREEN}✓ Test keypairs ready${NC}"
 echo ""
 

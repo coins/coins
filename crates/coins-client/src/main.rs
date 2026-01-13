@@ -147,7 +147,7 @@ async fn main() -> anyhow::Result<()> {
             let recipient_pk_arr: [u8; 32] = recipient_pk_bytes.try_into().map_err(|_| anyhow::anyhow!("invalid recipient_pk length"))?;
             let recipient_pk = G1(recipient_pk_arr);
 
-            // Fetch sender's account to get ID and nonce
+            // Fetch sender's account to get ID
             let pk = G1::from_affine(&G1Projective::generator().mul(sk.0).into());
             let pk_hex = hex::encode(pk.0);
             let client = reqwest::Client::new();
@@ -161,6 +161,19 @@ async fn main() -> anyhow::Result<()> {
                 return Ok(());
             };
 
+            // Track nonce locally in a file alongside the keyfile
+            let nonce_file = keyfile.with_extension("nonce");
+            let nonce: u32 = if nonce_file.exists() {
+                let nonce_str = fs::read_to_string(&nonce_file)?;
+                let local_nonce: u32 = nonce_str.trim().parse()?;
+                // Use the higher of local nonce or on-chain nonce
+                // (in case transactions were confirmed since last send)
+                local_nonce.max(sender_account.nonce)
+            } else {
+                // First time sending - use on-chain nonce
+                sender_account.nonce
+            };
+
             let tx = Transaction {
                 sender_id: sender_account.id.0,
                 recipient_pk,
@@ -170,7 +183,9 @@ async fn main() -> anyhow::Result<()> {
 
             let tx_bytes = encode_to_vec(&tx, bincode::config::standard())?;
 
-            let signature = sign(&sk, &tx_bytes);
+            // Sign with locally tracked nonce for replay protection
+            let msg = tx.message_to_sign(nonce);
+            let signature = sign(&sk, &msg);
 
             let client = reqwest::Client::new();
             let res = client.post(format!("{}/tx", publisher_url))
@@ -182,7 +197,10 @@ async fn main() -> anyhow::Result<()> {
                 .await?;
 
             if res.status().is_success() {
-                println!("Transaction sent successfully!");
+                // Increment and save nonce for next transaction
+                let next_nonce = nonce + 1;
+                fs::write(&nonce_file, next_nonce.to_string())?;
+                println!("Transaction sent successfully! (nonce={})", nonce);
             } else {
                 println!("Failed to send transaction: {}", res.status());
             }
