@@ -182,13 +182,14 @@ impl Engine {
     }
 
     pub async fn try_mine_subblock(&mut self) -> Result<()> {
+        // Clone transactions from mempool (don't drain yet - we'll drain after adding to recently_broadcast)
         let txs = {
-            let mut mempool = self.app_state.mempool.lock()
+            let mempool = self.app_state.mempool.lock()
                 .map_err(|_| anyhow::anyhow!("mempool lock poisoned"))?;
             if mempool.is_empty() {
                 return Ok(());
             }
-            mempool.drain(..).collect::<Vec<_>>()
+            mempool.clone()
         };
 
         tracing::info!(tx_count = txs.len(), "Mining sub-block");
@@ -278,6 +279,11 @@ impl Engine {
                 recently_broadcast.push((tx.clone(), now, btc_txid));
             }
             tracing::debug!(tx_count = sub_block.txs.len(), btc_txid = %btc_txid, "Added transactions to recently_broadcast");
+        }
+
+        // NOW drain the mempool - transactions are safely in recently_broadcast
+        if let Ok(mut mempool) = self.app_state.mempool.lock() {
+            mempool.clear();
         }
 
         // Package relay: anchor_tx + data_tx
@@ -371,6 +377,11 @@ impl Engine {
                 recently_broadcast.push((tx.clone(), now, btc_txid));
             }
             tracing::debug!(tx_count = sub_block.txs.len(), btc_txid = %btc_txid, "Added transactions to recently_broadcast");
+        }
+
+        // NOW drain the mempool - transactions are safely in recently_broadcast
+        if let Ok(mut mempool) = self.app_state.mempool.lock() {
+            mempool.clear();
         }
 
         // Broadcast primary package (critical)

@@ -192,6 +192,9 @@ class ExplorerApp {
                 case 'account':
                     await this.renderAccount(params.pk);
                     break;
+                case 'mempool':
+                    await this.renderMempool();
+                    break;
                 default:
                     await this.renderHome();
             }
@@ -249,6 +252,16 @@ class ExplorerApp {
         const latestBlock = await this.fetchAPI('/blocks/latest');
         const content = document.getElementById('content');
 
+        // Fetch pending transaction counts
+        let pendingCount = 0;
+        try {
+            const mempool = await this.fetchAPI('/mempool') || [];
+            const broadcasting = await this.fetchAPI('/recently-broadcast') || [];
+            pendingCount = mempool.length + broadcasting.length;
+        } catch (e) {
+            console.warn('Could not fetch mempool stats:', e);
+        }
+
         content.innerHTML = `
             <h1 class="title">Network Statistics</h1>
 
@@ -265,9 +278,9 @@ class ExplorerApp {
                     <div class="stat-value">${stats.total_supply || 0}</div>
                     <div class="stat-label">Total Supply</div>
                 </div>
-                <div class="stat-card">
-                    <div class="stat-value">${latestBlock ? latestBlock.height : 0}</div>
-                    <div class="stat-label">Latest Block Height</div>
+                <div class="stat-card" onclick="app.navigate('mempool')" style="cursor: pointer;">
+                    <div class="stat-value">${pendingCount}</div>
+                    <div class="stat-label">Pending Txs</div>
                 </div>
             </div>
 
@@ -435,6 +448,89 @@ class ExplorerApp {
             ` : `<div class="notification is-info">No blocks found</div>`}
 
             ${this.renderPagination(page, totalPages)}
+        `;
+    }
+
+    async renderMempool() {
+        const content = document.getElementById('content');
+
+        // Fetch both mempool and recently-broadcast
+        let mempoolTxs = [];
+        let broadcastingTxs = [];
+
+        try {
+            mempoolTxs = await this.fetchAPI('/mempool') || [];
+        } catch (e) {
+            console.warn('Could not fetch mempool:', e);
+        }
+
+        try {
+            broadcastingTxs = await this.fetchAPI('/recently-broadcast') || [];
+        } catch (e) {
+            console.warn('Could not fetch recently-broadcast:', e);
+        }
+
+        const totalPending = mempoolTxs.length + broadcastingTxs.length;
+
+        content.innerHTML = `
+            <h1 class="title">Mempool</h1>
+            <p class="subtitle">${totalPending} pending transaction${totalPending !== 1 ? 's' : ''}</p>
+
+            <h2 class="title is-4">Broadcasting (${broadcastingTxs.length})</h2>
+            <p class="help">Transactions broadcast to Bitcoin, waiting for indexer discovery</p>
+            ${this.renderMempoolTable(broadcastingTxs, 'broadcasting')}
+
+            <h2 class="title is-4" style="margin-top: 2rem;">Publishing (${mempoolTxs.length})</h2>
+            <p class="help">Transactions in publisher mempool, waiting to be mined</p>
+            ${this.renderMempoolTable(mempoolTxs, 'publishing')}
+        `;
+    }
+
+    renderMempoolTable(txs, status) {
+        if (txs.length === 0) {
+            return '<div class="notification is-light">No transactions</div>';
+        }
+
+        const statusBadge = status === 'broadcasting'
+            ? '<span class="tag is-link">Broadcasting</span>'
+            : '<span class="tag is-info">Publishing</span>';
+
+        const hasBtcTxid = status === 'broadcasting';
+
+        return `
+            <div class="box">
+                <table class="table is-fullwidth is-striped is-hoverable">
+                    <thead>
+                        <tr>
+                            <th>Sender</th>
+                            <th>Recipient</th>
+                            <th>Amount</th>
+                            <th>Fee</th>
+                            <th>Status</th>
+                            ${hasBtcTxid ? '<th>Bitcoin Txid</th>' : ''}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${txs.map(tx => {
+                            const recipientPk = tx.recipient_pk;
+                            return `
+                                <tr>
+                                    <td>Account #${tx.sender_id}</td>
+                                    <td>
+                                        <a onclick="app.navigate('account', {pk: '${recipientPk}'})" style="cursor: pointer; color: #3273dc;">
+                                            <code style="font-size: 0.85em;">${recipientPk.substring(0, 12)}...${recipientPk.substring(56)}</code>
+                                        </a>
+                                    </td>
+                                    <td><strong>${tx.amount} sats</strong></td>
+                                    <td>${tx.fee} sats</td>
+                                    <td>${statusBadge}</td>
+                                    ${hasBtcTxid ? `<td><code style="font-size: 0.75em;">${tx.btc_txid ? tx.btc_txid.substring(0, 12) + '...' : '-'}</code></td>` : ''}
+                                </tr>
+                            `;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </div>
         `;
     }
 
