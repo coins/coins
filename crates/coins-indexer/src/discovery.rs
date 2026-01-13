@@ -407,78 +407,88 @@ pub async fn update_confirmation_statuses(
             if chain_block.btc_height == 0 {
                 let data_txid = chain_block.btc_txid;
 
-                // Note: We don't store which anchor was used for each block.
-                // Publishers can use anchors out of order, so sub_chain_height != anchor_idx.
-                // Solution: Search through all anchors to find which one was spent by this data_txid.
+                // Anchors are always used sequentially, so sub_chain_height == anchor_idx
+                let anchor_idx = sub_chain_height as usize;
 
-                let mut found = false;
-
-                for (anchor_idx, anchor_tx) in anchor_txs.iter().enumerate() {
-                    let anchor_txid = anchor_tx.compute_txid();
-                    let anchor_outpoint = OutPoint::new(anchor_txid, 1);
-
-                    // Query for the spending transaction of this anchor
-                    match rpc_backend.get_spending_tx(&anchor_outpoint).await {
-                        Ok(Some((queried_txid, _tx, btc_height))) => {
-                            // Check if this is the transaction we're looking for
-                            if queried_txid == data_txid {
-                                found = true;
-
-                                if btc_height > 0 {
-                                    // Transaction is now confirmed! Update the height
-                                    if let Err(e) = indexer.update_btc_height(sub_chain_height, btc_height) {
-                                        tracing::error!(
-                                            sub_chain_height = sub_chain_height,
-                                            btc_height = btc_height,
-                                            data_txid = %data_txid,
-                                            anchor_idx = anchor_idx,
-                                            error = ?e,
-                                            "Failed to update btc_height"
-                                        );
-                                    } else {
-                                        tracing::info!(
-                                            sub_chain_height = sub_chain_height,
-                                            btc_height = btc_height,
-                                            data_txid = %data_txid,
-                                            anchor_idx = anchor_idx,
-                                            "Updated btc_height for confirmed block"
-                                        );
-                                        updated_count += 1;
-                                    }
-                                } else {
-                                    // Still in mempool
-                                    tracing::debug!(
-                                        sub_chain_height = sub_chain_height,
-                                        data_txid = %data_txid,
-                                        anchor_idx = anchor_idx,
-                                        "Transaction still in mempool"
-                                    );
-                                    pending_count += 1;
-                                }
-                                break; // Found it, no need to check other anchors
-                            }
-                        }
-                        Ok(None) => {
-                            // Anchor not spent yet, continue to next anchor
-                        }
-                        Err(e) => {
-                            // Error querying this anchor, log and continue
-                            tracing::debug!(
-                                anchor_idx = anchor_idx,
-                                error = ?e,
-                                "Failed to query anchor spending status"
-                            );
-                        }
-                    }
-                }
-
-                if !found {
+                if anchor_idx >= anchor_txs.len() {
                     tracing::warn!(
                         sub_chain_height = sub_chain_height,
                         data_txid = %data_txid,
-                        "Could not find which anchor was spent by this transaction"
+                        "Anchor index out of bounds"
                     );
                     pending_count += 1;
+                    continue;
+                }
+
+                let anchor_tx = &anchor_txs[anchor_idx];
+                let anchor_txid = anchor_tx.compute_txid();
+                let anchor_outpoint = OutPoint::new(anchor_txid, 1);
+
+                // Query for the spending transaction of this anchor
+                match rpc_backend.get_spending_tx(&anchor_outpoint).await {
+                    Ok(Some((queried_txid, _tx, btc_height))) => {
+                        // Verify this is the expected transaction
+                        if queried_txid == data_txid {
+                            if btc_height > 0 {
+                                // Transaction is now confirmed! Update the height
+                                if let Err(e) = indexer.update_btc_height(sub_chain_height, btc_height) {
+                                    tracing::error!(
+                                        sub_chain_height = sub_chain_height,
+                                        btc_height = btc_height,
+                                        data_txid = %data_txid,
+                                        anchor_idx = anchor_idx,
+                                        error = ?e,
+                                        "Failed to update btc_height"
+                                    );
+                                } else {
+                                    tracing::info!(
+                                        sub_chain_height = sub_chain_height,
+                                        btc_height = btc_height,
+                                        data_txid = %data_txid,
+                                        anchor_idx = anchor_idx,
+                                        "Updated btc_height for confirmed block"
+                                    );
+                                    updated_count += 1;
+                                }
+                            } else {
+                                // Still in mempool
+                                tracing::debug!(
+                                    sub_chain_height = sub_chain_height,
+                                    data_txid = %data_txid,
+                                    anchor_idx = anchor_idx,
+                                    "Transaction still in mempool"
+                                );
+                                pending_count += 1;
+                            }
+                        } else {
+                            tracing::warn!(
+                                sub_chain_height = sub_chain_height,
+                                expected_txid = %data_txid,
+                                actual_txid = %queried_txid,
+                                "Anchor spent by unexpected transaction"
+                            );
+                            pending_count += 1;
+                        }
+                    }
+                    Ok(None) => {
+                        // Anchor not spent yet - data_tx still in mempool
+                        tracing::debug!(
+                            sub_chain_height = sub_chain_height,
+                            data_txid = %data_txid,
+                            anchor_idx = anchor_idx,
+                            "Anchor not spent yet"
+                        );
+                        pending_count += 1;
+                    }
+                    Err(e) => {
+                        tracing::debug!(
+                            sub_chain_height = sub_chain_height,
+                            anchor_idx = anchor_idx,
+                            error = ?e,
+                            "Failed to query anchor spending status"
+                        );
+                        pending_count += 1;
+                    }
                 }
             }
         }
