@@ -1,5 +1,11 @@
 # Coins Block Explorer Configuration (Regtest)
 
+[indexer]
+# URL to indexer service API
+url = "http://localhost:8083"
+# URL to publisher service API (for mempool transactions)
+publisher_url = "http://localhost:8080"
+
 [database]
 # Path to publisher's state database (read-only, network-specific)
 state_db = ".data/regtest/state.db"

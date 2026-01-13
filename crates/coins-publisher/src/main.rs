@@ -137,6 +137,7 @@ async fn main() -> anyhow::Result<()> {
         indexer: indexer_client.clone(),
         mempool: Arc::new(std::sync::Mutex::new(Vec::new())),
         fee_addr: fee_addr_shared.clone(),
+        recently_broadcast: Arc::new(std::sync::Mutex::new(Vec::new())),
     };
     let router = router(app_state.clone());
     let api_addr = format!("0.0.0.0:{}", config.api_port);

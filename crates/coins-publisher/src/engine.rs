@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Instant;
 use anyhow::Result;
 use bitcoin::{Address, Amount, Network, OutPoint, PrivateKey, Txid, CompressedPublicKey};
 use bitcoin::secp256k1::{Secp256k1, SecretKey, XOnlyPublicKey};
@@ -268,6 +269,17 @@ impl Engine {
             format,
         ).map_err(|e| anyhow::anyhow!("Publish failed: {}", e))?;
 
+        // Add transactions to recently_broadcast IMMEDIATELY after building the tx
+        // This prevents a gap where the tx is neither in mempool nor recently_broadcast
+        let btc_txid = result.data_tx.compute_txid();
+        if let Ok(mut recently_broadcast) = self.app_state.recently_broadcast.lock() {
+            let now = Instant::now();
+            for tx in &sub_block.txs {
+                recently_broadcast.push((tx.clone(), now, btc_txid));
+            }
+            tracing::debug!(tx_count = sub_block.txs.len(), btc_txid = %btc_txid, "Added transactions to recently_broadcast");
+        }
+
         // Package relay: anchor_tx + data_tx
         if let Err(e) = self.broadcast_package(&[anchor_tx.clone(), result.data_tx.clone()]).await {
             tracing::warn!(error = %e, "Package relay failed, falling back to individual broadcasts");
@@ -349,6 +361,17 @@ impl Engine {
             self.sc.network,
             primary,
         ).map_err(|e| anyhow::anyhow!("Primary publish failed: {}", e))?;
+
+        // Add transactions to recently_broadcast IMMEDIATELY after building the tx
+        // This prevents a gap where the tx is neither in mempool nor recently_broadcast
+        let btc_txid = result_primary.data_tx.compute_txid();
+        if let Ok(mut recently_broadcast) = self.app_state.recently_broadcast.lock() {
+            let now = Instant::now();
+            for tx in &sub_block.txs {
+                recently_broadcast.push((tx.clone(), now, btc_txid));
+            }
+            tracing::debug!(tx_count = sub_block.txs.len(), btc_txid = %btc_txid, "Added transactions to recently_broadcast");
+        }
 
         // Broadcast primary package (critical)
         if let Err(e) = self.broadcast_package(&[anchor_tx.clone(), result_primary.data_tx.clone()]).await {

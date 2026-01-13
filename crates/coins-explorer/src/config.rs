@@ -19,12 +19,15 @@ pub struct ExplorerConfig {
 pub struct IndexerConfig {
     #[serde(default = "default_indexer_url")]
     pub url: String,
+    #[serde(default)]
+    pub publisher_url: Option<String>,
 }
 
 impl Default for IndexerConfig {
     fn default() -> Self {
         Self {
             url: default_indexer_url(),
+            publisher_url: None,
         }
     }
 }

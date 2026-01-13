@@ -3,6 +3,8 @@
 [indexer]
 # URL to indexer service API
 url = "http://localhost:8083"
+# URL to publisher service API (for mempool transactions)
+publisher_url = "http://localhost:8082"
 
 [database]
 # Path to explorer's transaction index database (read-write, explorer-specific, network-isolated)

@@ -43,8 +43,13 @@ async fn main() -> Result<()> {
     indexer_client.health().await?;
     tracing::info!("Connected to indexer service");
 
+    // Log publisher URL if configured
+    if let Some(ref publisher_url) = config.indexer.publisher_url {
+        tracing::info!("Publisher URL: {}", publisher_url);
+    }
+
     // Create simple proxy router
-    let app = simple_router(indexer_client);
+    let app = simple_router(indexer_client, config.indexer.publisher_url.clone());
 
     // Start server
     let addr = format!("{}:{}", config.server.host, config.server.api_port);

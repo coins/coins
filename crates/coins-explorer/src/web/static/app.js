@@ -580,10 +580,89 @@ class ExplorerApp {
         this.loadAccountTransactions(pk_hex);
     }
 
+    formatMempoolTx(tx, direction, currentPk) {
+        return {
+            sender_id: tx.sender_id,
+            recipient_pk: tx.recipient_pk,  // Already hex from publisher API
+            amount: tx.amount,
+            fee: tx.fee,
+            btc_height: 0,
+            btc_txid: null,
+            confirmations: 0,
+            finalized: false,
+            confirmations_remaining: 6,
+            direction: direction,
+            sender_pk: direction === 'outgoing' ? currentPk : null,
+            is_mempool: true
+        };
+    }
+
+    formatBroadcastingTx(tx, direction, currentPk) {
+        return {
+            sender_id: tx.sender_id,
+            recipient_pk: tx.recipient_pk,  // Already hex from publisher API
+            amount: tx.amount,
+            fee: tx.fee,
+            btc_height: 0,
+            btc_txid: tx.btc_txid,  // Now available from publisher API
+            confirmations: 0,
+            finalized: false,
+            confirmations_remaining: 6,
+            direction: direction,
+            sender_pk: direction === 'outgoing' ? currentPk : null,
+            is_broadcasting: true  // In-flight to Bitcoin
+        };
+    }
+
     async loadAccountTransactions(pk) {
         try {
-            const transactions = await this.fetchAPI(`/accounts/${pk}/transactions`);
+            // Fetch indexed transactions
+            const indexedTxs = await this.fetchAPI(`/accounts/${pk}/transactions`) || [];
             const container = document.getElementById('account-txs');
+
+            // Save scroll position before updating
+            const scrollY = window.scrollY;
+
+            // Fetch mempool and recently-broadcast transactions for this account
+            let mempoolTxs = [];
+            let broadcastingTxs = [];
+            try {
+                // Get account to find sender_id for outgoing tx lookup
+                const account = await this.fetchAPI(`/accounts/${pk}`);
+
+                if (account) {
+                    // Fetch publisher mempool (Publishing...)
+                    const sentMempool = await this.fetchAPI(`/mempool?sender_id=${account.id}`) || [];
+                    const receivedMempool = await this.fetchAPI(`/mempool?recipient_pk=${pk}`) || [];
+                    mempoolTxs = [
+                        ...sentMempool.map(tx => this.formatMempoolTx(tx, 'outgoing', pk)),
+                        ...receivedMempool.map(tx => this.formatMempoolTx(tx, 'incoming', pk))
+                    ];
+
+                    // Fetch recently-broadcast (Broadcasting...)
+                    const sentBroadcast = await this.fetchAPI(`/recently-broadcast?sender_id=${account.id}`) || [];
+                    const receivedBroadcast = await this.fetchAPI(`/recently-broadcast?recipient_pk=${pk}`) || [];
+                    broadcastingTxs = [
+                        ...sentBroadcast.map(tx => this.formatBroadcastingTx(tx, 'outgoing', pk)),
+                        ...receivedBroadcast.map(tx => this.formatBroadcastingTx(tx, 'incoming', pk))
+                    ];
+
+                    // Filter out broadcasting txs that are already indexed
+                    // Use btc_txid for deduplication
+                    const indexedTxids = new Set(
+                        indexedTxs
+                            .filter(tx => tx.btc_txid)
+                            .map(tx => tx.btc_txid)
+                    );
+                    broadcastingTxs = broadcastingTxs.filter(tx => !indexedTxids.has(tx.btc_txid));
+                }
+            } catch (mempoolError) {
+                console.warn('Could not fetch mempool/recently-broadcast:', mempoolError);
+                // Continue with just indexed txs
+            }
+
+            // Combine: indexed first, then pending txs at the bottom (broadcasting, then publishing)
+            const transactions = [...indexedTxs, ...broadcastingTxs, ...mempoolTxs];
 
             if (!transactions || transactions.length === 0) {
                 container.innerHTML = `
@@ -592,6 +671,7 @@ class ExplorerApp {
                         <p class="help">This shows all transactions involving this account (both sent and received).</p>
                     </div>
                 `;
+                window.scrollTo(0, scrollY);
                 return;
             }
 
@@ -615,17 +695,25 @@ class ExplorerApp {
                                     ? '<span class="tag is-success">Received</span>'
                                     : '<span class="tag is-danger">Sent</span>';
 
-                                // Convert byte arrays to hex strings
-                                const recipientPkHex = this.bytesToHex(tx.recipient_pk);
-                                const senderPkHex = this.bytesToHex(tx.sender_pk);
-
-                                const counterparty = isIncoming
-                                    ? `<a onclick="app.navigate('account', {pk: '${senderPkHex}'})" style="cursor: pointer; color: #3273dc;">
+                                // Handle counterparty display differently for mempool/broadcasting vs indexed txs
+                                const isPending = tx.is_mempool || tx.is_broadcasting;
+                                let counterparty;
+                                if (isPending && isIncoming) {
+                                    // Pending incoming: show sender_id since we don't have sender_pk
+                                    counterparty = `<span class="has-text-grey">From Account #${tx.sender_id}</span>`;
+                                } else if (isIncoming) {
+                                    // Indexed incoming: show sender_pk
+                                    const senderPkHex = this.bytesToHex(tx.sender_pk);
+                                    counterparty = `<a onclick="app.navigate('account', {pk: '${senderPkHex}'})" style="cursor: pointer; color: #3273dc;">
                                         <code style="font-size: 0.85em;">${senderPkHex.substring(0, 16)}...${senderPkHex.substring(56)}</code>
-                                       </a>`
-                                    : `<a onclick="app.navigate('account', {pk: '${recipientPkHex}'})" style="cursor: pointer; color: #3273dc;">
+                                       </a>`;
+                                } else {
+                                    // Outgoing: show recipient_pk (works for both pending and indexed)
+                                    const recipientPkHex = isPending ? tx.recipient_pk : this.bytesToHex(tx.recipient_pk);
+                                    counterparty = `<a onclick="app.navigate('account', {pk: '${recipientPkHex}'})" style="cursor: pointer; color: #3273dc;">
                                         <code style="font-size: 0.85em;">${recipientPkHex.substring(0, 16)}...${recipientPkHex.substring(56)}</code>
                                        </a>`;
+                                }
 
                                 // Color amount based on direction
                                 const amountColor = isIncoming ? '#23d160' : '#ff3860';
@@ -638,13 +726,25 @@ class ExplorerApp {
                                 const onclickAttr = isClickable ? `onclick="window.open('${explorerUrl}', '_blank')"` : '';
                                 const hoverAttrs = isClickable ? `onmouseover="this.style.filter='brightness(0.85)'" onmouseout="this.style.filter=''"` : '';
 
-                                if (tx.finalized) {
+                                if (tx.is_mempool) {
+                                    // Mempool transaction - in publisher mempool
+                                    statusBadge = `<span class="status-tooltip">
+                                           <span class="tag is-info" style="cursor: help;">Publishing</span>
+                                           <span class="tooltip-text">In Publisher Mempool</span>
+                                       </span>`;
+                                } else if (tx.is_broadcasting) {
+                                    // Recently broadcast - in flight to Bitcoin
+                                    statusBadge = `<span class="status-tooltip">
+                                           <span class="tag is-link" style="cursor: help;">Broadcasting</span>
+                                           <span class="tooltip-text">Broadcast to Bitcoin, waiting for indexer</span>
+                                       </span>`;
+                                } else if (tx.finalized) {
                                     statusBadge = `<span class="tag is-success" style="${clickableStyle}" ${onclickAttr} ${hoverAttrs} title="${isClickable ? 'View on Bitcoin explorer' : ''}">Confirmed</span>`;
                                 } else if (tx.confirmations === 0) {
-                                    // Transaction is in mempool (btc_height = 0)
+                                    // Transaction is in Bitcoin mempool (btc_height = 0)
                                     statusBadge = `<span class="status-tooltip">
                                            <span class="tag is-warning" style="cursor: help; ${clickableStyle}" ${onclickAttr} ${hoverAttrs}>Unconfirmed</span>
-                                           <span class="tooltip-text">in mempool${isClickable ? ' (click to view on Bitcoin explorer)' : ''}</span>
+                                           <span class="tooltip-text">in Bitcoin mempool${isClickable ? ' (click to view on Bitcoin explorer)' : ''}</span>
                                        </span>`;
                                 } else {
                                     // Transaction has some confirmations but not finalized yet
@@ -672,12 +772,21 @@ class ExplorerApp {
                         Showing ${transactions.length} transaction${transactions.length !== 1 ? 's' : ''}
                         (${transactions.filter(tx => tx.direction === 'incoming').length} received,
                         ${transactions.filter(tx => tx.direction === 'outgoing').length} sent)
-                        ${transactions.filter(tx => !tx.finalized).length > 0
-                            ? ` — ${transactions.filter(tx => !tx.finalized).length} pending finalization`
+                        ${transactions.filter(tx => tx.is_mempool).length > 0
+                            ? ` — ${transactions.filter(tx => tx.is_mempool).length} publishing`
+                            : ''}
+                        ${transactions.filter(tx => tx.is_broadcasting).length > 0
+                            ? ` — ${transactions.filter(tx => tx.is_broadcasting).length} broadcasting`
+                            : ''}
+                        ${transactions.filter(tx => !tx.finalized && !tx.is_mempool && !tx.is_broadcasting).length > 0
+                            ? ` — ${transactions.filter(tx => !tx.finalized && !tx.is_mempool && !tx.is_broadcasting).length} pending finalization`
                             : ''}
                     </p>
                 </div>
             `;
+
+            // Restore scroll position after content update
+            window.scrollTo(0, scrollY);
         } catch (error) {
             const container = document.getElementById('account-txs');
             container.innerHTML = `
