@@ -53,6 +53,14 @@ async fn get_account_transactions(
     let pk_arr: [u8; 32] = pk_bytes.try_into().map_err(|_| StatusCode::BAD_REQUEST)?;
     let pk = G1(pk_arr);
 
+    // Get account to find its ID for outgoing transaction filtering
+    let account = match state.state.get_by_pk(&pk) {
+        Ok(Some(acc)) => acc,
+        Ok(None) => return Err(StatusCode::NOT_FOUND),
+        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+    };
+    let account_id = account.id.0;
+
     // Get current Bitcoin blockchain height (not the latest indexed block's height)
     let current_btc_height = match state.rpc_backend.get_current_height().await {
         Ok(height) => height,
@@ -73,9 +81,18 @@ async fn get_account_transactions(
         let chain_block = coins_indexer::ChainBlock::deserialize(&value, &state.state)
             .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
 
-        // Find transactions involving this public key
+        // Find transactions involving this public key (both incoming and outgoing)
         for tx in &chain_block.sub_block.txs {
-            if &tx.recipient_pk == &pk {
+            // Check if this is an incoming or outgoing transaction
+            let direction = if &tx.recipient_pk == &pk {
+                Some(TransactionDirection::Incoming)
+            } else if tx.sender_id == account_id {
+                Some(TransactionDirection::Outgoing)
+            } else {
+                None
+            };
+
+            if let Some(dir) = direction {
                 // If btc_height is 0, we don't have the actual Bitcoin block height yet
                 let (confirmations, finalized, confirmations_remaining) = if chain_block.btc_height == 0 {
                     // Show as unconfirmed/in mempool until background task updates the height
@@ -98,6 +115,20 @@ async fn get_account_transactions(
                     (confs, final_status, remaining)
                 };
 
+                // Look up sender's public key from sender_id
+                let sender_pk = match state.state.get_account(coins_types::AccountId(tx.sender_id)) {
+                    Ok(Some(sender_account)) => sender_account.pk,
+                    Ok(None) => {
+                        // Sender account not found - this shouldn't happen
+                        tracing::warn!(sender_id = tx.sender_id, "Sender account not found");
+                        continue;
+                    }
+                    Err(e) => {
+                        tracing::error!(sender_id = tx.sender_id, error = ?e, "Failed to look up sender account");
+                        continue;
+                    }
+                };
+
                 history.push(TransactionWithStatus {
                     tx: tx.clone(),
                     btc_height: chain_block.btc_height,
@@ -105,6 +136,8 @@ async fn get_account_transactions(
                     confirmations,
                     finalized,
                     confirmations_remaining,
+                    direction: dir,
+                    sender_pk,
                 });
             }
         }
@@ -226,6 +259,13 @@ struct NetworkStats {
     pub network: String,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum TransactionDirection {
+    Incoming,
+    Outgoing,
+}
+
 #[derive(Serialize)]
 struct TransactionWithStatus {
     #[serde(flatten)]
@@ -235,4 +275,6 @@ struct TransactionWithStatus {
     pub confirmations: u32,
     pub finalized: bool,
     pub confirmations_remaining: u32,
+    pub direction: TransactionDirection,
+    pub sender_pk: G1,
 }

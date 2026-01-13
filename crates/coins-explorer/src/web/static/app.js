@@ -57,6 +57,22 @@ class ExplorerApp {
         }
     }
 
+    bytesToHex(bytes) {
+        // Convert byte array to hex string
+        if (Array.isArray(bytes)) {
+            return bytes.map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+        return bytes;
+    }
+
+    formatPublicKey(pk) {
+        // Format long public keys by showing first 8 and last 8 characters
+        if (typeof pk === 'string' && pk.length > 16) {
+            return pk.slice(0, 8) + '...' + pk.slice(-8);
+        }
+        return pk;
+    }
+
     navigateFromHash() {
         const hash = window.location.hash.slice(1); // Remove #
         if (!hash) {
@@ -573,7 +589,7 @@ class ExplorerApp {
                 container.innerHTML = `
                     <div class="notification is-info">
                         <p>No transaction history found for this account.</p>
-                        <p class="help">This shows transactions where this account received funds.</p>
+                        <p class="help">This shows all transactions involving this account (both sent and received).</p>
                     </div>
                 `;
                 return;
@@ -584,7 +600,8 @@ class ExplorerApp {
                     <table class="table is-fullwidth is-striped is-hoverable">
                         <thead>
                             <tr>
-                                <th>From Account</th>
+                                <th>Type</th>
+                                <th>Counterparty</th>
                                 <th>Amount</th>
                                 <th>Fee</th>
                                 <th>Status</th>
@@ -592,6 +609,27 @@ class ExplorerApp {
                         </thead>
                         <tbody>
                             ${transactions.map(tx => {
+                                // Determine type badge and counterparty display
+                                const isIncoming = tx.direction === 'incoming';
+                                const typeBadge = isIncoming
+                                    ? '<span class="tag is-success">Received</span>'
+                                    : '<span class="tag is-danger">Sent</span>';
+
+                                // Convert byte arrays to hex strings
+                                const recipientPkHex = this.bytesToHex(tx.recipient_pk);
+                                const senderPkHex = this.bytesToHex(tx.sender_pk);
+
+                                const counterparty = isIncoming
+                                    ? `<a onclick="app.navigate('account', {pk: '${senderPkHex}'})" style="cursor: pointer; color: #3273dc;">
+                                        <code style="font-size: 0.85em;">${senderPkHex.substring(0, 16)}...${senderPkHex.substring(56)}</code>
+                                       </a>`
+                                    : `<a onclick="app.navigate('account', {pk: '${recipientPkHex}'})" style="cursor: pointer; color: #3273dc;">
+                                        <code style="font-size: 0.85em;">${recipientPkHex.substring(0, 16)}...${recipientPkHex.substring(56)}</code>
+                                       </a>`;
+
+                                // Color amount based on direction
+                                const amountColor = isIncoming ? '#23d160' : '#ff3860';
+
                                 let statusBadge;
                                 // Get explorer URL if we have a btc_txid (even if btc_height is 0 for mempool)
                                 const explorerUrl = tx.btc_txid ? this.getBitcoinExplorerUrl(tx.btc_txid) : null;
@@ -618,10 +656,9 @@ class ExplorerApp {
 
                                 return `
                                     <tr>
-                                        <td>
-                                            <strong>#${tx.sender_id}</strong>
-                                        </td>
-                                        <td><strong style="color: #23d160;">${tx.amount} sats</strong></td>
+                                        <td>${typeBadge}</td>
+                                        <td>${counterparty}</td>
+                                        <td><strong style="color: ${amountColor};">${isIncoming ? '+' : '-'}${tx.amount} sats</strong></td>
                                         <td>${tx.fee} sats</td>
                                         <td>
                                             ${statusBadge}
@@ -632,9 +669,11 @@ class ExplorerApp {
                         </tbody>
                     </table>
                     <p class="help">
-                        Showing ${transactions.length} received transaction${transactions.length !== 1 ? 's' : ''}
+                        Showing ${transactions.length} transaction${transactions.length !== 1 ? 's' : ''}
+                        (${transactions.filter(tx => tx.direction === 'incoming').length} received,
+                        ${transactions.filter(tx => tx.direction === 'outgoing').length} sent)
                         ${transactions.filter(tx => !tx.finalized).length > 0
-                            ? ` (${transactions.filter(tx => !tx.finalized).length} pending finalization)`
+                            ? ` — ${transactions.filter(tx => !tx.finalized).length} pending finalization`
                             : ''}
                     </p>
                 </div>

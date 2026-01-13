@@ -127,6 +127,13 @@ impl IndexerClient {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TransactionDirection {
+    Incoming,
+    Outgoing,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct TransactionWithStatus {
     #[serde(flatten)]
     pub tx: Transaction,
@@ -135,6 +142,8 @@ pub struct TransactionWithStatus {
     pub confirmations: u32,
     pub finalized: bool,
     pub confirmations_remaining: u32,
+    pub direction: TransactionDirection,
+    pub sender_pk: G1,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
