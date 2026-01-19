@@ -39,8 +39,7 @@ impl From<DecodeError> for StateError {
 
 pub struct State {
     /// Database handle (kept alive to maintain connection)
-    #[allow(dead_code)]
-    db: Db,
+    _db: Db,
     accounts: Tree,
     pk_index: Tree,
 }
@@ -51,7 +50,7 @@ impl State {
         let db = sled::open(path)?;
         let accounts = db.open_tree(TREE_ACCOUNTS)?;
         let pk_index = db.open_tree(TREE_PK_INDEX)?;
-        Ok(Self { db, accounts, pk_index })
+        Ok(Self { _db: db, accounts, pk_index })
     }
 
     /// Generate the next AccountId atomically.

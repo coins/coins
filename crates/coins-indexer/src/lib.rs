@@ -92,8 +92,7 @@ pub enum IndexerError {
 /// Chain indexer for tracking finalized sub-blocks
 pub struct Indexer {
     /// Database handle (kept alive to maintain connection)
-    #[allow(dead_code)]
-    db: sled::Db,
+    _db: sled::Db,
     /// Tree: sub_chain_height (u32) -> ChainBlock
     pub blocks: sled::Tree,
     /// Tree: btc_txid (Txid) -> sub_chain_height (u32)
@@ -113,7 +112,7 @@ impl Indexer {
         let metadata = db.open_tree(b"metadata")?;
 
         Ok(Self {
-            db,
+            _db: db,
             blocks,
             txid_index,
             metadata,

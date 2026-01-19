@@ -76,13 +76,6 @@ impl Mempool {
         Ok(())
     }
 
-    #[allow(dead_code)]
-    pub async fn pop_batch(&self, max: usize) -> Vec<Transaction> {
-        let mut q = self.queue.write().await;
-        let n = max.min(q.len());
-        q.drain(0..n).collect()
-    }
-
     pub async fn nonce_of(&self, id: AccountId) -> Option<u32> {
         let ov = self.overlay.read().await;
         ov.get(&id).map(|acc| acc.nonce)
