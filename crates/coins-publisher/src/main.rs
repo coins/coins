@@ -143,8 +143,16 @@ async fn main() -> anyhow::Result<()> {
     let api_addr = format!("0.0.0.0:{}", config.api_port);
     tracing::info!(addr = %api_addr, "Starting API server");
     tokio::spawn(async move {
-        let listener = TcpListener::bind(&api_addr).await.unwrap();
-        axum::serve(listener, router).await.unwrap();
+        let listener = match TcpListener::bind(&api_addr).await {
+            Ok(l) => l,
+            Err(e) => {
+                tracing::error!(addr = %api_addr, error = %e, "Failed to bind API server");
+                return;
+            }
+        };
+        if let Err(e) = axum::serve(listener, router).await {
+            tracing::error!(error = %e, "API server error");
+        }
     });
 
     // ===== PARSE PUBLISHING CONFIG FIRST (before config is moved) =====

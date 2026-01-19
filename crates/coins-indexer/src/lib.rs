@@ -79,6 +79,9 @@ pub enum IndexerError {
     #[error("Database error: {0}")]
     Db(#[from] sled::Error),
 
+    #[error("Database corruption: {0}")]
+    Corruption(String),
+
     #[error("Serialization error")]
     Serialization,
 
@@ -124,7 +127,11 @@ impl Indexer {
     fn get_next_height(&self) -> Result<u32, IndexerError> {
         // Get current height from metadata, or start at 0
         let height = if let Some(bytes) = self.metadata.get(b"latest_height")? {
-            u32::from_le_bytes(bytes.as_ref().try_into().unwrap()) + 1
+            let arr: [u8; 4] = bytes.as_ref().try_into().map_err(|_| {
+                tracing::error!(len = bytes.len(), "Corrupted latest_height in database");
+                IndexerError::Corruption("corrupted latest_height".into())
+            })?;
+            u32::from_le_bytes(arr) + 1
         } else {
             0
         };
@@ -140,8 +147,11 @@ impl Indexer {
     /// Get the latest sub-chain height
     pub fn get_latest_height(&self) -> Result<Option<u32>, IndexerError> {
         if let Some(bytes) = self.metadata.get(b"latest_height")? {
-            let height = u32::from_le_bytes(bytes.as_ref().try_into().unwrap());
-            Ok(Some(height))
+            let arr: [u8; 4] = bytes.as_ref().try_into().map_err(|_| {
+                tracing::error!(len = bytes.len(), "Corrupted latest_height in database");
+                IndexerError::Corruption("corrupted latest_height".into())
+            })?;
+            Ok(Some(u32::from_le_bytes(arr)))
         } else {
             Ok(None)
         }
@@ -197,7 +207,13 @@ impl Indexer {
 
         for item in self.blocks.iter() {
             let (key, value) = item?;
-            let sub_chain_height = u32::from_le_bytes(key.as_ref().try_into().unwrap());
+            let sub_chain_height = match key.as_ref().try_into() {
+                Ok(arr) => u32::from_le_bytes(arr),
+                Err(_) => {
+                    tracing::error!(len = key.len(), "Corrupted block key in database, skipping");
+                    continue;
+                }
+            };
             let chain_block = ChainBlock::deserialize(&value, &self.state)
                 .ok_or(IndexerError::Serialization)?;
 
@@ -258,7 +274,13 @@ impl Indexer {
 
         for item in self.blocks.iter() {
             let (key, _) = item?;
-            let height = u32::from_le_bytes(key.as_ref().try_into().unwrap());
+            let height = match key.as_ref().try_into() {
+                Ok(arr) => u32::from_le_bytes(arr),
+                Err(_) => {
+                    tracing::error!(len = key.len(), "Corrupted block key in database during reorg");
+                    continue;
+                }
+            };
 
             if height >= reorg_height {
                 keys_to_remove.push(key.to_vec());
