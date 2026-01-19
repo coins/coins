@@ -153,7 +153,10 @@ Submit a signed transaction to the mempool.
 
 ## Transaction Format
 
-Transactions are 41 bytes:
+Transactions use a **hybrid format** in sub-blocks to minimize on-chain footprint:
+
+### Canonical Format (41 bytes)
+Used when the recipient is **new** (no existing account):
 
 | Field | Size | Description |
 |-------|------|-------------|
@@ -162,7 +165,19 @@ Transactions are 41 bytes:
 | amount | 4 bytes | Amount to transfer |
 | fee | 1 byte | Transaction fee |
 
-Message to sign: `tx_bytes || nonce` (45 bytes total)
+### Compact Format (13 bytes)
+Used when the recipient **already has an account**:
+
+| Field | Size | Description |
+|-------|------|-------------|
+| sender_id | 4 bytes | Sender account ID |
+| recipient_id | 4 bytes | Recipient account ID |
+| amount | 4 bytes | Amount to transfer |
+| fee | 1 byte | Transaction fee |
+
+The compact format saves 28 bytes per transaction by replacing the 32-byte public key with a 4-byte account ID. Sub-blocks automatically use compact format when possible, with a bitfield indicating which format each transaction uses.
+
+**Signing**: Transactions are always signed in canonical format. Message to sign: `tx_bytes || nonce` (45 bytes total). The nonce comes from the sender's current account state.
 
 
 ## Testing
