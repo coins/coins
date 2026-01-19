@@ -21,8 +21,6 @@ const RESCAN_POLL_INTERVAL_MS: u64 = 100;
 const MIN_UTXO_CONFIRMATIONS: usize = 1;
 /// Maximum transactions to query in listtransactions
 const MAX_TRANSACTION_HISTORY: i64 = 100_000;
-/// Getblock verbosity level for full transaction data
-const GETBLOCK_VERBOSITY_FULL: u8 = 2;
 
 /// A UTXO with confirmation status
 #[derive(Debug, Clone)]
@@ -587,161 +585,162 @@ impl RpcBackend {
         Ok(height as u32)
     }
 
+    /// Find the transaction that spent a given outpoint (anchor output[1]).
+    ///
+    /// # Data Transaction Validity Rule
+    ///
+    /// A data_tx is only considered valid if it is included in the **same Bitcoin block**
+    /// as its corresponding anchor_tx. This rule ensures:
+    ///
+    /// - **Determinism**: All nodes agree on which data_txs are valid
+    /// - **No withheld data attacks**: Publishers cannot hold back a data_tx and publish
+    ///   it later to rewrite history
+    /// - **Incentive alignment**: Publishers must use package relay (TRUC) to ensure
+    ///   anchor_tx and data_tx are mined together, or risk losing fees
+    ///
+    /// If a data_tx ends up in a different block than its anchor_tx (due to miner behavior,
+    /// network issues, etc.), it is ignored. This is the publisher's risk to manage.
+    ///
+    /// # Strategy
+    ///
+    /// 1. Check mempool first (for unconfirmed anchor+data pairs)
+    /// 2. Get the anchor_tx's block and scan only that block for the data_tx
+    /// 3. Return None if data_tx is not in the same block
+    ///
+    /// Returns (txid, transaction, block_height) where block_height is 0 for mempool txs.
     pub async fn get_spending_tx(&self, outpoint: &OutPoint) -> Result<Option<(Txid, Transaction, u32)>> {
-        // Use gettxout with verbose to check if spent
-        let result: Result<serde_json::Value, _> = self.rpc.call(
+        // Check if output is still unspent
+        let gettxout_result: Result<serde_json::Value, _> = self.rpc.call(
             "gettxout",
-            &[
-                json!(outpoint.txid.to_string()),
-                json!(outpoint.vout),
-                json!(true), // include_mempool
-            ],
+            &[json!(outpoint.txid.to_string()), json!(outpoint.vout), json!(true)],
         );
-
-        // If gettxout returns null, the output is spent
-        if result.is_ok() && !result.as_ref().unwrap().is_null() {
+        if gettxout_result.is_ok() && !gettxout_result.as_ref().unwrap().is_null() {
             return Ok(None); // Not spent yet
         }
 
-        // Output is spent! Now we need to find the spending TX
-        // Strategy: First check mempool, then scan confirmed blocks
+        // The outpoint is anchor_tx:1 (P2A anchor output).
+        // The anchor_tx itself is in the wallet (it sends to subchain address).
+        // Get the anchor_tx to find which block it's in.
+        let anchor_txid = outpoint.txid.to_string();
 
-        // Try getrawtransaction first (works with txindex or for mempool/wallet txs)
-        let tx_result: Result<serde_json::Value, _> = self.rpc.call(
+        let anchor_tx_data: serde_json::Value = match self.rpc.call(
             "getrawtransaction",
-            &[json!(outpoint.txid.to_string()), json!(true)], // verbose=true
-        );
-
-        // If that fails, try wallet RPC as fallback (works for watch-only wallet transactions)
-        let tx_result = if tx_result.is_err() {
-            let wallet_rpc = self.wallet_rpc()?;
-            wallet_rpc.call("gettransaction", &[json!(outpoint.txid.to_string())])
-        } else {
-            tx_result
+            &[json!(&anchor_txid), json!(true)],
+        ) {
+            Ok(data) => data,
+            Err(_) => return Ok(None),
         };
 
-        let outpoint_txid_str = outpoint.txid.to_string();
-
-        // First, try to find the spending tx in the mempool
-        // This handles the case where both anchor and data tx are unconfirmed
-        if let Ok(mempool) = self.rpc.call::<serde_json::Value>("getrawmempool", &[json!(true)]) {
-            if let Some(mempool_obj) = mempool.as_object() {
-                for (mempool_txid, _tx_info) in mempool_obj {
-                    // Get full transaction to check inputs
-                    if let Ok(tx_data) = self.rpc.call::<serde_json::Value>(
-                        "getrawtransaction",
-                        &[json!(mempool_txid), json!(true)],
-                    ) {
-                        if let Some(inputs) = tx_data.get("vin").and_then(|v| v.as_array()) {
-                            for input in inputs {
-                                let input_txid = input.get("txid").and_then(|v| v.as_str());
-                                let input_vout = input.get("vout").and_then(|v| v.as_u64());
-
-                                if let (Some(txid_str), Some(vout)) = (input_txid, input_vout) {
-                                    if txid_str == outpoint_txid_str && vout == outpoint.vout as u64 {
-                                        // Found the spending TX in mempool!
-                                        let spending_txid = mempool_txid
-                                            .parse::<Txid>()
-                                            .context("Failed to parse spending txid")?;
-
-                                        if let Some(hex_str) = tx_data.get("hex").and_then(|v| v.as_str()) {
-                                            let bytes = hex::decode(hex_str)
-                                                .context("Failed to decode transaction hex")?;
-                                            let spending_tx = bitcoin::consensus::deserialize::<Transaction>(&bytes)
-                                                .context("Failed to deserialize transaction")?;
-
-                                            // Return with height 0 to indicate mempool (unconfirmed)
-                                            return Ok(Some((spending_txid, spending_tx, 0)));
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+        // Check mempool first - if anchor_tx is unconfirmed, scan mempool for data_tx
+        if anchor_tx_data.get("blockhash").is_none() {
+            return self.find_spending_tx_in_mempool(outpoint).await;
         }
 
-        // Not in mempool, scan confirmed blocks
-        if let Ok(tx_data) = tx_result {
-            // Get the block containing the output being spent
-            if let Some(start_blockhash) = tx_data.get("blockhash").and_then(|v| v.as_str()) {
-                let start_block_result: Result<serde_json::Value, _> =
-                    self.rpc.call("getblock", &[json!(start_blockhash)]);
+        // Anchor is confirmed - get its block and scan for the data_tx
+        let blockhash = anchor_tx_data.get("blockhash")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing blockhash"))?;
 
-                if let Ok(start_block_data) = start_block_result {
-                    let start_height = start_block_data
-                        .get("height")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(0) as u32;
+        let block_data: serde_json::Value = self.rpc.call(
+            "getblock",
+            &[json!(blockhash), json!(2)], // verbosity 2 = full tx data
+        ).context("Failed to get block")?;
 
-                    // Get current chain height
-                    let chain_info: serde_json::Value = self.rpc.call("getblockchaininfo", &[])?;
-                    let chain_height = chain_info
-                        .get("blocks")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(0) as u32;
+        let height = block_data.get("height")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
 
-                    // Scan backwards from chain tip to start_height (anchor block)
-                    // This finds recent spending txs quickly (the common case)
-                    for scan_height in (start_height..=chain_height).rev() {
-                        // Get block hash at this height
-                        let blockhash_result: Result<String, _> =
-                            self.rpc.call("getblockhash", &[json!(scan_height)]);
+        // Scan this block for the tx that spends our outpoint
+        if let Some(txs) = block_data.get("tx").and_then(|v| v.as_array()) {
+            for tx_obj in txs {
+                if self.tx_spends_outpoint(tx_obj, outpoint) {
+                    let spending_txid = tx_obj.get("txid")
+                        .and_then(|v| v.as_str())
+                        .ok_or_else(|| anyhow!("Missing txid"))?
+                        .parse::<Txid>()
+                        .context("Failed to parse txid")?;
 
-                        if let Ok(blockhash) = blockhash_result {
-                            // Get block with all transactions
-                            let block_result: Result<serde_json::Value, _> =
-                                self.rpc.call("getblock", &[json!(blockhash), json!(GETBLOCK_VERBOSITY_FULL)]);
+                    let spending_tx = self.parse_tx_from_json(tx_obj)
+                        .context("Failed to parse transaction")?;
 
-                            if let Ok(block_data) = block_result {
-                                // Scan all transactions in this block
-                                if let Some(txs) = block_data.get("tx").and_then(|v| v.as_array()) {
-                                    for tx_obj in txs {
-                                        if let Some(inputs) = tx_obj.get("vin").and_then(|v| v.as_array()) {
-                                            for input in inputs {
-                                                let input_txid = input.get("txid").and_then(|v| v.as_str());
-                                                let input_vout = input.get("vout").and_then(|v| v.as_u64());
-
-                                                if let (Some(txid_str), Some(vout)) = (input_txid, input_vout) {
-                                                    if txid_str == outpoint_txid_str
-                                                        && vout == outpoint.vout as u64
-                                                    {
-                                                        // Found the spending TX!
-                                                        if let Some(spending_txid_str) =
-                                                            tx_obj.get("txid").and_then(|v| v.as_str())
-                                                        {
-                                                            let spending_txid = spending_txid_str
-                                                                .parse::<Txid>()
-                                                                .context("Failed to parse spending txid")?;
-
-                                                            // Parse transaction from hex in block response
-                                                            if let Some(hex_str) = tx_obj.get("hex").and_then(|v| v.as_str()) {
-                                                                let bytes = hex::decode(hex_str)
-                                                                    .context("Failed to decode transaction hex")?;
-                                                                let spending_tx = bitcoin::consensus::deserialize::<Transaction>(&bytes)
-                                                                    .context("Failed to deserialize transaction")?;
-
-                                                                return Ok(Some((
-                                                                    spending_txid,
-                                                                    spending_tx,
-                                                                    scan_height,
-                                                                )));
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    return Ok(Some((spending_txid, spending_tx, height)));
                 }
             }
         }
 
         Ok(None)
+    }
+
+    /// Search mempool for a transaction spending the given outpoint
+    async fn find_spending_tx_in_mempool(&self, outpoint: &OutPoint) -> Result<Option<(Txid, Transaction, u32)>> {
+        let mempool: serde_json::Value = match self.rpc.call("getrawmempool", &[json!(false)]) {
+            Ok(m) => m,
+            Err(_) => return Ok(None),
+        };
+
+        let Some(txids) = mempool.as_array() else {
+            return Ok(None);
+        };
+
+        for txid_val in txids {
+            let Some(txid_str) = txid_val.as_str() else {
+                continue;
+            };
+
+            let tx_data: serde_json::Value = match self.rpc.call(
+                "getrawtransaction",
+                &[json!(txid_str), json!(true)],
+            ) {
+                Ok(data) => data,
+                Err(_) => continue,
+            };
+
+            if self.tx_spends_outpoint(&tx_data, outpoint) {
+                let spending_txid = txid_str.parse::<Txid>()
+                    .context("Failed to parse txid")?;
+
+                let spending_tx = self.parse_tx_from_json(&tx_data)
+                    .context("Failed to parse transaction")?;
+
+                return Ok(Some((spending_txid, spending_tx, 0))); // height 0 = mempool
+            }
+        }
+
+        Ok(None)
+    }
+
+    /// Check if a transaction spends a specific outpoint
+    fn tx_spends_outpoint(&self, tx_data: &serde_json::Value, outpoint: &OutPoint) -> bool {
+        let Some(inputs) = tx_data.get("vin").and_then(|v| v.as_array()) else {
+            return false;
+        };
+
+        let outpoint_txid_str = outpoint.txid.to_string();
+
+        for input in inputs {
+            let input_txid = input.get("txid").and_then(|v| v.as_str());
+            let input_vout = input.get("vout").and_then(|v| v.as_u64());
+
+            if let (Some(txid_str), Some(vout)) = (input_txid, input_vout) {
+                if txid_str == outpoint_txid_str && vout == outpoint.vout as u64 {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
+    /// Parse a Bitcoin transaction from JSON RPC response
+    fn parse_tx_from_json(&self, tx_data: &serde_json::Value) -> Result<Transaction> {
+        let hex_str = tx_data.get("hex")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing hex field in transaction"))?;
+
+        let bytes = hex::decode(hex_str)
+            .context("Failed to decode transaction hex")?;
+
+        bitcoin::consensus::deserialize(&bytes)
+            .context("Failed to deserialize transaction")
     }
 }

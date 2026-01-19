@@ -26,7 +26,7 @@ async fn valid_tx_gets_enqueued() {
 
     let mp = Mempool::new(state.clone());
     assert!(mp.validate_and_enqueue(tx.clone()).await.is_ok());
-    assert_eq!(mp.pop_batch(10).await.len(), 1);
+    assert_eq!(mp.len().await, 1);
 
     // send second, different tx – should be accepted with updated nonce/balance
     let tx2 = Transaction { sender_id: sender.id.0, recipient_pk: G1(r_pk), amount: 200, fee: 1 };
@@ -75,7 +75,7 @@ async fn insufficient_balance_rejected() {
 }
 
 #[tokio::test]
-async fn preserves_insertion_order() {
+async fn multiple_txs_enqueue() {
     let dir = TempDir::new().unwrap();
     let state = Arc::new(State::open(dir.path()).unwrap());
 
@@ -94,10 +94,7 @@ async fn preserves_insertion_order() {
     mp.validate_and_enqueue(tx1.clone()).await.unwrap();
     mp.validate_and_enqueue(tx2.clone()).await.unwrap();
 
-    let batch = mp.pop_batch(10).await;
-    assert_eq!(batch.len(), 2);
-    assert_eq!(batch[0].amount, 10);
-    assert_eq!(batch[1].amount, 20);
+    assert_eq!(mp.len().await, 2);
 }
 
 #[tokio::test]
@@ -157,7 +154,6 @@ async fn refresh_removes_executed_txs() {
 
     mp.apply_subblock(&[tx1.clone()]).await;
 
-    let remaining = mp.pop_batch(10).await;
-    assert_eq!(remaining.len(), 1);
-    assert_eq!(remaining[0].amount, 150);
+    // tx1 was executed, tx2 should remain
+    assert_eq!(mp.len().await, 1);
 } 

@@ -189,6 +189,15 @@ When mining a sub-block, the publisher aggregates all individual BLS signatures 
 
 Validators deserialize the sub-block, which expands any compact transactions back to canonical format using the recipient's public key from state. For each transaction, the validator reconstructs the 45-byte signing message using the sender's current nonce from state, then verifies the aggregate BLS signature against all (public_key, message) pairs.
 
+### Data Transaction Validity Rule
+
+A data transaction (containing sub-block data) is only valid if it is included in the **same Bitcoin block** as its corresponding anchor transaction. This ensures:
+
+- **Determinism**: All nodes agree on which data transactions count
+- **No withheld data attacks**: Publishers cannot hold back a data transaction and publish it later to rewrite history
+- **Incentive alignment**: Publishers must use package relay (TRUC) to ensure both transactions are mined together
+
+If a data transaction ends up in a different block than its anchor (due to miner behavior, network issues, etc.), it is ignored. Publishers bear the risk of losing fees if their package is not mined atomically.
 
 ## Testing
 

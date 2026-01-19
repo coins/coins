@@ -81,6 +81,16 @@ impl Mempool {
         ov.get(&id).map(|acc| acc.nonce)
     }
 
+    /// Returns the number of transactions in the queue
+    pub async fn len(&self) -> usize {
+        self.queue.read().await.len()
+    }
+
+    /// Returns true if the queue is empty
+    pub async fn is_empty(&self) -> bool {
+        self.queue.read().await.is_empty()
+    }
+
     /// Re-validate all pending transactions against *current* persistent state.
     /// This should be called after a sub-block has been applied so that
     /// executed or now-invalid transactions are removed from the mempool.
