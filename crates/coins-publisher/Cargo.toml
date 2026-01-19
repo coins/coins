@@ -38,4 +38,6 @@ path = "src/main.rs"
 tokio = { version = "1", features=["macros","rt"] }
 tower = { version = "0.5", features=["util"] }
 axum = { version = "0.7", features=["json","macros"] }
-tempfile = "3" 
+tempfile = "3"
+wiremock = "0.6"
+http-body-util = "0.1" 
