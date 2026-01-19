@@ -18,6 +18,7 @@ pub fn create_router(app_state: AppState) -> Router {
         .route("/accounts/:pk/transactions", get(get_account_transactions))
         .route("/accounts/by-id/:id", get(get_account_by_id))
         .route("/blocks/latest", get(get_latest_block))
+        .route("/blocks/by-txid/:txid", get(check_txid_indexed))
         .route("/blocks/:height", get(get_block_by_height))
         .route("/blocks", get(get_blocks_range))
         .route("/stats", get(get_stats))
@@ -27,6 +28,37 @@ pub fn create_router(app_state: AppState) -> Router {
 /// Health check endpoint
 async fn health() -> impl IntoResponse {
     (StatusCode::OK, "OK")
+}
+
+/// Check if a Bitcoin txid has been indexed (returns 200 if yes, 404 if no)
+async fn check_txid_indexed(
+    AxumState(state): AxumState<AppState>,
+    Path(txid_hex): Path<String>,
+) -> impl IntoResponse {
+    tracing::debug!(txid_hex = %txid_hex, "Checking if txid is indexed");
+
+    let txid = match txid_hex.parse::<bitcoin::Txid>() {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::warn!(txid_hex = %txid_hex, error = ?e, "Invalid txid format");
+            return StatusCode::BAD_REQUEST;
+        }
+    };
+
+    match state.indexer.has_txid(&txid) {
+        Ok(true) => {
+            tracing::debug!(txid = %txid, "Txid is indexed");
+            StatusCode::OK
+        }
+        Ok(false) => {
+            tracing::debug!(txid = %txid, "Txid not found in index");
+            StatusCode::NOT_FOUND
+        }
+        Err(e) => {
+            tracing::error!(txid = %txid, error = ?e, "Error checking txid");
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
+    }
 }
 
 /// Get account by public key

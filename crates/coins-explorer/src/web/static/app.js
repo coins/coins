@@ -491,12 +491,6 @@ class ExplorerApp {
             return '<div class="notification is-light">No transactions</div>';
         }
 
-        const statusBadge = status === 'broadcasting'
-            ? '<span class="tag is-link">Broadcasting</span>'
-            : '<span class="tag is-info">Publishing</span>';
-
-        const hasBtcTxid = status === 'broadcasting';
-
         return `
             <div class="box">
                 <table class="table is-fullwidth is-striped is-hoverable">
@@ -507,12 +501,19 @@ class ExplorerApp {
                             <th>Amount</th>
                             <th>Fee</th>
                             <th>Status</th>
-                            ${hasBtcTxid ? '<th>Bitcoin Txid</th>' : ''}
                         </tr>
                     </thead>
                     <tbody>
                         ${txs.map(tx => {
                             const recipientPk = tx.recipient_pk;
+                            const explorerUrl = status === 'broadcasting' && tx.btc_txid
+                                ? this.getBitcoinExplorerUrl(tx.btc_txid)
+                                : null;
+                            const statusBadge = status === 'broadcasting'
+                                ? (explorerUrl
+                                    ? `<a href="${explorerUrl}" target="_blank" rel="noopener"><span class="tag is-link" style="cursor: pointer;">Broadcasting ↗</span></a>`
+                                    : '<span class="tag is-link">Broadcasting</span>')
+                                : '<span class="tag is-info">Publishing</span>';
                             return `
                                 <tr>
                                     <td>Account #${tx.sender_id}</td>
@@ -524,7 +525,6 @@ class ExplorerApp {
                                     <td><strong>${tx.amount} sats</strong></td>
                                     <td>${tx.fee} sats</td>
                                     <td>${statusBadge}</td>
-                                    ${hasBtcTxid ? `<td><code style="font-size: 0.75em;">${tx.btc_txid ? tx.btc_txid.substring(0, 12) + '...' : '-'}</code></td>` : ''}
                                 </tr>
                             `;
                         }).join('')}

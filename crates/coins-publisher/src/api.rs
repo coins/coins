@@ -9,9 +9,6 @@ use coins_types::Transaction;
 use coins_crypto::{G1, G2, G1_SIZE, G2_SIZE};
 use coins_indexer::IndexerClient;
 
-/// TTL for recently broadcast transactions (60 seconds)
-pub const RECENTLY_BROADCAST_TTL_SECS: u64 = 60;
-
 #[derive(Clone)]
 pub struct AppState {
     pub indexer: Arc<IndexerClient>,
@@ -207,45 +204,71 @@ async fn get_recently_broadcast(
         None
     };
 
-    // Lock recently_broadcast and filter + cleanup old entries
-    let mut recently_broadcast = match state.recently_broadcast.lock() {
-        Ok(rb) => rb,
-        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "recently_broadcast lock failed").into_response(),
+    // Get candidates from recently_broadcast (release lock quickly)
+    let candidates: Vec<(Transaction, Txid)> = {
+        let recently_broadcast = match state.recently_broadcast.lock() {
+            Ok(rb) => rb,
+            Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "recently_broadcast lock failed").into_response(),
+        };
+
+        // No TTL-based removal - we'll filter by indexer status instead
+        // Entries are removed when they're confirmed indexed
+
+        recently_broadcast
+            .iter()
+            .filter(|(tx, _timestamp, _btc_txid)| {
+                // Filter by sender_id if provided
+                if let Some(sender_id) = query.sender_id {
+                    if tx.sender_id != sender_id {
+                        return false;
+                    }
+                }
+                // Filter by recipient_pk if provided
+                if let Some(ref pk) = recipient_pk_filter {
+                    if tx.recipient_pk != *pk {
+                        return false;
+                    }
+                }
+                true
+            })
+            .map(|(tx, _timestamp, btc_txid)| (tx.clone(), *btc_txid))
+            .collect()
     };
 
-    // Remove entries older than TTL
-    let now = Instant::now();
-    recently_broadcast.retain(|(_, timestamp, _)| {
-        now.duration_since(*timestamp).as_secs() < RECENTLY_BROADCAST_TTL_SECS
-    });
-
-    let filtered: Vec<RecentlyBroadcastTxResponse> = recently_broadcast
-        .iter()
-        .filter(|(tx, _timestamp, _btc_txid)| {
-            // Filter by sender_id if provided
-            if let Some(sender_id) = query.sender_id {
-                if tx.sender_id != sender_id {
-                    return false;
-                }
+    // Filter out transactions already indexed (check async without holding lock)
+    let mut results = Vec::new();
+    for (tx, btc_txid) in candidates {
+        // Check if indexer has already seen this txid
+        let is_indexed = match state.indexer.is_txid_indexed(&btc_txid.to_string()).await {
+            Ok(indexed) => {
+                tracing::debug!(
+                    btc_txid = %btc_txid,
+                    indexed = indexed,
+                    "Checked txid indexed status"
+                );
+                indexed
             }
-            // Filter by recipient_pk if provided
-            if let Some(ref pk) = recipient_pk_filter {
-                if tx.recipient_pk != *pk {
-                    return false;
-                }
+            Err(e) => {
+                tracing::warn!(
+                    btc_txid = %btc_txid,
+                    error = ?e,
+                    "Failed to check if txid is indexed, assuming not indexed"
+                );
+                false
             }
-            true
-        })
-        .map(|(tx, _timestamp, btc_txid)| RecentlyBroadcastTxResponse {
-            sender_id: tx.sender_id,
-            recipient_pk: hex::encode(tx.recipient_pk.0),
-            amount: tx.amount,
-            fee: tx.fee,
-            btc_txid: btc_txid.to_string(),
-        })
-        .collect();
+        };
+        if !is_indexed {
+            results.push(RecentlyBroadcastTxResponse {
+                sender_id: tx.sender_id,
+                recipient_pk: hex::encode(tx.recipient_pk.0),
+                amount: tx.amount,
+                fee: tx.fee,
+                btc_txid: btc_txid.to_string(),
+            });
+        }
+    }
 
-    Json(filtered).into_response()
+    Json(results).into_response()
 }
 
 pub fn router(state: AppState) -> Router {

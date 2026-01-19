@@ -67,7 +67,7 @@ pub async fn discover_blocks_loop(
     tracing::info!("Starting continuous block discovery loop");
 
     loop {
-        tokio::time::sleep(Duration::from_secs(10)).await;
+        tokio::time::sleep(Duration::from_secs(3)).await;
 
         // Get all anchor transactions
         let anchor_txs = subchain.reconstruct_txs();

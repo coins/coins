@@ -178,6 +178,12 @@ impl Indexer {
 
         // Index by txid -> sub_chain_height
         let txid_key: &[u8] = btc_txid.as_ref();
+        tracing::debug!(
+            btc_txid = %btc_txid,
+            txid_key_hex = hex::encode(txid_key),
+            sub_chain_height = sub_chain_height,
+            "Indexing txid"
+        );
         self.txid_index.insert(txid_key, &sub_chain_height.to_le_bytes())?;
 
         // Update latest height
@@ -229,6 +235,19 @@ impl Indexer {
         } else {
             Ok(None)
         }
+    }
+
+    /// Check if a Bitcoin txid has been indexed
+    pub fn has_txid(&self, btc_txid: &Txid) -> Result<bool, IndexerError> {
+        let txid_key: &[u8] = btc_txid.as_ref();
+        let exists = self.txid_index.contains_key(txid_key)?;
+        tracing::debug!(
+            btc_txid = %btc_txid,
+            txid_key_hex = hex::encode(txid_key),
+            exists = exists,
+            "has_txid check"
+        );
+        Ok(exists)
     }
 
     /// Handle blockchain reorganization by removing blocks from the given height onward

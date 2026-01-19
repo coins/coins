@@ -131,6 +131,13 @@ impl IndexerClient {
         Ok(stats)
     }
 
+    /// Check if a Bitcoin txid has been indexed
+    pub async fn is_txid_indexed(&self, btc_txid: &str) -> Result<bool> {
+        let url = format!("{}/blocks/by-txid/{}", self.base_url, btc_txid);
+        let response = self.client.get(&url).send().await?;
+        Ok(response.status().is_success())
+    }
+
     /// Get account transaction history
     pub async fn get_account_transactions(&self, pk: &G1) -> Result<Vec<TransactionWithStatus>> {
         let pk_hex = hex::encode(pk.0);
