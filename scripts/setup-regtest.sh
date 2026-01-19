@@ -225,7 +225,7 @@ TEMP_PUB_PID=$!
 # Wait for publisher to initialize and query its address from API
 FEE_ADDR=""
 for i in {1..10}; do
-    FEE_ADDR=$(curl -s http://localhost:8082/address 2>/dev/null | jq -r '.address' 2>/dev/null)
+    FEE_ADDR=$(curl -s http://localhost:8080/address 2>/dev/null | jq -r '.address' 2>/dev/null)
     if [ -n "$FEE_ADDR" ] && [ "$FEE_ADDR" != "null" ] && [ "$FEE_ADDR" != "" ]; then
         break
     fi
