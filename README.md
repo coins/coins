@@ -179,6 +179,16 @@ The compact format saves 28 bytes per transaction by replacing the 32-byte publi
 
 **Signing**: Transactions are always signed in canonical format. Message to sign: `tx_bytes || nonce` (45 bytes total). The nonce comes from the sender's current account state.
 
+### Signature Aggregation and Verification
+
+The compact format only affects transaction *serialization* - signatures are always computed and verified against the canonical 41-byte format.
+
+Clients submit a 41-byte canonical transaction along with its BLS signature to the publisher. The signature covers the transaction bytes concatenated with the sender's current nonce (45 bytes total). The publisher stores transactions and their individual signatures in a mempool until mining.
+
+When mining a sub-block, the publisher aggregates all individual BLS signatures into a single 64-byte aggregate signature and serializes the transactions using compact format where possible. The sub-block (transactions + aggregate signature + publisher public key) is then published to Bitcoin.
+
+Validators deserialize the sub-block, which expands any compact transactions back to canonical format using the recipient's public key from state. For each transaction, the validator reconstructs the 45-byte signing message using the sender's current nonce from state, then verifies the aggregate BLS signature against all (public_key, message) pairs.
+
 
 ## Testing
 
