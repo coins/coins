@@ -66,9 +66,7 @@ async fn get_account(
     AxumState(state): AxumState<AppState>,
     Path(pk_hex): Path<String>,
 ) -> Result<Json<Account>, StatusCode> {
-    let pk_bytes = hex::decode(&pk_hex).map_err(|_| StatusCode::BAD_REQUEST)?;
-    let pk_arr: [u8; 32] = pk_bytes.try_into().map_err(|_| StatusCode::BAD_REQUEST)?;
-    let pk = G1(pk_arr);
+    let pk = G1::from_hex(&pk_hex).map_err(|_| StatusCode::BAD_REQUEST)?;
 
     match state.state.get_by_pk(&pk) {
         Ok(Some(account)) => Ok(Json(account)),
@@ -96,9 +94,7 @@ async fn get_account_transactions(
     AxumState(state): AxumState<AppState>,
     Path(pk_hex): Path<String>,
 ) -> Result<Json<Vec<TransactionWithStatus>>, StatusCode> {
-    let pk_bytes = hex::decode(&pk_hex).map_err(|_| StatusCode::BAD_REQUEST)?;
-    let pk_arr: [u8; 32] = pk_bytes.try_into().map_err(|_| StatusCode::BAD_REQUEST)?;
-    let pk = G1(pk_arr);
+    let pk = G1::from_hex(&pk_hex).map_err(|_| StatusCode::BAD_REQUEST)?;
 
     // Get account to find its ID for outgoing transaction filtering
     let account = match state.state.get_by_pk(&pk) {

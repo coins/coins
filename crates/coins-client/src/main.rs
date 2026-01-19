@@ -101,7 +101,7 @@ async fn main() -> anyhow::Result<()> {
             fs::write(&keyfile, hex::encode(sk_bytes))?;
 
             println!("New secret key stored in {}", keyfile.display());
-            println!("Your public key is: {}", hex::encode(pk.0));
+            println!("Your public key is: {}", pk.to_hex());
         }
         Commands::Balance => {
             if !keyfile.exists() {
@@ -115,17 +115,16 @@ async fn main() -> anyhow::Result<()> {
             let fr = Fr::from_le_bytes_mod_order(&sk_bytes);
             let sk = SecretKey(fr);
             let pk = G1::from_affine(&G1Projective::generator().mul(sk.0).into());
-            let pk_hex = hex::encode(pk.0);
 
             let client = reqwest::Client::new();
-            let url = format!("{}/account/{}", publisher_url, pk_hex);
+            let url = format!("{}/account/{}", publisher_url, pk.to_hex());
             let res = client.get(&url).send().await?;
 
             if res.status().is_success() {
                 let account: Account = res.json().await?;
                 println!("Balance: {}", account.balance);
             } else if res.status() == reqwest::StatusCode::NOT_FOUND {
-                println!("Account not found. Your public key is: {}", pk_hex);
+                println!("Account not found. Your public key is: {}", pk.to_hex());
                 println!("Please ensure the account has been funded.");
             } else {
                 println!("Error fetching account: {}", res.status());
@@ -143,15 +142,13 @@ async fn main() -> anyhow::Result<()> {
             let fr = Fr::from_le_bytes_mod_order(&sk_bytes);
             let sk = SecretKey(fr);
 
-            let recipient_pk_bytes = hex::decode(recipient_pk)?;
-            let recipient_pk_arr: [u8; 32] = recipient_pk_bytes.try_into().map_err(|_| anyhow::anyhow!("invalid recipient_pk length"))?;
-            let recipient_pk = G1(recipient_pk_arr);
+            let recipient_pk = G1::from_hex(&recipient_pk)
+                .map_err(|e| anyhow::anyhow!("invalid recipient_pk: {}", e))?;
 
             // Fetch sender's account to get ID
             let pk = G1::from_affine(&G1Projective::generator().mul(sk.0).into());
-            let pk_hex = hex::encode(pk.0);
             let client = reqwest::Client::new();
-            let url = format!("{}/account/{}", publisher_url, pk_hex);
+            let url = format!("{}/account/{}", publisher_url, pk.to_hex());
             let res = client.get(&url).send().await?;
 
             let sender_account: Account = if res.status().is_success() {

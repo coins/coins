@@ -1,11 +1,10 @@
 //! Persistent key-value store abstraction on top of sled.
 
-use coins_types::{Account, AccountId};
+use coins_types::{Account, AccountId, bin_config};
 use coins_crypto::G1;
 use sled::{Db, Tree};
 use thiserror::Error;
 use bincode::serde::{encode_to_vec as bincode_serialize, decode_from_slice as bincode_deserialize};
-use bincode::config::{standard, Config};
 use bincode::error::{EncodeError, DecodeError};
 
 const TREE_ACCOUNTS: &str = "accounts";     // id  -> Account (bincode)
@@ -158,10 +157,4 @@ impl coins_types::SubBlockState for State {
     }
 }
 
-// -----------------------------------------------------------------------------
-// Helper configuration
-// -----------------------------------------------------------------------------
-
-fn bin_config() -> impl Config {
-    standard().with_fixed_int_encoding().with_little_endian()
-} 
+ 

@@ -54,14 +54,7 @@ async fn get_account(
     State(state): State<SimpleAppState>,
     Path(pk_hex): Path<String>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let pk_bytes = hex::decode(&pk_hex).map_err(|_| StatusCode::BAD_REQUEST)?;
-    if pk_bytes.len() != 32 {
-        return Err(StatusCode::BAD_REQUEST);
-    }
-
-    let mut pk_array = [0u8; 32];
-    pk_array.copy_from_slice(&pk_bytes);
-    let pk = coins_crypto::G1(pk_array);
+    let pk = coins_crypto::G1::from_hex(&pk_hex).map_err(|_| StatusCode::BAD_REQUEST)?;
 
     match state.indexer_client.get_account(&pk).await {
         Ok(Some(account)) => {
@@ -78,14 +71,7 @@ async fn get_account_transactions(
     State(state): State<SimpleAppState>,
     Path(pk_hex): Path<String>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let pk_bytes = hex::decode(&pk_hex).map_err(|_| StatusCode::BAD_REQUEST)?;
-    if pk_bytes.len() != 32 {
-        return Err(StatusCode::BAD_REQUEST);
-    }
-
-    let mut pk_array = [0u8; 32];
-    pk_array.copy_from_slice(&pk_bytes);
-    let pk = coins_crypto::G1(pk_array);
+    let pk = coins_crypto::G1::from_hex(&pk_hex).map_err(|_| StatusCode::BAD_REQUEST)?;
 
     match state.indexer_client.get_account_transactions(&pk).await {
         Ok(transactions) => {

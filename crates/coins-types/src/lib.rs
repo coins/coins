@@ -255,12 +255,17 @@ pub trait SubBlockState {
 }
 
 // -----------------------------------------------------------------------------
-// Module-private helpers
+// Shared helpers
 // -----------------------------------------------------------------------------
 
-/// Fixed bincode configuration: little-endian + *fixed-int* encoding ⇒ 41-byte TX.
-fn bin_config() -> impl Config {
-    // `standard()` already uses little-endian. We explicitly set it again for clarity.
+/// Fixed bincode configuration: little-endian + fixed-int encoding.
+///
+/// This ensures consistent serialization across all crates:
+/// - Fixed integer encoding (no varint) for predictable sizes
+/// - Little-endian byte order
+///
+/// Used for Transaction (41 bytes), SubBlock headers, and account serialization.
+pub fn bin_config() -> impl Config {
     standard()
         .with_fixed_int_encoding()
         .with_little_endian()

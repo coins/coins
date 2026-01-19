@@ -52,7 +52,7 @@ impl Default for G1 {
 
 impl core::fmt::Debug for G1 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "G1({})", hex::encode(self.0))
+        write!(f, "G1({})", self.to_hex())
     }
 }
 
@@ -69,6 +69,25 @@ impl G1 {
         use ark_serialize::CanonicalDeserialize;
         let mut cursor = Cursor::new(&self.0[..]);
         G1Affine::deserialize_compressed(&mut cursor).ok()
+    }
+
+    /// Parse a G1 point from a 64-character hex string.
+    ///
+    /// # Arguments
+    /// * `hex_str` - A 64-character hex string representing 32 bytes
+    ///
+    /// # Returns
+    /// * `Ok(G1)` if the hex is valid and 32 bytes
+    /// * `Err(&'static str)` with a descriptive error message otherwise
+    pub fn from_hex(hex_str: &str) -> Result<Self, &'static str> {
+        let bytes = hex::decode(hex_str).map_err(|_| "invalid hex")?;
+        let arr: [u8; G1_SIZE] = bytes.try_into().map_err(|_| "expected 32 bytes")?;
+        Ok(Self(arr))
+    }
+
+    /// Encode this G1 point as a 64-character hex string.
+    pub fn to_hex(&self) -> String {
+        hex::encode(self.0)
     }
 }
 

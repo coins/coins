@@ -6,7 +6,7 @@ use axum::response::IntoResponse;
 use axum::http::StatusCode;
 use bitcoin::Txid;
 use coins_types::Transaction;
-use coins_crypto::{G1, G2, G1_SIZE, G2_SIZE};
+use coins_crypto::{G1, G2, G2_SIZE};
 use coins_indexer::IndexerClient;
 
 #[derive(Clone)]
@@ -19,16 +19,10 @@ pub struct AppState {
 }
 
 async fn get_account_by_pk(Path(pk_hex): Path<String>, State(app_state): State<AppState>) -> impl IntoResponse {
-    let pk_bytes = match hex::decode(pk_hex) {
-        Ok(bytes) => bytes,
-        Err(_) => return (StatusCode::BAD_REQUEST, "invalid hex public key").into_response(),
+    let pk = match G1::from_hex(&pk_hex) {
+        Ok(pk) => pk,
+        Err(e) => return (StatusCode::BAD_REQUEST, e).into_response(),
     };
-
-    let pk_arr: [u8; G1_SIZE] = match pk_bytes.try_into() {
-        Ok(arr) => arr,
-        Err(_) => return (StatusCode::BAD_REQUEST, "invalid public key length").into_response(),
-    };
-    let pk = G1(pk_arr);
 
     // Query from indexer service
     match app_state.indexer.get_account(&pk).await {
@@ -101,15 +95,10 @@ async fn get_mempool(
 ) -> impl IntoResponse {
     // Parse recipient_pk if provided
     let recipient_pk_filter: Option<G1> = if let Some(ref pk_hex) = query.recipient_pk {
-        let pk_bytes = match hex::decode(pk_hex) {
-            Ok(bytes) => bytes,
-            Err(_) => return (StatusCode::BAD_REQUEST, "invalid hex in recipient_pk").into_response(),
-        };
-        let pk_arr: [u8; G1_SIZE] = match pk_bytes.try_into() {
-            Ok(arr) => arr,
-            Err(_) => return (StatusCode::BAD_REQUEST, "invalid recipient_pk length").into_response(),
-        };
-        Some(G1(pk_arr))
+        match G1::from_hex(pk_hex) {
+            Ok(pk) => Some(pk),
+            Err(e) => return (StatusCode::BAD_REQUEST, e).into_response(),
+        }
     } else {
         None
     };
@@ -151,7 +140,7 @@ async fn get_mempool(
         })
         .map(|(tx, sig)| MempoolTxResponse {
             sender_id: tx.sender_id,
-            recipient_pk: hex::encode(tx.recipient_pk.0),
+            recipient_pk: tx.recipient_pk.to_hex(),
             amount: tx.amount,
             fee: tx.fee,
             signature: hex::encode(sig.0),
@@ -191,15 +180,10 @@ async fn get_recently_broadcast(
 ) -> impl IntoResponse {
     // Parse recipient_pk if provided
     let recipient_pk_filter: Option<G1> = if let Some(ref pk_hex) = query.recipient_pk {
-        let pk_bytes = match hex::decode(pk_hex) {
-            Ok(bytes) => bytes,
-            Err(_) => return (StatusCode::BAD_REQUEST, "invalid hex in recipient_pk").into_response(),
-        };
-        let pk_arr: [u8; G1_SIZE] = match pk_bytes.try_into() {
-            Ok(arr) => arr,
-            Err(_) => return (StatusCode::BAD_REQUEST, "invalid recipient_pk length").into_response(),
-        };
-        Some(G1(pk_arr))
+        match G1::from_hex(pk_hex) {
+            Ok(pk) => Some(pk),
+            Err(e) => return (StatusCode::BAD_REQUEST, e).into_response(),
+        }
     } else {
         None
     };
@@ -260,7 +244,7 @@ async fn get_recently_broadcast(
         if !is_indexed {
             results.push(RecentlyBroadcastTxResponse {
                 sender_id: tx.sender_id,
-                recipient_pk: hex::encode(tx.recipient_pk.0),
+                recipient_pk: tx.recipient_pk.to_hex(),
                 amount: tx.amount,
                 fee: tx.fee,
                 btc_txid: btc_txid.to_string(),

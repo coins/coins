@@ -44,10 +44,8 @@ async fn main() -> Result<()> {
     let state = Arc::new(State::open(&config.database.state_db)?);
 
     // Initialize genesis account if needed
-    let genesis_pk_bytes = hex::decode(&config.genesis.genesis_pk)?;
-    let genesis_pk_arr: [u8; 32] = genesis_pk_bytes.try_into()
-        .map_err(|_| anyhow::anyhow!("Invalid genesis public key"))?;
-    let genesis_pk = G1(genesis_pk_arr);
+    let genesis_pk = G1::from_hex(&config.genesis.genesis_pk)
+        .map_err(|e| anyhow::anyhow!("Invalid genesis public key: {}", e))?;
 
     if state.get_by_pk(&genesis_pk)?.is_none() {
         tracing::info!("Creating genesis account");
