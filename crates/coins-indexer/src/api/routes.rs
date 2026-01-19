@@ -16,6 +16,7 @@ pub fn create_router(app_state: AppState) -> Router {
         .route("/health", get(health))
         .route("/accounts/:pk", get(get_account))
         .route("/accounts/:pk/transactions", get(get_account_transactions))
+        .route("/accounts/by-id/:id", get(get_account_by_id))
         .route("/blocks/latest", get(get_latest_block))
         .route("/blocks/:height", get(get_block_by_height))
         .route("/blocks", get(get_blocks_range))
@@ -38,6 +39,20 @@ async fn get_account(
     let pk = G1(pk_arr);
 
     match state.state.get_by_pk(&pk) {
+        Ok(Some(account)) => Ok(Json(account)),
+        Ok(None) => Err(StatusCode::NOT_FOUND),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+/// Get account by ID (needed for IBD sub-block deserialization)
+async fn get_account_by_id(
+    AxumState(state): AxumState<AppState>,
+    Path(id): Path<u32>,
+) -> Result<Json<Account>, StatusCode> {
+    use coins_types::AccountId;
+
+    match state.state.get_account(AccountId(id)) {
         Ok(Some(account)) => Ok(Json(account)),
         Ok(None) => Err(StatusCode::NOT_FOUND),
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),

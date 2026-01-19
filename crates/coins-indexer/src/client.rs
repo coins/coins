@@ -41,6 +41,20 @@ impl IndexerClient {
         Ok(Some(account))
     }
 
+    /// Get account by ID (needed for IBD sub-block deserialization)
+    pub async fn get_account_by_id(&self, id: u32) -> Result<Option<Account>> {
+        let url = format!("{}/accounts/by-id/{}", self.base_url, id);
+
+        let response = self.client.get(&url).send().await?;
+
+        if response.status() == 404 {
+            return Ok(None);
+        }
+
+        let account = response.error_for_status()?.json().await?;
+        Ok(Some(account))
+    }
+
     /// Get latest block
     pub async fn get_latest_block(&self) -> Result<Option<ChainBlockResponse>> {
         let url = format!("{}/blocks/latest", self.base_url);

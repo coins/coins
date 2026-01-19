@@ -34,9 +34,21 @@ impl SubBlockState for StateAdapter {
 
     fn get_pk_by_account_id(&self, id: u32) -> Option<G1> {
         // Required for deserializing compact transactions during Initial Block Download (IBD).
-        // Not yet implemented: would need a new indexer API endpoint like GET /accounts/by-id/:id
-        // that returns the public key for a given account ID.
-        tracing::warn!(account_id = id, "get_pk_by_account_id not yet supported in StateAdapter");
-        None
+        // Calls the indexer API endpoint GET /accounts/by-id/:id
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                match self.client.get_account_by_id(id).await {
+                    Ok(Some(account)) => Some(account.pk),
+                    Ok(None) => {
+                        tracing::warn!(account_id = id, "Account not found by ID");
+                        None
+                    }
+                    Err(e) => {
+                        tracing::error!(account_id = id, error = %e, "Failed to get account by ID");
+                        None
+                    }
+                }
+            })
+        })
     }
 }

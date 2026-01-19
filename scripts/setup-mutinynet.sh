@@ -115,7 +115,7 @@ done
 echo -e "${BLUE}→ Generating subchain file...${NC}"
 
 # Get current block height for genesis_height optimization
-GENESIS_HEIGHT=$(bitcoin-cli -signet -rpcconnect="${RPC_HOST}" -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport="${RPC_PORT}" getblockcount)
+GENESIS_HEIGHT=$(bitcoin-cli -rpcconnect="${RPC_HOST}" -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcport="${RPC_PORT}" getblockcount)
 
 printf "%s\n%s\n%s\n" "${UTXO_OUTPOINT}" "${UTXO_VALUE}" "${GENESIS_HEIGHT}" | \
     ./target/release/subchain-setup --config /tmp/subchain_mutinynet.toml &>/dev/null
