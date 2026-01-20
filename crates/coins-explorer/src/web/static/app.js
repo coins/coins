@@ -255,11 +255,10 @@ class ExplorerApp {
         // Fetch pending transaction counts
         let pendingCount = 0;
         try {
-            const mempool = await this.fetchAPI('/mempool') || [];
-            const broadcasting = await this.fetchAPI('/recently-broadcast') || [];
-            pendingCount = mempool.length + broadcasting.length;
+            const pending = await this.fetchAPI('/pending-transactions') || [];
+            pendingCount = pending.length;
         } catch (e) {
-            console.warn('Could not fetch mempool stats:', e);
+            console.warn('Could not fetch pending transactions:', e);
         }
 
         content.innerHTML = `
@@ -454,35 +453,48 @@ class ExplorerApp {
     async renderMempool() {
         const content = document.getElementById('content');
 
-        // Fetch both mempool and recently-broadcast
-        let mempoolTxs = [];
-        let broadcastingTxs = [];
-
+        // Fetch all pending transactions from the unified endpoint
+        let pendingTxs = [];
         try {
-            mempoolTxs = await this.fetchAPI('/mempool') || [];
+            pendingTxs = await this.fetchAPI('/pending-transactions') || [];
         } catch (e) {
-            console.warn('Could not fetch mempool:', e);
+            console.warn('Could not fetch pending transactions:', e);
         }
 
-        try {
-            broadcastingTxs = await this.fetchAPI('/recently-broadcast') || [];
-        } catch (e) {
-            console.warn('Could not fetch recently-broadcast:', e);
-        }
+        // Group by status
+        const publishingTxs = pendingTxs.filter(tx => tx.status === 'publishing');
+        const broadcastingTxs = pendingTxs.filter(tx => tx.status === 'broadcasting');
+        const unconfirmedTxs = pendingTxs.filter(tx => tx.status === 'unconfirmed');
 
-        const totalPending = mempoolTxs.length + broadcastingTxs.length;
+        const totalPending = pendingTxs.length;
 
         content.innerHTML = `
             <h1 class="title">Mempool</h1>
             <p class="subtitle">${totalPending} pending transaction${totalPending !== 1 ? 's' : ''}</p>
 
-            <h2 class="title is-4">Broadcasting (${broadcastingTxs.length})</h2>
-            <p class="help">Transactions broadcast to Bitcoin, waiting for indexer discovery</p>
-            ${this.renderMempoolTable(broadcastingTxs, 'broadcasting')}
+            ${unconfirmedTxs.length > 0 ? `
+                <h2 class="title is-4">Unconfirmed (${unconfirmedTxs.length})</h2>
+                <p class="help">Transactions in Bitcoin mempool, indexed by indexer</p>
+                ${this.renderPendingTxTable(unconfirmedTxs)}
+            ` : ''}
 
-            <h2 class="title is-4" style="margin-top: 2rem;">Publishing (${mempoolTxs.length})</h2>
-            <p class="help">Transactions in publisher mempool, waiting to be mined</p>
-            ${this.renderMempoolTable(mempoolTxs, 'publishing')}
+            ${broadcastingTxs.length > 0 ? `
+                <h2 class="title is-4"${unconfirmedTxs.length > 0 ? ' style="margin-top: 2rem;"' : ''}>Broadcasting (${broadcastingTxs.length})</h2>
+                <p class="help">Transactions broadcast to Bitcoin, waiting for indexer discovery</p>
+                ${this.renderPendingTxTable(broadcastingTxs)}
+            ` : ''}
+
+            ${publishingTxs.length > 0 ? `
+                <h2 class="title is-4" style="margin-top: 2rem;">Publishing (${publishingTxs.length})</h2>
+                <p class="help">Transactions in publisher mempool, waiting to be mined</p>
+                ${this.renderPendingTxTable(publishingTxs)}
+            ` : ''}
+
+            ${totalPending === 0 ? `
+                <div class="notification is-info">
+                    <p>No pending transactions</p>
+                </div>
+            ` : ''}
         `;
     }
 
@@ -514,6 +526,66 @@ class ExplorerApp {
                                     ? `<a href="${explorerUrl}" target="_blank" rel="noopener"><span class="tag is-link" style="cursor: pointer;">Broadcasting ↗</span></a>`
                                     : '<span class="tag is-link">Broadcasting</span>')
                                 : '<span class="tag is-info">Publishing</span>';
+                            return `
+                                <tr>
+                                    <td>Account #${tx.sender_id}</td>
+                                    <td>
+                                        <a onclick="app.navigate('account', {pk: '${recipientPk}'})" style="cursor: pointer; color: #3273dc;">
+                                            <code style="font-size: 0.85em;">${recipientPk.substring(0, 12)}...${recipientPk.substring(56)}</code>
+                                        </a>
+                                    </td>
+                                    <td><strong>${tx.amount} sats</strong></td>
+                                    <td>${tx.fee} sats</td>
+                                    <td>${statusBadge}</td>
+                                </tr>
+                            `;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    }
+
+    renderPendingTxTable(txs) {
+        if (txs.length === 0) {
+            return '<div class="notification is-light">No transactions</div>';
+        }
+
+        return `
+            <div class="box">
+                <table class="table is-fullwidth is-striped is-hoverable">
+                    <thead>
+                        <tr>
+                            <th>Sender</th>
+                            <th>Recipient</th>
+                            <th>Amount</th>
+                            <th>Fee</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${txs.map(tx => {
+                            const recipientPk = tx.recipient_pk;
+                            const explorerUrl = tx.btc_txid ? this.getBitcoinExplorerUrl(tx.btc_txid) : null;
+
+                            let statusBadge;
+                            switch (tx.status) {
+                                case 'unconfirmed':
+                                    statusBadge = explorerUrl
+                                        ? `<a href="${explorerUrl}" target="_blank" rel="noopener"><span class="tag is-warning" style="cursor: pointer;">Unconfirmed ↗</span></a>`
+                                        : '<span class="tag is-warning">Unconfirmed</span>';
+                                    break;
+                                case 'broadcasting':
+                                    statusBadge = explorerUrl
+                                        ? `<a href="${explorerUrl}" target="_blank" rel="noopener"><span class="tag is-link" style="cursor: pointer;">Broadcasting ↗</span></a>`
+                                        : '<span class="tag is-link">Broadcasting</span>';
+                                    break;
+                                case 'publishing':
+                                default:
+                                    statusBadge = '<span class="tag is-info">Publishing</span>';
+                                    break;
+                            }
+
                             return `
                                 <tr>
                                     <td>Account #${tx.sender_id}</td>
@@ -710,6 +782,31 @@ class ExplorerApp {
         };
     }
 
+    formatPendingTx(tx, direction, currentPk) {
+        // Map backend status to frontend display flags
+        const isMempool = tx.status === 'publishing';
+        const isBroadcasting = tx.status === 'broadcasting';
+        const isUnconfirmed = tx.status === 'unconfirmed';
+
+        return {
+            sender_id: tx.sender_id,
+            recipient_pk: tx.recipient_pk,
+            amount: tx.amount,
+            fee: tx.fee,
+            btc_height: 0,
+            btc_txid: tx.btc_txid || null,
+            confirmations: 0,
+            finalized: false,
+            confirmations_remaining: 6,
+            direction: direction,
+            sender_pk: direction === 'outgoing' ? currentPk : null,
+            is_mempool: isMempool,
+            is_broadcasting: isBroadcasting,
+            is_unconfirmed: isUnconfirmed,
+            status: tx.status
+        };
+    }
+
     async loadAccountTransactions(pk) {
         try {
             // Fetch indexed transactions
@@ -719,46 +816,50 @@ class ExplorerApp {
             // Save scroll position before updating
             const scrollY = window.scrollY;
 
-            // Fetch mempool and recently-broadcast transactions for this account
-            let mempoolTxs = [];
-            let broadcastingTxs = [];
+            // Fetch pending transactions for this account (already deduplicated by backend)
+            let pendingTxs = [];
             try {
                 // Get account to find sender_id for outgoing tx lookup
                 const account = await this.fetchAPI(`/accounts/${pk}`);
 
                 if (account) {
-                    // Fetch publisher mempool (Publishing...)
-                    const sentMempool = await this.fetchAPI(`/mempool?sender_id=${account.id}`) || [];
-                    const receivedMempool = await this.fetchAPI(`/mempool?recipient_pk=${pk}`) || [];
-                    mempoolTxs = [
-                        ...sentMempool.map(tx => this.formatMempoolTx(tx, 'outgoing', pk)),
-                        ...receivedMempool.map(tx => this.formatMempoolTx(tx, 'incoming', pk))
+                    // Fetch pending transactions - backend handles deduplication
+                    const sentPending = await this.fetchAPI(`/pending-transactions?sender_id=${account.id}`) || [];
+                    const receivedPending = await this.fetchAPI(`/pending-transactions?recipient_pk=${pk}`) || [];
+
+                    // Format pending txs for display
+                    pendingTxs = [
+                        ...sentPending.map(tx => this.formatPendingTx(tx, 'outgoing', pk)),
+                        ...receivedPending.map(tx => this.formatPendingTx(tx, 'incoming', pk))
                     ];
 
-                    // Fetch recently-broadcast (Broadcasting...)
-                    const sentBroadcast = await this.fetchAPI(`/recently-broadcast?sender_id=${account.id}`) || [];
-                    const receivedBroadcast = await this.fetchAPI(`/recently-broadcast?recipient_pk=${pk}`) || [];
-                    broadcastingTxs = [
-                        ...sentBroadcast.map(tx => this.formatBroadcastingTx(tx, 'outgoing', pk)),
-                        ...receivedBroadcast.map(tx => this.formatBroadcastingTx(tx, 'incoming', pk))
-                    ];
+                    // Remove duplicates (same tx might appear in both sent and received if self-transfer)
+                    const seenTxids = new Set();
+                    pendingTxs = pendingTxs.filter(tx => {
+                        if (tx.btc_txid && seenTxids.has(tx.btc_txid)) {
+                            return false;
+                        }
+                        if (tx.btc_txid) {
+                            seenTxids.add(tx.btc_txid);
+                        }
+                        return true;
+                    });
 
-                    // Filter out broadcasting txs that are already indexed
-                    // Use btc_txid for deduplication
+                    // Filter out pending txs that are already in indexed (final dedup)
                     const indexedTxids = new Set(
                         indexedTxs
                             .filter(tx => tx.btc_txid)
                             .map(tx => tx.btc_txid)
                     );
-                    broadcastingTxs = broadcastingTxs.filter(tx => !indexedTxids.has(tx.btc_txid));
+                    pendingTxs = pendingTxs.filter(tx => !tx.btc_txid || !indexedTxids.has(tx.btc_txid));
                 }
-            } catch (mempoolError) {
-                console.warn('Could not fetch mempool/recently-broadcast:', mempoolError);
+            } catch (pendingError) {
+                console.warn('Could not fetch pending transactions:', pendingError);
                 // Continue with just indexed txs
             }
 
-            // Combine: indexed first, then pending txs at the bottom (broadcasting, then publishing)
-            const transactions = [...indexedTxs, ...broadcastingTxs, ...mempoolTxs];
+            // Combine: indexed first, then pending txs at the bottom
+            const transactions = [...indexedTxs, ...pendingTxs];
 
             if (!transactions || transactions.length === 0) {
                 container.innerHTML = `
@@ -833,6 +934,12 @@ class ExplorerApp {
                                     statusBadge = `<span class="status-tooltip">
                                            <span class="tag is-link" style="cursor: help;">Broadcasting</span>
                                            <span class="tooltip-text">Broadcast to Bitcoin, waiting for indexer</span>
+                                       </span>`;
+                                } else if (tx.is_unconfirmed) {
+                                    // Indexed but in Bitcoin mempool
+                                    statusBadge = `<span class="status-tooltip">
+                                           <span class="tag is-warning" style="cursor: help; ${clickableStyle}" ${onclickAttr} ${hoverAttrs}>Unconfirmed</span>
+                                           <span class="tooltip-text">In Bitcoin mempool, indexed by indexer${isClickable ? ' (click to view on Bitcoin explorer)' : ''}</span>
                                        </span>`;
                                 } else if (tx.finalized) {
                                     statusBadge = `<span class="tag is-success" style="${clickableStyle}" ${onclickAttr} ${hoverAttrs} title="${isClickable ? 'View on Bitcoin explorer' : ''}">Confirmed</span>`;

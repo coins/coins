@@ -6,7 +6,8 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::sync::Arc;
 use coins_indexer::IndexerClient;
 use tower_http::services::ServeDir;
@@ -29,6 +30,30 @@ struct MempoolQuery {
     recipient_pk: Option<String>,
 }
 
+/// Status of a pending transaction
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum PendingTxStatus {
+    /// In publisher mempool, waiting to be mined into a sub-block
+    Publishing,
+    /// Broadcast to Bitcoin, waiting for indexer to discover
+    Broadcasting,
+    /// Indexed by indexer, in Bitcoin mempool (btc_height = 0)
+    Unconfirmed,
+}
+
+/// A pending transaction with its status
+#[derive(Debug, Clone, Serialize)]
+pub struct PendingTransaction {
+    pub sender_id: u32,
+    pub recipient_pk: String,
+    pub amount: u64,
+    pub fee: u64,
+    pub status: PendingTxStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub btc_txid: Option<String>,
+}
+
 pub fn simple_router(indexer_client: Arc<IndexerClient>, publisher_url: Option<String>) -> Router {
     let state = SimpleAppState { indexer_client, publisher_url };
 
@@ -42,6 +67,7 @@ pub fn simple_router(indexer_client: Arc<IndexerClient>, publisher_url: Option<S
         .route("/api/v1/stats", get(get_stats))
         .route("/api/v1/mempool", get(get_mempool))
         .route("/api/v1/recently-broadcast", get(get_recently_broadcast))
+        .route("/api/v1/pending-transactions", get(get_pending_transactions))
         .nest_service("/", ServeDir::new("crates/coins-explorer/src/web/static"))
         .with_state(state)
 }
@@ -205,4 +231,96 @@ async fn get_recently_broadcast(
         .map_err(|_| StatusCode::BAD_GATEWAY)?;
 
     Ok(Json(body))
+}
+
+/// Get all pending transactions with deduplicated status
+/// Returns transactions in three states: publishing, broadcasting, unconfirmed
+async fn get_pending_transactions(
+    State(state): State<SimpleAppState>,
+    Query(query): Query<MempoolQuery>,
+) -> Result<Json<Vec<PendingTransaction>>, StatusCode> {
+    let publisher_url = state.publisher_url.as_ref()
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+
+    let client = reqwest::Client::new();
+    let mut results: Vec<PendingTransaction> = Vec::new();
+    let mut seen_btc_txids: HashSet<String> = HashSet::new();
+
+    // Build query params
+    let mut params = Vec::new();
+    if let Some(sender_id) = query.sender_id {
+        params.push(format!("sender_id={}", sender_id));
+    }
+    if let Some(ref recipient_pk) = query.recipient_pk {
+        params.push(format!("recipient_pk={}", recipient_pk));
+    }
+    let query_string = if params.is_empty() {
+        String::new()
+    } else {
+        format!("?{}", params.join("&"))
+    };
+
+    // 1. Fetch recently-broadcast transactions from publisher
+    //    These have been broadcast to Bitcoin but may or may not be indexed yet
+    let broadcast_url = format!("{}/recently-broadcast{}", publisher_url, query_string);
+    if let Ok(response) = client.get(&broadcast_url).send().await {
+        if response.status().is_success() {
+            if let Ok(txs) = response.json::<Vec<serde_json::Value>>().await {
+                for tx in txs {
+                    let btc_txid = tx.get("btc_txid")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+
+                    // Check if this tx is already indexed
+                    let is_indexed = if let Some(ref txid) = btc_txid {
+                        state.indexer_client.is_txid_indexed(txid).await.unwrap_or(false)
+                    } else {
+                        false
+                    };
+
+                    let status = if is_indexed {
+                        PendingTxStatus::Unconfirmed
+                    } else {
+                        PendingTxStatus::Broadcasting
+                    };
+
+                    // Track seen btc_txids to avoid duplicates
+                    if let Some(ref txid) = btc_txid {
+                        seen_btc_txids.insert(txid.clone());
+                    }
+
+                    results.push(PendingTransaction {
+                        sender_id: tx.get("sender_id").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                        recipient_pk: tx.get("recipient_pk").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                        amount: tx.get("amount").and_then(|v| v.as_u64()).unwrap_or(0),
+                        fee: tx.get("fee").and_then(|v| v.as_u64()).unwrap_or(0),
+                        status,
+                        btc_txid,
+                    });
+                }
+            }
+        }
+    }
+
+    // 2. Fetch mempool transactions from publisher
+    //    These haven't been broadcast to Bitcoin yet
+    let mempool_url = format!("{}/mempool{}", publisher_url, query_string);
+    if let Ok(response) = client.get(&mempool_url).send().await {
+        if response.status().is_success() {
+            if let Ok(txs) = response.json::<Vec<serde_json::Value>>().await {
+                for tx in txs {
+                    results.push(PendingTransaction {
+                        sender_id: tx.get("sender_id").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                        recipient_pk: tx.get("recipient_pk").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                        amount: tx.get("amount").and_then(|v| v.as_u64()).unwrap_or(0),
+                        fee: tx.get("fee").and_then(|v| v.as_u64()).unwrap_or(0),
+                        status: PendingTxStatus::Publishing,
+                        btc_txid: None,
+                    });
+                }
+            }
+        }
+    }
+
+    Ok(Json(results))
 }
