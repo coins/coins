@@ -5,11 +5,10 @@ class ExplorerApp {
         this.currentPage = 0;
         this.apiBase = '/api/v1';
         this.network = 'regtest'; // Default, will be updated from API
+        this.currentAccountPk = null; // Track current account for targeted refreshes
 
-        // WebSocket disabled in simple proxy mode
-        // this.initWebSocket();
-        document.getElementById('connection-status').textContent = '● Simple Mode';
-        document.getElementById('connection-status').className = 'tag is-info';
+        // Initialize WebSocket for live updates
+        this.initWebSocket();
 
         // Fetch network info
         this.fetchNetworkInfo();
@@ -128,19 +127,90 @@ class ExplorerApp {
     handleWSMessage(msg) {
         console.log('WebSocket message:', msg);
 
-        if (msg.type === 'new_block') {
-            this.showNewBlockNotification(msg.block);
+        switch (msg.type) {
+            case 'new_block':
+            case 'stats_update':
+                // Targeted update for home page stats
+                if (this.currentView === 'home') {
+                    this.updateHomeStats();
+                } else if (this.currentView === 'blocks') {
+                    // For blocks list, need full re-render to show new block
+                    this.navigate(this.currentView, {}, false);
+                }
+                // Update account balance if viewing an account
+                if (this.currentView === 'account' && this.currentAccountPk) {
+                    this.updateAccountBalance(this.currentAccountPk);
+                    this.updateTransactionStatuses(this.currentAccountPk);
+                }
+                break;
 
-            // Refresh current view if we're on blocks or home
-            if (this.currentView === 'blocks' || this.currentView === 'home') {
-                this.navigate(this.currentView, {}, false);
-            }
-        } else if (msg.type === 'stats_update') {
-            // Update stats if visible
-            if (this.currentView === 'home') {
-                this.navigate('home', {}, false);
-            }
+            case 'pending_txs_update':
+                // Targeted update for home page stats
+                if (this.currentView === 'home') {
+                    this.updateHomeStats();
+                } else if (this.currentView === 'mempool') {
+                    // Mempool view needs full re-render for new/removed txs
+                    this.navigate('mempool', {}, false);
+                }
+                // Update transaction statuses in account view
+                if (this.currentView === 'account' && this.currentAccountPk) {
+                    this.updateTransactionStatuses(this.currentAccountPk);
+                }
+                break;
+
+            case 'confirmation_update':
+                // Refresh account view and mempool view for confirmation status updates
+                if (this.currentView === 'account' && this.currentAccountPk) {
+                    this.updateTransactionStatuses(this.currentAccountPk);
+                } else if (this.currentView === 'mempool') {
+                    this.navigate('mempool', {}, false);
+                }
+                break;
         }
+    }
+
+    // Targeted update: refresh only stats on home page
+    async updateHomeStats() {
+        try {
+            const stats = await this.fetchAPI('/stats');
+            let pendingCount = 0;
+            try {
+                const pending = await this.fetchAPI('/pending-transactions') || [];
+                pendingCount = pending.length;
+            } catch (e) {
+                console.warn('Could not fetch pending transactions:', e);
+            }
+
+            const blocksEl = document.querySelector('[data-stat="total-blocks"]');
+            const accountsEl = document.querySelector('[data-stat="total-accounts"]');
+            const supplyEl = document.querySelector('[data-stat="total-supply"]');
+            const pendingEl = document.querySelector('[data-stat="pending-txs"]');
+
+            if (blocksEl) blocksEl.textContent = stats.total_blocks || 0;
+            if (accountsEl) accountsEl.textContent = stats.total_accounts || 0;
+            if (supplyEl) supplyEl.textContent = stats.total_supply || 0;
+            if (pendingEl) pendingEl.textContent = pendingCount;
+        } catch (error) {
+            console.warn('Could not update home stats:', error);
+        }
+    }
+
+    // Targeted update: refresh only account balance
+    async updateAccountBalance(pk) {
+        try {
+            const account = await this.fetchAPI(`/accounts/${pk}`);
+            const balanceEl = document.querySelector('[data-account-balance]');
+            if (balanceEl && account) {
+                balanceEl.textContent = `${account.balance} sats`;
+            }
+        } catch (error) {
+            console.warn('Could not update account balance:', error);
+        }
+    }
+
+    // Targeted update: refresh transaction statuses (re-renders tx table only)
+    async updateTransactionStatuses(pk) {
+        await this.loadAccountTransactions(pk);
     }
 
     showNewBlockNotification(block) {
@@ -161,6 +231,11 @@ class ExplorerApp {
 
     async navigate(view, params = {}, pushState = true) {
         this.currentView = view;
+
+        // Clear account tracking when leaving account view
+        if (view !== 'account') {
+            this.currentAccountPk = null;
+        }
 
         if (pushState) {
             // Build hash URL with parameters
@@ -266,19 +341,19 @@ class ExplorerApp {
 
             <div class="stats-grid">
                 <div class="stat-card">
-                    <div class="stat-value">${stats.total_blocks || 0}</div>
+                    <div class="stat-value" data-stat="total-blocks">${stats.total_blocks || 0}</div>
                     <div class="stat-label">Total Blocks</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-value">${stats.total_accounts || 0}</div>
+                    <div class="stat-value" data-stat="total-accounts">${stats.total_accounts || 0}</div>
                     <div class="stat-label">Total Accounts</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-value">${stats.total_supply || 0}</div>
+                    <div class="stat-value" data-stat="total-supply">${stats.total_supply || 0}</div>
                     <div class="stat-label">Total Supply</div>
                 </div>
                 <div class="stat-card" onclick="app.navigate('mempool')" style="cursor: pointer;">
-                    <div class="stat-value">${pendingCount}</div>
+                    <div class="stat-value" data-stat="pending-txs">${pendingCount}</div>
                     <div class="stat-label">Pending Txs</div>
                 </div>
             </div>
@@ -692,6 +767,9 @@ class ExplorerApp {
     }
 
     async renderAccount(pk) {
+        // Track current account for WebSocket refreshes
+        this.currentAccountPk = pk;
+
         const account = await this.fetchAPI(`/accounts/${pk}`);
         const content = document.getElementById('content');
 
@@ -729,7 +807,7 @@ class ExplorerApp {
                     </tr>
                     <tr>
                         <th>Balance</th>
-                        <td><strong style="font-size: 1.2em; color: #23d160;">${account.balance} sats</strong></td>
+                        <td><strong style="font-size: 1.2em; color: #23d160;" data-account-balance>${account.balance} sats</strong></td>
                     </tr>
                     <tr>
                         <th>Nonce</th>

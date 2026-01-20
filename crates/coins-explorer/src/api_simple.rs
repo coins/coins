@@ -2,20 +2,52 @@
 use axum::{
     Router,
     routing::get,
-    extract::{State, Path, Query},
+    extract::{State, Path, Query, ws::{Message, WebSocket, WebSocketUpgrade}},
     http::StatusCode,
+    response::IntoResponse,
     Json,
 };
+use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::sync::Arc;
+use tokio::sync::broadcast;
 use coins_indexer::IndexerClient;
 use tower_http::services::ServeDir;
+
+/// WebSocket message types for live updates
+#[derive(Clone, Debug, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum WsMessage {
+    /// New block has been indexed
+    NewBlock {
+        height: u32,
+        btc_txid: String,
+        tx_count: usize,
+    },
+    /// Network stats have been updated
+    StatsUpdate {
+        total_blocks: u32,
+        total_accounts: u64,
+        total_supply: u64,
+    },
+    /// Pending transactions count changed
+    PendingTxsUpdate {
+        count: usize,
+    },
+    /// Transaction confirmation status changed
+    ConfirmationUpdate {
+        btc_txid: String,
+        confirmations: u32,
+        finalized: bool,
+    },
+}
 
 #[derive(Clone)]
 pub struct SimpleAppState {
     pub indexer_client: Arc<IndexerClient>,
     pub publisher_url: Option<String>,
+    pub ws_tx: broadcast::Sender<WsMessage>,
 }
 
 #[derive(Deserialize)]
@@ -54,11 +86,16 @@ pub struct PendingTransaction {
     pub btc_txid: Option<String>,
 }
 
-pub fn simple_router(indexer_client: Arc<IndexerClient>, publisher_url: Option<String>) -> Router {
-    let state = SimpleAppState { indexer_client, publisher_url };
+pub fn simple_router(
+    indexer_client: Arc<IndexerClient>,
+    publisher_url: Option<String>,
+    ws_tx: broadcast::Sender<WsMessage>,
+) -> Router {
+    let state = SimpleAppState { indexer_client, publisher_url, ws_tx };
 
     Router::new()
         .route("/health", get(health))
+        .route("/ws", get(ws_handler))
         .route("/api/v1/accounts/:pk", get(get_account))
         .route("/api/v1/accounts/:pk/transactions", get(get_account_transactions))
         .route("/api/v1/blocks/latest", get(get_latest_block))
@@ -323,4 +360,39 @@ async fn get_pending_transactions(
     }
 
     Ok(Json(results))
+}
+
+// WebSocket handler for live updates
+async fn ws_handler(
+    ws: WebSocketUpgrade,
+    State(state): State<SimpleAppState>,
+) -> impl IntoResponse {
+    ws.on_upgrade(|socket| handle_socket(socket, state))
+}
+
+async fn handle_socket(socket: WebSocket, state: SimpleAppState) {
+    let mut rx = state.ws_tx.subscribe();
+    let (mut sender, mut receiver) = socket.split();
+
+    // Spawn task to forward broadcasts to this client
+    let send_task = tokio::spawn(async move {
+        while let Ok(msg) = rx.recv().await {
+            if let Ok(json) = serde_json::to_string(&msg) {
+                if sender.send(Message::Text(json.into())).await.is_err() {
+                    break;
+                }
+            }
+        }
+    });
+
+    // Handle incoming messages (ping/pong, close)
+    while let Some(msg) = receiver.next().await {
+        match msg {
+            Ok(Message::Close(_)) => break,
+            Err(_) => break,
+            _ => {}
+        }
+    }
+
+    send_task.abort();
 }
