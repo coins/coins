@@ -255,8 +255,13 @@ async fn get_recently_broadcast(
     Json(results).into_response()
 }
 
+async fn health() -> &'static str {
+    "OK"
+}
+
 pub fn router(state: AppState) -> Router {
     Router::new()
+        .route("/health", get(health))
         .route("/account/:pk", get(get_account_by_pk))
         .route("/tx", post(submit_tx))
         .route("/mempool", get(get_mempool))

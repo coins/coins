@@ -749,9 +749,12 @@ dependencies = [
 name = "coins-core"
 version = "0.1.0"
 dependencies = [
+ "ark-bn254 0.4.0",
+ "ark-ff 0.4.2",
  "bincode 2.0.1",
  "coins-crypto",
  "coins-types",
+ "hex",
  "rand 0.8.5",
  "sled",
  "tempfile",

@@ -4,7 +4,7 @@ use anyhow::Result;
 use std::sync::Arc;
 use std::time::Duration;
 use bitcoin::{OutPoint, Transaction, Txid};
-use coins_core::State;
+use coins_core::{State, validate_subblock, ValidationError};
 use coins_crypto::G1;
 use coins_subchain::{parse_blob_from_tx, decompress, Subchain};
 use coins_types::{SubBlock, SubBlockState, AccountId};
@@ -190,52 +190,19 @@ async fn process_anchor_spend(
         "Deserialized SubBlock"
     );
 
-    // Validate and apply state changes (copied from submit_block handler)
-    let mut updated_accounts = Vec::new();
+    // Validate and apply state changes using the canonical validator
+    // This verifies BLS signatures, handles multiple txs from same sender,
+    // credits publisher fees, and applies state atomically.
+    validate_subblock(&sub_block, state).map_err(|e| match e {
+        ValidationError::UnknownSender(id) => anyhow::anyhow!("Unknown sender account: {}", id),
+        ValidationError::Balance => anyhow::anyhow!("Insufficient balance"),
+        ValidationError::BadSignature => anyhow::anyhow!("Signature verification failed"),
+        ValidationError::Nonce => anyhow::anyhow!("Nonce mismatch"),
+        ValidationError::Db => anyhow::anyhow!("Database error"),
+        ValidationError::Overflow => anyhow::anyhow!("Balance overflow"),
+    })?;
 
-    for tx in &sub_block.txs {
-        // Get sender
-        let sender_account_id = AccountId(tx.sender_id);
-        let mut sender = state.get_account(sender_account_id)
-            .map_err(|_| anyhow::anyhow!("State error getting sender"))?
-            .ok_or_else(|| anyhow::anyhow!("Sender account {} not found", tx.sender_id))?;
-
-        // Validate balance
-        let total_cost = (tx.amount as u64) + (tx.fee as u64);
-        if sender.balance < total_cost {
-            return Err(anyhow::anyhow!(
-                "Insufficient balance: {} < {}",
-                sender.balance,
-                total_cost
-            ));
-        }
-
-        // Update sender
-        sender.balance -= total_cost;
-        sender.nonce += 1;
-        updated_accounts.push(sender);
-
-        // Get or create recipient
-        let recipient = match state.get_by_pk(&tx.recipient_pk)
-            .map_err(|_| anyhow::anyhow!("State error getting recipient"))?
-        {
-            Some(mut acc) => {
-                acc.balance += tx.amount as u64;
-                acc
-            }
-            None => {
-                let mut new_acc = state.create_account(tx.recipient_pk)
-                    .map_err(|_| anyhow::anyhow!("Failed to create recipient account"))?;
-                new_acc.balance = tx.amount as u64;
-                new_acc
-            }
-        };
-        updated_accounts.push(recipient);
-    }
-
-    // Apply state changes atomically
-    state.apply_batch(&updated_accounts)
-        .map_err(|_| anyhow::anyhow!("Failed to apply state batch"))?;
+    let tx_count = sub_block.txs.len();
 
     // Index the block
     indexer.index_block(data_txid, btc_height, sub_block)
@@ -244,7 +211,7 @@ async fn process_anchor_spend(
     tracing::info!(
         btc_txid = %data_txid,
         btc_height = btc_height,
-        tx_count = updated_accounts.len() / 2,
+        tx_count = tx_count,
         format = ?format,
         "Autonomously discovered and indexed block"
     );
