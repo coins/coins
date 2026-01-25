@@ -881,6 +881,7 @@ dependencies = [
  "bincode 2.0.1",
  "bitcoin",
  "clap",
+ "coins-types",
  "hex",
  "serde",
  "serde_json",

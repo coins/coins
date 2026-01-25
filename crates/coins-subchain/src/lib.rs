@@ -15,7 +15,7 @@ use bitcoin::{
 use bitcoin::sighash::{SighashCache, EcdsaSighashType};
 use serde::{Serialize, Deserialize};
 use bincode::serde::{encode_to_vec as bincode_serialize, decode_from_slice as bincode_deserialize};
-use bincode::config::{standard, Config};
+use coins_types::bin_config;
 
 pub mod op_return;
 pub mod compression;
@@ -225,13 +225,4 @@ impl Subchain {
 
 
 
-// -----------------------------------------------------------------------------
-// Helper configuration
-// -----------------------------------------------------------------------------
-
-/// Fixed bincode configuration: little-endian + fixed-int encoding.
-fn bin_config() -> impl Config {
-    standard()
-        .with_fixed_int_encoding()
-        .with_little_endian()
-} 
+ 
