@@ -96,11 +96,17 @@ impl serde::Serialize for G1 {
     where
         S: Serializer,
     {
-        let mut tup = serializer.serialize_tuple(G1_SIZE)?;
-        for b in &self.0 {
-            tup.serialize_element(b)?;
+        if serializer.is_human_readable() {
+            // JSON: serialize as hex string
+            serializer.serialize_str(&self.to_hex())
+        } else {
+            // Binary (bincode): serialize as byte tuple
+            let mut tup = serializer.serialize_tuple(G1_SIZE)?;
+            for b in &self.0 {
+                tup.serialize_element(b)?;
+            }
+            tup.end()
         }
-        tup.end()
     }
 }
 
@@ -109,24 +115,43 @@ impl<'de> serde::Deserialize<'de> for G1 {
     where
         D: Deserializer<'de>,
     {
-        struct G1Visitor;
-        impl<'de> Visitor<'de> for G1Visitor {
-            type Value = G1;
-            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                write!(f, "{}-byte compressed G1", G1_SIZE)
-            }
-            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-            where
-                A: SeqAccess<'de>,
-            {
-                let mut arr = [0u8; G1_SIZE];
-                for (i, byte) in arr.iter_mut().enumerate() {
-                    *byte = seq.next_element::<u8>()?.ok_or_else(|| A::Error::invalid_length(i, &self))?;
+        if deserializer.is_human_readable() {
+            // JSON: deserialize from hex string
+            struct G1HexVisitor;
+            impl<'de> Visitor<'de> for G1HexVisitor {
+                type Value = G1;
+                fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                    write!(f, "64-character hex string for G1")
                 }
-                Ok(G1(arr))
+                fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+                where
+                    E: DeError,
+                {
+                    G1::from_hex(v).map_err(|e| E::custom(e))
+                }
             }
+            deserializer.deserialize_str(G1HexVisitor)
+        } else {
+            // Binary (bincode): deserialize from byte tuple
+            struct G1BinaryVisitor;
+            impl<'de> Visitor<'de> for G1BinaryVisitor {
+                type Value = G1;
+                fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                    write!(f, "{}-byte compressed G1", G1_SIZE)
+                }
+                fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+                where
+                    A: SeqAccess<'de>,
+                {
+                    let mut arr = [0u8; G1_SIZE];
+                    for (i, byte) in arr.iter_mut().enumerate() {
+                        *byte = seq.next_element::<u8>()?.ok_or_else(|| A::Error::invalid_length(i, &self))?;
+                    }
+                    Ok(G1(arr))
+                }
+            }
+            deserializer.deserialize_tuple(G1_SIZE, G1BinaryVisitor)
         }
-        deserializer.deserialize_tuple(G1_SIZE, G1Visitor)
     }
 }
 
@@ -161,6 +186,18 @@ impl G2 {
         let mut cursor = Cursor::new(&self.0[..]);
         G2Affine::deserialize_compressed(&mut cursor).ok()
     }
+
+    /// Parse a G2 point from a 128-character hex string.
+    pub fn from_hex(hex_str: &str) -> Result<Self, &'static str> {
+        let bytes = hex::decode(hex_str).map_err(|_| "invalid hex")?;
+        let arr: [u8; G2_SIZE] = bytes.try_into().map_err(|_| "expected 64 bytes")?;
+        Ok(Self(arr))
+    }
+
+    /// Encode this G2 point as a 128-character hex string.
+    pub fn to_hex(&self) -> String {
+        hex::encode(self.0)
+    }
 }
 
 impl serde::Serialize for G2 {
@@ -168,11 +205,17 @@ impl serde::Serialize for G2 {
     where
         S: Serializer,
     {
-        let mut tup = serializer.serialize_tuple(G2_SIZE)?;
-        for b in &self.0 {
-            tup.serialize_element(b)?;
+        if serializer.is_human_readable() {
+            // JSON: serialize as hex string
+            serializer.serialize_str(&self.to_hex())
+        } else {
+            // Binary (bincode): serialize as byte tuple
+            let mut tup = serializer.serialize_tuple(G2_SIZE)?;
+            for b in &self.0 {
+                tup.serialize_element(b)?;
+            }
+            tup.end()
         }
-        tup.end()
     }
 }
 
@@ -181,24 +224,43 @@ impl<'de> serde::Deserialize<'de> for G2 {
     where
         D: Deserializer<'de>,
     {
-        struct G2Visitor;
-        impl<'de> Visitor<'de> for G2Visitor {
-            type Value = G2;
-            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                write!(f, "{}-byte compressed G2", G2_SIZE)
-            }
-            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-            where
-                A: SeqAccess<'de>,
-            {
-                let mut arr = [0u8; G2_SIZE];
-                for (i, byte) in arr.iter_mut().enumerate() {
-                    *byte = seq.next_element::<u8>()?.ok_or_else(|| A::Error::invalid_length(i, &self))?;
+        if deserializer.is_human_readable() {
+            // JSON: deserialize from hex string
+            struct G2HexVisitor;
+            impl<'de> Visitor<'de> for G2HexVisitor {
+                type Value = G2;
+                fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                    write!(f, "128-character hex string for G2")
                 }
-                Ok(G2(arr))
+                fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+                where
+                    E: DeError,
+                {
+                    G2::from_hex(v).map_err(|e| E::custom(e))
+                }
             }
+            deserializer.deserialize_str(G2HexVisitor)
+        } else {
+            // Binary (bincode): deserialize from byte tuple
+            struct G2BinaryVisitor;
+            impl<'de> Visitor<'de> for G2BinaryVisitor {
+                type Value = G2;
+                fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                    write!(f, "{}-byte compressed G2", G2_SIZE)
+                }
+                fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+                where
+                    A: SeqAccess<'de>,
+                {
+                    let mut arr = [0u8; G2_SIZE];
+                    for (i, byte) in arr.iter_mut().enumerate() {
+                        *byte = seq.next_element::<u8>()?.ok_or_else(|| A::Error::invalid_length(i, &self))?;
+                    }
+                    Ok(G2(arr))
+                }
+            }
+            deserializer.deserialize_tuple(G2_SIZE, G2BinaryVisitor)
         }
-        deserializer.deserialize_tuple(G2_SIZE, G2Visitor)
     }
 }
 

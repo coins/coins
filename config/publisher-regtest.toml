@@ -20,7 +20,7 @@ interval = 30
 network = "regtest"
 
 # Indexer API URL (replaces direct database access)
-indexer_url = "http://localhost:8083"
+indexer_url = "http://localhost:8084"
 
 # API server port (network-specific to avoid conflicts)
 api_port = 8080

@@ -35,6 +35,21 @@
           ];
 
           shellHook = ''
+            # Setup commands
+            alias setup-regtest='./scripts/setup-regtest.sh'
+            alias setup-mutinynet='./scripts/setup-mutinynet.sh'
+            alias resume-mutinynet='./scripts/resume-mutinynet.sh'
+
+            # Stop commands
+            alias stop='./scripts/stop-services.sh'
+            alias stop-regtest='./scripts/stop-regtest.sh'
+            alias stop-mutinynet='./scripts/stop-mutinynet.sh'
+            alias stop-services='./scripts/stop-services.sh'
+
+            # Explorer commands
+            alias explorer-regtest='./target/release/coins-explorer --config config/explorer-regtest.toml'
+            alias explorer-mutinynet='./target/release/coins-explorer --config config/explorer-mutinynet.toml'
+
             # Send tokens from Alice to Bob
             # Usage: send <network> [amount]
             # Examples: send regtest 100, send mutinynet 500
@@ -65,16 +80,25 @@
             }
 
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            echo "🦀 Development Environment Ready"
+            echo "  Development Environment Ready"
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             echo ""
-            echo "Available commands:"
-            echo "  bitcoin-cli              - Connect to remote Bitcoin node"
-            echo "  send <network> [amount]  - Send tokens Alice->Bob"
+            echo "Setup:"
+            echo "  setup-regtest            - Start local regtest environment"
+            echo "  setup-mutinynet          - Start mutinynet environment"
+            echo "  resume-mutinynet         - Restart mutinynet services"
             echo ""
-            echo "Examples:"
-            echo "  send regtest 100"
-            echo "  send mutinynet 500"
+            echo "Stop:"
+            echo "  stop-services            - Stop all coins services"
+            echo "  stop-regtest             - Stop regtest (services + bitcoind + data)"
+            echo "  stop-mutinynet           - Stop mutinynet (services + data)"
+            echo ""
+            echo "Explorer:"
+            echo "  explorer-regtest         - Start explorer for regtest"
+            echo "  explorer-mutinynet       - Start explorer for mutinynet"
+            echo ""
+            echo "Transactions:"
+            echo "  send <network> [amount]  - Send tokens Alice->Bob"
             echo ""
           '';
         };

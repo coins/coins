@@ -281,7 +281,7 @@ echo "$INDEXER_PID" > .data/regtest/indexer.pid
 # Wait for indexer to start
 echo -n "Waiting for indexer to start"
 for i in {1..30}; do
-    if curl -s http://localhost:8083/health &>/dev/null; then
+    if curl -s http://localhost:8084/health &>/dev/null; then
         echo ""
         break
     fi
@@ -295,7 +295,7 @@ for i in {1..30}; do
     sleep 1
 done
 
-if ! curl -s http://localhost:8083/health &>/dev/null; then
+if ! curl -s http://localhost:8084/health &>/dev/null; then
     echo ""
     echo -e "${RED}✗ Indexer failed to start${NC}"
     exit 1

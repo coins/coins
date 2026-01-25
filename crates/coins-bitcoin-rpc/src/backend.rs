@@ -249,12 +249,6 @@ impl RpcBackend {
         self.ensure_address_imported_internal(address, false).await
     }
 
-    /// Ensure an address has been imported with full blockchain rescan
-    /// This is needed for IBD to find historical transactions
-    async fn ensure_address_imported_with_rescan(&self, address: &Address) -> Result<()> {
-        self.ensure_address_imported_internal(address, true).await
-    }
-
     /// Ensure an address has been imported starting from a specific block height
     /// Converts block height to timestamp for wallet import
     pub async fn ensure_address_imported_from_height(&self, address: &Address, genesis_height: u32) -> Result<()> {
@@ -382,26 +376,15 @@ impl RpcBackend {
     }
 
     pub async fn get_output_status(&self, txid: &Txid, vout: u32) -> Result<Option<OutputStatus>> {
-        // First check if transaction exists at all
-        // Try base RPC first (works with txindex or for mempool txs)
-        let tx_exists_base = matches!(
-            self.rpc.call::<Option<String>>("getrawtransaction", &[json!(txid.to_string())]),
-            Ok(Some(_))
-        );
-
-        // If that fails, try wallet RPC (works for wallet transactions without txindex)
-        let tx_exists = if !tx_exists_base {
-            let wallet_rpc = self.wallet_rpc()?;
-            matches!(
-                wallet_rpc.call::<Option<serde_json::Value>>("gettransaction", &[json!(txid.to_string())]),
-                Ok(Some(_))
-            )
-        } else {
-            true
-        };
+        // Check if transaction exists using wallet gettransaction
+        // (anchor txs are receives to subchain address, so they're in the wallet)
+        let wallet_rpc = self.wallet_rpc()?;
+        let tx_exists = wallet_rpc
+            .call::<serde_json::Value>("gettransaction", &[json!(txid.to_string()), json!(true)])
+            .is_ok();
 
         if !tx_exists {
-            // Transaction not found (never broadcast or pruned)
+            // Transaction not found (never broadcast or not in wallet)
             return Ok(None);
         }
 
@@ -555,27 +538,6 @@ impl RpcBackend {
         Ok(txs)
     }
 
-    pub async fn get_transaction(&self, txid: &Txid) -> Result<serde_json::Value> {
-        // Use base RPC (doesn't need wallet)
-        // Returns verbose JSON with blockhash if confirmed
-        let result: serde_json::Value = self.rpc.call(
-            "getrawtransaction",
-            &[json!(txid.to_string()), json!(true)] // verbose=true
-        )?;
-
-        Ok(result)
-    }
-
-    pub async fn get_block_by_hash(&self, blockhash: &str) -> Result<serde_json::Value> {
-        // Get block info by hash
-        let result: serde_json::Value = self.rpc.call(
-            "getblock",
-            &[json!(blockhash)]
-        )?;
-
-        Ok(result)
-    }
-
     pub async fn get_current_height(&self) -> Result<u32> {
         // Get current blockchain height
         let info: serde_json::Value = self.rpc.call("getblockchaininfo", &[])?;
@@ -620,26 +582,32 @@ impl RpcBackend {
 
         // The outpoint is anchor_tx:1 (P2A anchor output).
         // The anchor_tx itself is in the wallet (it sends to subchain address).
-        // Get the anchor_tx to find which block it's in.
+        // Use wallet gettransaction to find which block it's in.
         let anchor_txid = outpoint.txid.to_string();
+        let wallet_rpc = self.wallet_rpc()?;
 
-        let anchor_tx_data: serde_json::Value = match self.rpc.call(
-            "getrawtransaction",
-            &[json!(&anchor_txid), json!(true)],
+        let anchor_tx_data: serde_json::Value = match wallet_rpc.call(
+            "gettransaction",
+            &[json!(&anchor_txid), json!(true)],  // include_watchonly=true
         ) {
             Ok(data) => data,
             Err(_) => return Ok(None),
         };
 
-        // Check mempool first - if anchor_tx is unconfirmed, scan mempool for data_tx
-        if anchor_tx_data.get("blockhash").is_none() {
+        // Check if anchor_tx is confirmed - gettransaction returns confirmations
+        let confirmations = anchor_tx_data.get("confirmations")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+
+        if confirmations <= 0 {
+            // Anchor still in mempool, scan mempool for data_tx
             return self.find_spending_tx_in_mempool(outpoint).await;
         }
 
         // Anchor is confirmed - get its block and scan for the data_tx
         let blockhash = anchor_tx_data.get("blockhash")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing blockhash"))?;
+            .ok_or_else(|| anyhow!("Missing blockhash in confirmed wallet tx"))?;
 
         let block_data: serde_json::Value = self.rpc.call(
             "getblock",
@@ -742,5 +710,42 @@ impl RpcBackend {
 
         bitcoin::consensus::deserialize(&bytes)
             .context("Failed to deserialize transaction")
+    }
+
+    /// Get confirmation status for a wallet transaction by txid.
+    ///
+    /// Uses `gettransaction` which works for wallet transactions.
+    /// Anchor TXs are receives to the subchain address, so they're tracked by the wallet.
+    ///
+    /// Returns (block_height, confirmations) or None if transaction is not found
+    /// or still in mempool.
+    pub async fn get_tx_confirmation(&self, txid: &Txid) -> Result<Option<(u32, u32)>> {
+        let txid_str = txid.to_string();
+        let wallet_rpc = self.wallet_rpc()?;
+
+        // Use gettransaction (works for wallet transactions)
+        // Anchor TXs are receives to the subchain address, so they're in the wallet
+        let tx_data: serde_json::Value = wallet_rpc
+            .call("gettransaction", &[json!(&txid_str), json!(true)])?;  // include_watchonly=true
+
+        let confirmations = tx_data.get("confirmations")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+
+        if confirmations <= 0 {
+            // Still in mempool
+            return Ok(None);
+        }
+
+        // Get block height - gettransaction returns blockheight directly
+        let block_height = tx_data.get("blockheight")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
+
+        if block_height > 0 {
+            return Ok(Some((block_height, confirmations as u32)));
+        }
+
+        Ok(None)
     }
 }

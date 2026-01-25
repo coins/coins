@@ -37,9 +37,7 @@ pub enum WsMessage {
     },
     /// Transaction confirmation status changed
     ConfirmationUpdate {
-        btc_txid: String,
-        confirmations: u32,
-        finalized: bool,
+        btc_height: u32,
     },
 }
 
@@ -78,12 +76,17 @@ pub enum PendingTxStatus {
 #[derive(Debug, Clone, Serialize)]
 pub struct PendingTransaction {
     pub sender_id: u32,
+    pub sender_pk: String,
     pub recipient_pk: String,
     pub amount: u64,
     pub fee: u64,
+    pub nonce: u32,
     pub status: PendingTxStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub btc_txid: Option<String>,
+    pub btc_height: u32,
+    pub confirmations: u32,
+    pub finalized: bool,
 }
 
 pub fn simple_router(
@@ -308,17 +311,20 @@ async fn get_pending_transactions(
                         .and_then(|v| v.as_str())
                         .map(|s| s.to_string());
 
-                    // Check if this tx is already indexed
-                    let is_indexed = if let Some(ref txid) = btc_txid {
-                        state.indexer_client.is_txid_indexed(txid).await.unwrap_or(false)
+                    // Get actual confirmation status from indexer
+                    let (status, btc_height, confirmations, finalized) = if let Some(ref txid) = btc_txid {
+                        match state.indexer_client.get_block_confirmation(txid).await {
+                            Ok(Some(info)) => {
+                                // Transaction is indexed - use actual confirmation data
+                                (PendingTxStatus::Unconfirmed, info.btc_height, info.confirmations, info.finalized)
+                            }
+                            _ => {
+                                // Not indexed yet - still broadcasting
+                                (PendingTxStatus::Broadcasting, 0, 0, false)
+                            }
+                        }
                     } else {
-                        false
-                    };
-
-                    let status = if is_indexed {
-                        PendingTxStatus::Unconfirmed
-                    } else {
-                        PendingTxStatus::Broadcasting
+                        (PendingTxStatus::Broadcasting, 0, 0, false)
                     };
 
                     // Track seen btc_txids to avoid duplicates
@@ -328,11 +334,16 @@ async fn get_pending_transactions(
 
                     results.push(PendingTransaction {
                         sender_id: tx.get("sender_id").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                        sender_pk: tx.get("sender_pk").and_then(|v| v.as_str()).unwrap_or("").to_string(),
                         recipient_pk: tx.get("recipient_pk").and_then(|v| v.as_str()).unwrap_or("").to_string(),
                         amount: tx.get("amount").and_then(|v| v.as_u64()).unwrap_or(0),
                         fee: tx.get("fee").and_then(|v| v.as_u64()).unwrap_or(0),
+                        nonce: tx.get("nonce").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
                         status,
                         btc_txid,
+                        btc_height,
+                        confirmations,
+                        finalized,
                     });
                 }
             }
@@ -348,11 +359,16 @@ async fn get_pending_transactions(
                 for tx in txs {
                     results.push(PendingTransaction {
                         sender_id: tx.get("sender_id").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                        sender_pk: tx.get("sender_pk").and_then(|v| v.as_str()).unwrap_or("").to_string(),
                         recipient_pk: tx.get("recipient_pk").and_then(|v| v.as_str()).unwrap_or("").to_string(),
                         amount: tx.get("amount").and_then(|v| v.as_u64()).unwrap_or(0),
                         fee: tx.get("fee").and_then(|v| v.as_u64()).unwrap_or(0),
+                        nonce: tx.get("nonce").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
                         status: PendingTxStatus::Publishing,
                         btc_txid: None,
+                        btc_height: 0,
+                        confirmations: 0,
+                        finalized: false,
                     });
                 }
             }

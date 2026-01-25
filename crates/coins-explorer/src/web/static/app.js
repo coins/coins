@@ -208,9 +208,189 @@ class ExplorerApp {
         }
     }
 
-    // Targeted update: refresh transaction statuses (re-renders tx table only)
+    // Helper to ensure pk is hex string
+    ensureHex(pk) {
+        if (typeof pk === 'string') return pk;
+        return this.bytesToHex(pk);
+    }
+
+    // Generate unique transaction key from sender_pk + nonce
+    // This is consistent across the tx lifecycle (publishing -> broadcasting -> indexed)
+    getTxKey(tx) {
+        const senderPk = tx.sender_pk ? this.ensureHex(tx.sender_pk) : null;
+        const nonce = tx.nonce;
+
+        if (!senderPk || nonce === undefined || nonce === null) {
+            console.error('getTxKey: invalid transaction - missing sender_pk or nonce', {
+                sender_pk: senderPk,
+                nonce: nonce,
+                tx: tx
+            });
+            // Return a unique but identifiable key for debugging
+            return `tx-invalid-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        }
+        return `tx-${senderPk}-${nonce}`;
+    }
+
+    // Generate HTML for a single transaction row
+    renderTransactionRow(tx) {
+        const isIncoming = tx.direction === 'incoming';
+        const typeBadge = isIncoming
+            ? '<span class="tag is-success">Received</span>'
+            : '<span class="tag is-danger">Sent</span>';
+
+        const isPending = tx.is_mempool || tx.is_broadcasting || tx.is_unconfirmed;
+        let counterparty;
+        if (isPending && isIncoming) {
+            counterparty = `<span class="has-text-grey">From Account #${tx.sender_id}</span>`;
+        } else if (isIncoming) {
+            const senderPkHex = this.ensureHex(tx.sender_pk);
+            counterparty = `<a onclick="app.navigate('account', {pk: '${senderPkHex}'})" style="cursor: pointer; color: #3273dc;">
+                <code style="font-size: 0.85em;">${senderPkHex.substring(0, 16)}...${senderPkHex.substring(56)}</code>
+            </a>`;
+        } else {
+            const recipientPkHex = this.ensureHex(tx.recipient_pk);
+            counterparty = `<a onclick="app.navigate('account', {pk: '${recipientPkHex}'})" style="cursor: pointer; color: #3273dc;">
+                <code style="font-size: 0.85em;">${recipientPkHex.substring(0, 16)}...${recipientPkHex.substring(56)}</code>
+            </a>`;
+        }
+
+        const amountColor = isIncoming ? '#23d160' : '#ff3860';
+        const statusBadge = this.renderStatusBadge(tx);
+        const txKey = this.getTxKey(tx);
+
+        return `
+            <tr data-tx-key="${txKey}">
+                <td>${typeBadge}</td>
+                <td>${counterparty}</td>
+                <td><strong style="color: ${amountColor};">${isIncoming ? '+' : '-'}${tx.amount} sats</strong></td>
+                <td>${tx.fee} sats</td>
+                <td class="tx-status-cell">${statusBadge}</td>
+            </tr>
+        `;
+    }
+
+    // Generate status badge HTML for a transaction
+    renderStatusBadge(tx) {
+        const explorerUrl = tx.btc_txid ? this.getBitcoinExplorerUrl(tx.btc_txid) : null;
+        const isClickable = explorerUrl !== null;
+        const clickableStyle = isClickable ? 'cursor: pointer;' : '';
+        const onclickAttr = isClickable ? `onclick="window.open('${explorerUrl}', '_blank')"` : '';
+        const hoverAttrs = isClickable ? `onmouseover="this.style.filter='brightness(0.85)'" onmouseout="this.style.filter=''"` : '';
+
+        if (tx.is_mempool) {
+            return `<span class="status-tooltip">
+                <span class="tag is-info" style="cursor: help;">Publishing</span>
+                <span class="tooltip-text">In publisher mempool</span>
+            </span>`;
+        } else if (tx.is_broadcasting) {
+            return `<span class="status-tooltip">
+                <span class="tag is-link" style="cursor: help;">Broadcasting</span>
+                <span class="tooltip-text">Broadcast to Bitcoin, waiting for indexer</span>
+            </span>`;
+        } else if (tx.finalized) {
+            return `<span class="tag is-success" style="${clickableStyle}" ${onclickAttr} ${hoverAttrs} title="${isClickable ? 'View on Bitcoin explorer' : ''}">Confirmed</span>`;
+        } else {
+            const confText = tx.confirmations > 0
+                ? `${tx.confirmations} confirmation${tx.confirmations !== 1 ? 's' : ''}, ${tx.confirmations_remaining} remaining`
+                : 'In Bitcoin mempool';
+            return `<span class="status-tooltip">
+                <span class="tag is-warning" style="cursor: help; ${clickableStyle}" ${onclickAttr} ${hoverAttrs}>Unconfirmed</span>
+                <span class="tooltip-text">${confText}${isClickable ? ' (click to view on Bitcoin explorer)' : ''}</span>
+            </span>`;
+        }
+    }
+
+    // Targeted update: refresh status badges and append new transactions
     async updateTransactionStatuses(pk) {
-        await this.loadAccountTransactions(pk);
+        console.log('updateTransactionStatuses called for pk:', pk.substring(0, 16));
+        try {
+            // Fetch account first (needed for sender_id)
+            const account = await this.fetchAPI(`/accounts/${pk}`);
+            if (!account) return;
+
+            // Fetch all data in parallel for speed
+            const [indexedTxs, sentPending, receivedPending] = await Promise.all([
+                this.fetchAPI(`/accounts/${pk}/transactions`).then(r => r || []),
+                this.fetchAPI(`/pending-transactions?sender_id=${account.id}`).then(r => r || []),
+                this.fetchAPI(`/pending-transactions?recipient_pk=${pk}`).then(r => r || [])
+            ]);
+
+            console.log('Fetched:', { indexedTxs: indexedTxs.length, sentPending: sentPending.length, receivedPending: receivedPending.length });
+            console.log('Raw sentPending:', sentPending);
+            console.log('Raw receivedPending:', receivedPending);
+
+            // Format pending transactions
+            let pendingTxs = [
+                ...sentPending.map(tx => this.formatPendingTx(tx, 'outgoing', pk)),
+                ...receivedPending.map(tx => this.formatPendingTx(tx, 'incoming', pk))
+            ];
+            console.log('Formatted pendingTxs:', pendingTxs.length, pendingTxs);
+
+            // Filter out pending txs already indexed (by sender_pk + nonce)
+            const indexedKeys = new Set(indexedTxs.map(tx => this.getTxKey(tx)));
+            console.log('indexedKeys:', [...indexedKeys]);
+
+            const beforeFilter = pendingTxs.length;
+            pendingTxs = pendingTxs.filter(tx => {
+                const key = this.getTxKey(tx);
+                const isIndexed = indexedKeys.has(key);
+                console.log('Checking pending tx:', { key, isIndexed, sender_pk: tx.sender_pk, nonce: tx.nonce });
+                return !isIndexed;
+            });
+            console.log('After indexed filter:', beforeFilter, '->', pendingTxs.length);
+
+            // All transactions
+            const allTxs = [...indexedTxs, ...pendingTxs];
+
+            // Build set of valid tx keys (what SHOULD be in the table)
+            const validKeys = new Set();
+            for (const tx of allTxs) {
+                validKeys.add(this.getTxKey(tx));
+            }
+
+            const tbody = document.querySelector('#account-txs tbody');
+            if (!tbody) return;
+
+            // Remove rows that are no longer in the valid set (e.g., tx was indexed and key changed)
+            const existingRows = tbody.querySelectorAll('[data-tx-key]');
+            for (const row of existingRows) {
+                const key = row.getAttribute('data-tx-key');
+                if (!validKeys.has(key)) {
+                    row.remove();
+                }
+            }
+
+            // Update existing rows and append new ones
+            for (const tx of allTxs) {
+                const txKey = this.getTxKey(tx);
+                const existingRow = tbody.querySelector(`[data-tx-key="${txKey}"]`);
+
+                if (existingRow) {
+                    // Update status badge only
+                    console.log('Updating existing row:', txKey, { confirmations: tx.confirmations, finalized: tx.finalized });
+                    const statusCell = existingRow.querySelector('.tx-status-cell');
+                    if (statusCell) {
+                        statusCell.innerHTML = this.renderStatusBadge(tx);
+                    }
+                } else {
+                    // New transaction - append to table
+                    console.log('Appending new row:', txKey, { confirmations: tx.confirmations, finalized: tx.finalized });
+                    tbody.insertAdjacentHTML('beforeend', this.renderTransactionRow(tx));
+                    const actualRow = tbody.lastElementChild;
+                    if (actualRow) {
+                        // Highlight new row briefly
+                        actualRow.style.backgroundColor = '#fffbeb';
+                        setTimeout(() => {
+                            actualRow.style.transition = 'background-color 1s';
+                            actualRow.style.backgroundColor = '';
+                        }, 100);
+                    }
+                }
+            }
+        } catch (error) {
+            console.warn('Could not update transaction statuses:', error);
+        }
     }
 
     showNewBlockNotification(block) {
@@ -428,7 +608,7 @@ class ExplorerApp {
 
         try {
             const account = await this.fetchAPI(`/accounts/${pk}`);
-            const pk_hex = this.bytesToHex(account.pk);
+            const pk_hex = this.ensureHex(account.pk);
             resultDiv.innerHTML = `
                 <div class="box">
                     <h3 class="title is-5">Account Details</h3>
@@ -686,7 +866,7 @@ class ExplorerApp {
         const content = document.getElementById('content');
 
         // Convert byte arrays to hex
-        const publisher_pk_hex = this.bytesToHex(block.sub_block.publisher_pk);
+        const publisher_pk_hex = this.ensureHex(block.sub_block.publisher_pk);
         const txCount = block.sub_block && block.sub_block.txs ? block.sub_block.txs.length : 0;
 
         content.innerHTML = `
@@ -742,7 +922,7 @@ class ExplorerApp {
                     </thead>
                     <tbody>
                         ${block.sub_block.txs.map(tx => {
-                            const recipient_pk_hex = this.bytesToHex(tx.recipient_pk);
+                            const recipient_pk_hex = this.ensureHex(tx.recipient_pk);
                             return `
                                 <tr>
                                     <td><strong>${tx.sender_id}</strong></td>
@@ -783,7 +963,7 @@ class ExplorerApp {
             return;
         }
 
-        const pk_hex = this.bytesToHex(account.pk);
+        const pk_hex = this.ensureHex(account.pk);
 
         content.innerHTML = `
             <nav class="breadcrumb">
@@ -866,18 +1046,25 @@ class ExplorerApp {
         const isBroadcasting = tx.status === 'broadcasting';
         const isUnconfirmed = tx.status === 'unconfirmed';
 
+        // Use actual confirmation data from backend
+        const btcHeight = tx.btc_height || 0;
+        const confirmations = tx.confirmations || 0;
+        const finalized = tx.finalized || false;
+        const confirmationsRemaining = finalized ? 0 : Math.max(0, 6 - confirmations);
+
         return {
             sender_id: tx.sender_id,
+            sender_pk: tx.sender_pk,
             recipient_pk: tx.recipient_pk,
             amount: tx.amount,
             fee: tx.fee,
-            btc_height: 0,
+            nonce: tx.nonce,
+            btc_height: btcHeight,
             btc_txid: tx.btc_txid || null,
-            confirmations: 0,
-            finalized: false,
-            confirmations_remaining: 6,
+            confirmations: confirmations,
+            finalized: finalized,
+            confirmations_remaining: confirmationsRemaining,
             direction: direction,
-            sender_pk: direction === 'outgoing' ? currentPk : null,
             is_mempool: isMempool,
             is_broadcasting: isBroadcasting,
             is_unconfirmed: isUnconfirmed,
@@ -911,25 +1098,18 @@ class ExplorerApp {
                         ...receivedPending.map(tx => this.formatPendingTx(tx, 'incoming', pk))
                     ];
 
-                    // Remove duplicates (same tx might appear in both sent and received if self-transfer)
-                    const seenTxids = new Set();
+                    // Deduplicate by sender_pk + nonce (same tx might appear in both sent and received if self-transfer)
+                    const seenKeys = new Set();
                     pendingTxs = pendingTxs.filter(tx => {
-                        if (tx.btc_txid && seenTxids.has(tx.btc_txid)) {
-                            return false;
-                        }
-                        if (tx.btc_txid) {
-                            seenTxids.add(tx.btc_txid);
-                        }
+                        const key = this.getTxKey(tx);
+                        if (seenKeys.has(key)) return false;
+                        seenKeys.add(key);
                         return true;
                     });
 
-                    // Filter out pending txs that are already in indexed (final dedup)
-                    const indexedTxids = new Set(
-                        indexedTxs
-                            .filter(tx => tx.btc_txid)
-                            .map(tx => tx.btc_txid)
-                    );
-                    pendingTxs = pendingTxs.filter(tx => !tx.btc_txid || !indexedTxids.has(tx.btc_txid));
+                    // Filter out pending txs that are already indexed (by sender_pk + nonce)
+                    const indexedKeys = new Set(indexedTxs.map(tx => this.getTxKey(tx)));
+                    pendingTxs = pendingTxs.filter(tx => !indexedKeys.has(this.getTxKey(tx)));
                 }
             } catch (pendingError) {
                 console.warn('Could not fetch pending transactions:', pendingError);
@@ -963,90 +1143,7 @@ class ExplorerApp {
                             </tr>
                         </thead>
                         <tbody>
-                            ${transactions.map(tx => {
-                                // Determine type badge and counterparty display
-                                const isIncoming = tx.direction === 'incoming';
-                                const typeBadge = isIncoming
-                                    ? '<span class="tag is-success">Received</span>'
-                                    : '<span class="tag is-danger">Sent</span>';
-
-                                // Handle counterparty display differently for mempool/broadcasting vs indexed txs
-                                const isPending = tx.is_mempool || tx.is_broadcasting;
-                                let counterparty;
-                                if (isPending && isIncoming) {
-                                    // Pending incoming: show sender_id since we don't have sender_pk
-                                    counterparty = `<span class="has-text-grey">From Account #${tx.sender_id}</span>`;
-                                } else if (isIncoming) {
-                                    // Indexed incoming: show sender_pk
-                                    const senderPkHex = this.bytesToHex(tx.sender_pk);
-                                    counterparty = `<a onclick="app.navigate('account', {pk: '${senderPkHex}'})" style="cursor: pointer; color: #3273dc;">
-                                        <code style="font-size: 0.85em;">${senderPkHex.substring(0, 16)}...${senderPkHex.substring(56)}</code>
-                                       </a>`;
-                                } else {
-                                    // Outgoing: show recipient_pk (works for both pending and indexed)
-                                    const recipientPkHex = isPending ? tx.recipient_pk : this.bytesToHex(tx.recipient_pk);
-                                    counterparty = `<a onclick="app.navigate('account', {pk: '${recipientPkHex}'})" style="cursor: pointer; color: #3273dc;">
-                                        <code style="font-size: 0.85em;">${recipientPkHex.substring(0, 16)}...${recipientPkHex.substring(56)}</code>
-                                       </a>`;
-                                }
-
-                                // Color amount based on direction
-                                const amountColor = isIncoming ? '#23d160' : '#ff3860';
-
-                                let statusBadge;
-                                // Get explorer URL if we have a btc_txid (even if btc_height is 0 for mempool)
-                                const explorerUrl = tx.btc_txid ? this.getBitcoinExplorerUrl(tx.btc_txid) : null;
-                                const isClickable = explorerUrl !== null;
-                                const clickableStyle = isClickable ? 'cursor: pointer;' : '';
-                                const onclickAttr = isClickable ? `onclick="window.open('${explorerUrl}', '_blank')"` : '';
-                                const hoverAttrs = isClickable ? `onmouseover="this.style.filter='brightness(0.85)'" onmouseout="this.style.filter=''"` : '';
-
-                                if (tx.is_mempool) {
-                                    // Mempool transaction - in publisher mempool
-                                    statusBadge = `<span class="status-tooltip">
-                                           <span class="tag is-info" style="cursor: help;">Publishing</span>
-                                           <span class="tooltip-text">In Publisher Mempool</span>
-                                       </span>`;
-                                } else if (tx.is_broadcasting) {
-                                    // Recently broadcast - in flight to Bitcoin
-                                    statusBadge = `<span class="status-tooltip">
-                                           <span class="tag is-link" style="cursor: help;">Broadcasting</span>
-                                           <span class="tooltip-text">Broadcast to Bitcoin, waiting for indexer</span>
-                                       </span>`;
-                                } else if (tx.is_unconfirmed) {
-                                    // Indexed but in Bitcoin mempool
-                                    statusBadge = `<span class="status-tooltip">
-                                           <span class="tag is-warning" style="cursor: help; ${clickableStyle}" ${onclickAttr} ${hoverAttrs}>Unconfirmed</span>
-                                           <span class="tooltip-text">In Bitcoin mempool, indexed by indexer${isClickable ? ' (click to view on Bitcoin explorer)' : ''}</span>
-                                       </span>`;
-                                } else if (tx.finalized) {
-                                    statusBadge = `<span class="tag is-success" style="${clickableStyle}" ${onclickAttr} ${hoverAttrs} title="${isClickable ? 'View on Bitcoin explorer' : ''}">Confirmed</span>`;
-                                } else if (tx.confirmations === 0) {
-                                    // Transaction is in Bitcoin mempool (btc_height = 0)
-                                    statusBadge = `<span class="status-tooltip">
-                                           <span class="tag is-warning" style="cursor: help; ${clickableStyle}" ${onclickAttr} ${hoverAttrs}>Unconfirmed</span>
-                                           <span class="tooltip-text">in Bitcoin mempool${isClickable ? ' (click to view on Bitcoin explorer)' : ''}</span>
-                                       </span>`;
-                                } else {
-                                    // Transaction has some confirmations but not finalized yet
-                                    statusBadge = `<span class="status-tooltip">
-                                           <span class="tag is-warning" style="cursor: help; ${clickableStyle}" ${onclickAttr} ${hoverAttrs}>Unconfirmed</span>
-                                           <span class="tooltip-text">${tx.confirmations_remaining} block${tx.confirmations_remaining !== 1 ? 's' : ''} remaining${isClickable ? ' (click to view on Bitcoin explorer)' : ''}</span>
-                                       </span>`;
-                                }
-
-                                return `
-                                    <tr>
-                                        <td>${typeBadge}</td>
-                                        <td>${counterparty}</td>
-                                        <td><strong style="color: ${amountColor};">${isIncoming ? '+' : '-'}${tx.amount} sats</strong></td>
-                                        <td>${tx.fee} sats</td>
-                                        <td>
-                                            ${statusBadge}
-                                        </td>
-                                    </tr>
-                                `;
-                            }).join('')}
+                            ${transactions.map(tx => this.renderTransactionRow(tx)).join('')}
                         </tbody>
                     </table>
                     <p class="help">

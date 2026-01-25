@@ -190,10 +190,11 @@ async fn process_anchor_spend(
         "Deserialized SubBlock"
     );
 
-    // Validate and apply state changes using the canonical validator
+    // Validate and apply state changes using the canonical validator.
     // This verifies BLS signatures, handles multiple txs from same sender,
     // credits publisher fees, and applies state atomically.
-    validate_subblock(&sub_block, state).map_err(|e| match e {
+    // Returns the nonces used by each transaction (computed during validation).
+    let nonces = validate_subblock(&sub_block, state).map_err(|e| match e {
         ValidationError::UnknownSender(id) => anyhow::anyhow!("Unknown sender account: {}", id),
         ValidationError::Balance => anyhow::anyhow!("Insufficient balance"),
         ValidationError::BadSignature => anyhow::anyhow!("Signature verification failed"),
@@ -204,8 +205,8 @@ async fn process_anchor_spend(
 
     let tx_count = sub_block.txs.len();
 
-    // Index the block
-    indexer.index_block(data_txid, btc_height, sub_block)
+    // Index the block with nonces computed during validation
+    indexer.index_block(data_txid, btc_height, sub_block, nonces)
         .map_err(|e| anyhow::anyhow!("Failed to index block: {:?}", e))?;
 
     tracing::info!(
@@ -325,7 +326,14 @@ pub async fn scan_historical_anchors(
     Ok(())
 }
 
-/// Background task to update btc_height for blocks that were initially discovered in mempool
+/// Background task to update btc_height for blocks that were initially discovered in mempool.
+///
+/// This task periodically checks blocks with btc_height=0 (initially discovered in mempool)
+/// and updates their btc_height once they are confirmed on Bitcoin.
+///
+/// Strategy: The anchor TX (which spends from subchain address back to subchain address)
+/// is tracked by the wallet. Since anchor TX and data TX must be in the same block,
+/// we query the anchor TX's confirmation status to determine the data TX's status.
 pub async fn update_confirmation_statuses(
     indexer: Arc<Indexer>,
     rpc_backend: Arc<RpcBackend>,
@@ -334,7 +342,7 @@ pub async fn update_confirmation_statuses(
     tracing::info!("Starting confirmation status update task");
 
     loop {
-        tokio::time::sleep(Duration::from_secs(30)).await;
+        tokio::time::sleep(Duration::from_secs(5)).await;
 
         // Get all blocks from indexer
         let latest_height = match indexer.get_latest_height() {
@@ -349,7 +357,7 @@ pub async fn update_confirmation_statuses(
             }
         };
 
-        // Reconstruct anchor transactions from subchain
+        // Reconstruct anchor transactions from subchain to get their txids
         let anchor_txs = subchain.reconstruct_txs();
 
         // Check each block for confirmation updates
@@ -374,13 +382,12 @@ pub async fn update_confirmation_statuses(
             if chain_block.btc_height == 0 {
                 let data_txid = chain_block.btc_txid;
 
-                // Anchors are always used sequentially, so sub_chain_height == anchor_idx
+                // Get the anchor TX for this sub_chain_height
+                // Anchors are used sequentially, so sub_chain_height == anchor_idx
                 let anchor_idx = sub_chain_height as usize;
-
                 if anchor_idx >= anchor_txs.len() {
                     tracing::warn!(
                         sub_chain_height = sub_chain_height,
-                        data_txid = %data_txid,
                         "Anchor index out of bounds"
                     );
                     pending_count += 1;
@@ -389,70 +396,51 @@ pub async fn update_confirmation_statuses(
 
                 let anchor_tx = &anchor_txs[anchor_idx];
                 let anchor_txid = anchor_tx.compute_txid();
-                let anchor_outpoint = OutPoint::new(anchor_txid, 1);
 
-                // Query for the spending transaction of this anchor
-                match rpc_backend.get_spending_tx(&anchor_outpoint).await {
-                    Ok(Some((queried_txid, _tx, btc_height))) => {
-                        // Verify this is the expected transaction
-                        if queried_txid == data_txid {
-                            if btc_height > 0 {
-                                // Transaction is now confirmed! Update the height
-                                if let Err(e) = indexer.update_btc_height(sub_chain_height, btc_height) {
-                                    tracing::error!(
-                                        sub_chain_height = sub_chain_height,
-                                        btc_height = btc_height,
-                                        data_txid = %data_txid,
-                                        anchor_idx = anchor_idx,
-                                        error = ?e,
-                                        "Failed to update btc_height"
-                                    );
-                                } else {
-                                    tracing::info!(
-                                        sub_chain_height = sub_chain_height,
-                                        btc_height = btc_height,
-                                        data_txid = %data_txid,
-                                        anchor_idx = anchor_idx,
-                                        "Updated btc_height for confirmed block"
-                                    );
-                                    updated_count += 1;
-                                }
-                            } else {
-                                // Still in mempool
-                                tracing::debug!(
-                                    sub_chain_height = sub_chain_height,
-                                    data_txid = %data_txid,
-                                    anchor_idx = anchor_idx,
-                                    "Transaction still in mempool"
-                                );
-                                pending_count += 1;
-                            }
-                        } else {
-                            tracing::warn!(
+                // Query the wallet for the anchor TX confirmation status
+                // The anchor TX is a receive to the subchain address, so the wallet tracks it
+                match rpc_backend.get_tx_confirmation(&anchor_txid).await {
+                    Ok(Some((btc_height, confirmations))) => {
+                        // Anchor TX is confirmed, so data TX is too (same block rule)
+                        if let Err(e) = indexer.update_btc_height(sub_chain_height, btc_height) {
+                            tracing::error!(
                                 sub_chain_height = sub_chain_height,
-                                expected_txid = %data_txid,
-                                actual_txid = %queried_txid,
-                                "Anchor spent by unexpected transaction"
+                                btc_height = btc_height,
+                                anchor_txid = %anchor_txid,
+                                data_txid = %data_txid,
+                                confirmations = confirmations,
+                                error = ?e,
+                                "Failed to update btc_height"
                             );
-                            pending_count += 1;
+                        } else {
+                            tracing::info!(
+                                sub_chain_height = sub_chain_height,
+                                btc_height = btc_height,
+                                anchor_txid = %anchor_txid,
+                                data_txid = %data_txid,
+                                confirmations = confirmations,
+                                "Updated btc_height for confirmed block"
+                            );
+                            updated_count += 1;
                         }
                     }
                     Ok(None) => {
-                        // Anchor not spent yet - data_tx still in mempool
+                        // Anchor TX not confirmed yet (still in mempool)
                         tracing::debug!(
                             sub_chain_height = sub_chain_height,
+                            anchor_txid = %anchor_txid,
                             data_txid = %data_txid,
-                            anchor_idx = anchor_idx,
-                            "Anchor not spent yet"
+                            "Anchor TX still in mempool"
                         );
                         pending_count += 1;
                     }
                     Err(e) => {
                         tracing::debug!(
                             sub_chain_height = sub_chain_height,
-                            anchor_idx = anchor_idx,
+                            anchor_txid = %anchor_txid,
+                            data_txid = %data_txid,
                             error = ?e,
-                            "Failed to query anchor spending status"
+                            "Failed to query anchor TX confirmation status"
                         );
                         pending_count += 1;
                     }

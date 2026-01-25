@@ -23,7 +23,7 @@ if ! curl -s http://localhost:8080/health &>/dev/null; then
     exit 1
 fi
 
-if ! curl -s http://localhost:8083/health &>/dev/null; then
+if ! curl -s http://localhost:8084/health &>/dev/null; then
     echo -e "${RED}✗ Indexer not running${NC}"
     echo -e "${YELLOW}Run ./scripts/setup-regtest.sh first${NC}"
     exit 1

@@ -84,8 +84,10 @@ async fn monitor_state_changes(
     ws_tx: broadcast::Sender<WsMessage>,
 ) {
     let mut last_block_height: Option<u32> = None;
-    let mut last_pending_count: Option<usize> = None;
+    let mut last_btc_height: Option<u32> = None;
+    let mut last_pending_state: Option<PendingState> = None;
     let mut last_stats: Option<(u32, u64, u64)> = None;
+    let mut is_first_check = true;
 
     loop {
         tokio::time::sleep(Duration::from_secs(2)).await;
@@ -94,8 +96,7 @@ async fn monitor_state_changes(
         if let Ok(Some(latest_block)) = indexer_client.get_latest_block().await {
             let current_height = latest_block.height;
             if last_block_height != Some(current_height) {
-                if last_block_height.is_some() {
-                    // Only broadcast if this isn't the first check
+                if !is_first_check {
                     let tx_count = latest_block.sub_block.txs.len();
                     let _ = ws_tx.send(WsMessage::NewBlock {
                         height: current_height,
@@ -112,7 +113,7 @@ async fn monitor_state_changes(
         if let Ok(stats) = indexer_client.get_stats().await {
             let current_stats = (stats.total_blocks, stats.total_accounts, stats.total_supply);
             if last_stats != Some(current_stats) {
-                if last_stats.is_some() {
+                if !is_first_check {
                     let _ = ws_tx.send(WsMessage::StatsUpdate {
                         total_blocks: stats.total_blocks,
                         total_accounts: stats.total_accounts,
@@ -122,40 +123,93 @@ async fn monitor_state_changes(
                 }
                 last_stats = Some(current_stats);
             }
-        }
 
-        // Check for pending transaction changes
-        if let Some(ref pub_url) = publisher_url {
-            let pending_count = fetch_pending_count(pub_url).await;
-            if last_pending_count != Some(pending_count) {
-                if last_pending_count.is_some() {
-                    let _ = ws_tx.send(WsMessage::PendingTxsUpdate { count: pending_count });
-                    tracing::debug!("Broadcast pending txs update: count={}", pending_count);
+            // Check for Bitcoin block height changes (affects confirmations)
+            let current_btc_height = stats.btc_height;
+            if current_btc_height > 0 && last_btc_height != Some(current_btc_height) {
+                if !is_first_check {
+                    let _ = ws_tx.send(WsMessage::ConfirmationUpdate {
+                        btc_height: current_btc_height,
+                    });
+                    tracing::debug!("Broadcast confirmation update: btc_height={}", current_btc_height);
                 }
-                last_pending_count = Some(pending_count);
+                last_btc_height = Some(current_btc_height);
             }
         }
+
+        // Check for pending transaction changes (count AND status distribution)
+        if let Some(ref pub_url) = publisher_url {
+            let current_state = fetch_pending_state(pub_url, &indexer_client).await;
+            if last_pending_state.as_ref() != Some(&current_state) {
+                if !is_first_check {
+                    let _ = ws_tx.send(WsMessage::PendingTxsUpdate { count: current_state.total() });
+                    tracing::debug!(
+                        "Broadcast pending txs update: publishing={}, broadcasting={}, unconfirmed={}",
+                        current_state.publishing, current_state.broadcasting, current_state.unconfirmed
+                    );
+                }
+                last_pending_state = Some(current_state);
+            }
+        }
+
+        is_first_check = false;
     }
 }
 
-/// Fetch pending transaction count from publisher
-async fn fetch_pending_count(publisher_url: &str) -> usize {
-    let client = reqwest::Client::new();
-    let mut count = 0;
+/// Tracks the distribution of pending transactions across states
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PendingState {
+    publishing: usize,
+    broadcasting: usize,
+    unconfirmed: usize,
+}
 
-    // Count mempool transactions
+impl PendingState {
+    fn total(&self) -> usize {
+        self.publishing + self.broadcasting + self.unconfirmed
+    }
+}
+
+/// Fetch pending transaction state from publisher
+/// Returns the distribution of transactions across publishing, broadcasting, and unconfirmed states
+async fn fetch_pending_state(publisher_url: &str, indexer_client: &IndexerClient) -> PendingState {
+    let client = reqwest::Client::new();
+    let mut state = PendingState {
+        publishing: 0,
+        broadcasting: 0,
+        unconfirmed: 0,
+    };
+
+    // Count mempool transactions (publishing)
     if let Ok(response) = client.get(format!("{}/mempool", publisher_url)).send().await {
         if let Ok(txs) = response.json::<Vec<serde_json::Value>>().await {
-            count += txs.len();
+            state.publishing = txs.len();
         }
     }
 
-    // Count recently broadcast transactions
+    // Count recently broadcast transactions and check their indexer status
     if let Ok(response) = client.get(format!("{}/recently-broadcast", publisher_url)).send().await {
         if let Ok(txs) = response.json::<Vec<serde_json::Value>>().await {
-            count += txs.len();
+            for tx in txs {
+                if let Some(btc_txid) = tx.get("btc_txid").and_then(|v| v.as_str()) {
+                    // Check if indexed
+                    match indexer_client.get_block_confirmation(btc_txid).await {
+                        Ok(Some(_)) => {
+                            // Indexed - unconfirmed (or confirmed, but still in recently-broadcast)
+                            state.unconfirmed += 1;
+                        }
+                        _ => {
+                            // Not indexed yet - still broadcasting
+                            state.broadcasting += 1;
+                        }
+                    }
+                } else {
+                    // No btc_txid - still broadcasting
+                    state.broadcasting += 1;
+                }
+            }
         }
     }
 
-    count
+    state
 }

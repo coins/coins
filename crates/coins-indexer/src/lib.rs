@@ -31,6 +31,9 @@ pub struct ChainBlock {
     pub btc_height: u32,
     /// The sub-block content
     pub sub_block: SubBlock,
+    /// Nonces for each transaction (derived at indexing time from sender account state)
+    /// Parallel array to sub_block.txs - nonces[i] is the nonce for txs[i]
+    pub nonces: Vec<u32>,
 }
 
 impl ChainBlock {
@@ -45,6 +48,11 @@ impl ChainBlock {
         let sub_block_bytes = self.sub_block.serialize(state);
         v.extend_from_slice(&(sub_block_bytes.len() as u32).to_le_bytes());
         v.extend_from_slice(&sub_block_bytes);
+        // Nonces: count (2 bytes) + nonces (4 bytes each)
+        v.extend_from_slice(&(self.nonces.len() as u16).to_le_bytes());
+        for nonce in &self.nonces {
+            v.extend_from_slice(&nonce.to_le_bytes());
+        }
         v
     }
 
@@ -66,10 +74,33 @@ impl ChainBlock {
 
         let sub_block = SubBlock::deserialize(&data[sub_block_offset..sub_block_offset + sub_block_len], state)?;
 
+        // Parse nonces (may not exist in old database entries)
+        let nonces_offset = sub_block_offset + sub_block_len;
+        let nonces = if data.len() >= nonces_offset + 2 {
+            let nonce_count = u16::from_le_bytes(data[nonces_offset..nonces_offset + 2].try_into().ok()?) as usize;
+            let nonces_data_offset = nonces_offset + 2;
+            if data.len() >= nonces_data_offset + nonce_count * U32_SIZE {
+                let mut nonces = Vec::with_capacity(nonce_count);
+                for i in 0..nonce_count {
+                    let offset = nonces_data_offset + i * U32_SIZE;
+                    let nonce = u32::from_le_bytes(data[offset..offset + U32_SIZE].try_into().ok()?);
+                    nonces.push(nonce);
+                }
+                nonces
+            } else {
+                // Fallback: empty nonces for old data
+                vec![0; sub_block.txs.len()]
+            }
+        } else {
+            // Fallback: empty nonces for old data
+            vec![0; sub_block.txs.len()]
+        };
+
         Some(Self {
             btc_txid,
             btc_height,
             sub_block,
+            nonces,
         })
     }
 }
@@ -157,12 +188,15 @@ impl Indexer {
         }
     }
 
-    /// Index a new sub-block at the given Bitcoin height
+    /// Index a new sub-block at the given Bitcoin height.
+    /// The nonces parameter contains the signing nonce for each transaction (parallel array to sub_block.txs).
+    /// These are typically obtained from validate_subblock() which computes them during validation.
     pub fn index_block(
         &self,
         btc_txid: Txid,
         btc_height: u32,
         sub_block: SubBlock,
+        nonces: Vec<u32>,
     ) -> Result<(), IndexerError> {
         // Get next sequential sub-chain height
         let sub_chain_height = self.get_next_height()?;
@@ -179,6 +213,7 @@ impl Indexer {
             btc_txid,
             btc_height,
             sub_block,
+            nonces,
         };
 
         // Serialize and store using sub-chain height as key
@@ -263,6 +298,23 @@ impl Indexer {
             "has_txid check"
         );
         Ok(exists)
+    }
+
+    /// Get block by Bitcoin txid
+    pub fn get_block_by_txid(&self, btc_txid: &Txid) -> Result<Option<ChainBlock>, IndexerError> {
+        let txid_key: &[u8] = btc_txid.as_ref();
+
+        // Look up sub_chain_height from txid_index
+        if let Some(height_bytes) = self.txid_index.get(txid_key)? {
+            let sub_chain_height = u32::from_le_bytes(
+                height_bytes.as_ref().try_into().map_err(|_| IndexerError::Serialization)?
+            );
+
+            // Get the block at that height
+            self.get_block_by_height(sub_chain_height)
+        } else {
+            Ok(None)
+        }
     }
 
     /// Handle blockchain reorganization by removing blocks from the given height onward

@@ -183,7 +183,7 @@ impl Engine {
 
     pub async fn try_mine_subblock(&mut self) -> Result<()> {
         // Clone transactions from mempool (don't drain yet - we'll drain after adding to recently_broadcast)
-        let txs = {
+        let txs_with_nonces = {
             let mempool = self.app_state.mempool.lock()
                 .map_err(|_| anyhow::anyhow!("mempool lock poisoned"))?;
             if mempool.is_empty() {
@@ -192,9 +192,17 @@ impl Engine {
             mempool.clone()
         };
 
-        tracing::info!(tx_count = txs.len(), "Mining sub-block");
+        tracing::info!(tx_count = txs_with_nonces.len(), "Mining sub-block");
 
-        let (transactions, signatures): (Vec<_>, Vec<_>) = txs.into_iter().unzip();
+        let (transactions, signatures, nonces): (Vec<_>, Vec<_>, Vec<_>) = txs_with_nonces
+            .into_iter()
+            .map(|(tx, sig, nonce)| (tx, sig, nonce))
+            .fold((vec![], vec![], vec![]), |(mut txs, mut sigs, mut nonces), (tx, sig, nonce)| {
+                txs.push(tx);
+                sigs.push(sig);
+                nonces.push(nonce);
+                (txs, sigs, nonces)
+            });
 
         // Aggregate BLS signatures
         let aggregated_signature = aggregate(signatures.iter());
@@ -240,10 +248,10 @@ impl Engine {
         // Dispatch based on publish mode
         match &self.publish_mode {
             PublishMode::Single(format) => {
-                self.publish_single(&compressed_bytes, anchor_tx, fee_utxo, *format, sub_block).await?;
+                self.publish_single(&compressed_bytes, anchor_tx, fee_utxo, *format, sub_block, nonces).await?;
             }
             PublishMode::Dual { primary, secondary } => {
-                self.publish_dual(&compressed_bytes, anchor_tx, fee_utxo, *primary, *secondary, sub_block).await?;
+                self.publish_dual(&compressed_bytes, anchor_tx, fee_utxo, *primary, *secondary, sub_block, nonces).await?;
             }
         }
 
@@ -258,6 +266,7 @@ impl Engine {
         fee_utxo: FeeUtxo,
         format: PublishFormat,
         sub_block: SubBlock,
+        nonces: Vec<u32>,
     ) -> Result<()> {
         let result = publish_subblock(
             compressed_bytes,
@@ -275,8 +284,8 @@ impl Engine {
         let btc_txid = result.data_tx.compute_txid();
         if let Ok(mut recently_broadcast) = self.app_state.recently_broadcast.lock() {
             let now = Instant::now();
-            for tx in &sub_block.txs {
-                recently_broadcast.push((tx.clone(), now, btc_txid));
+            for (tx, nonce) in sub_block.txs.iter().zip(nonces.iter()) {
+                recently_broadcast.push((tx.clone(), now, btc_txid, *nonce));
             }
             tracing::debug!(tx_count = sub_block.txs.len(), btc_txid = %btc_txid, "Added transactions to recently_broadcast");
         }
@@ -347,11 +356,12 @@ impl Engine {
         primary: PublishFormat,
         secondary: PublishFormat,
         sub_block: SubBlock,
+        nonces: Vec<u32>,
     ) -> Result<()> {
         // Check if we have enough fee UTXOs for dual broadcast
         if self.fee_utxos.len() < 2 {
             tracing::warn!("Dual broadcast requires 2 fee UTXOs, falling back to primary only");
-            return self.publish_single(compressed_bytes, anchor_tx, fee_utxo_primary, primary, sub_block).await;
+            return self.publish_single(compressed_bytes, anchor_tx, fee_utxo_primary, primary, sub_block, nonces).await;
         }
 
         let fee_utxo_secondary = self.fee_utxos[1].clone();
@@ -373,8 +383,8 @@ impl Engine {
         let btc_txid = result_primary.data_tx.compute_txid();
         if let Ok(mut recently_broadcast) = self.app_state.recently_broadcast.lock() {
             let now = Instant::now();
-            for tx in &sub_block.txs {
-                recently_broadcast.push((tx.clone(), now, btc_txid));
+            for (tx, nonce) in sub_block.txs.iter().zip(nonces.iter()) {
+                recently_broadcast.push((tx.clone(), now, btc_txid, *nonce));
             }
             tracing::debug!(tx_count = sub_block.txs.len(), btc_txid = %btc_txid, "Added transactions to recently_broadcast");
         }

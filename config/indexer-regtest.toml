@@ -15,7 +15,7 @@ rpc_pass = "password"
 network = "regtest"
 
 [server]
-api_port = 8083
+api_port = 8084
 host = "0.0.0.0"
 
 [genesis]

@@ -39,6 +39,19 @@ async fn test_get_address() {
 #[tokio::test]
 async fn test_submit_tx_valid() {
     let mock_server = MockServer::start().await;
+
+    // Mock the indexer account lookup
+    Mock::given(method("GET"))
+        .and(path("/accounts/by-id/1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": 1,
+            "pk": "0000000000000000000000000000000000000000000000000000000000000000",
+            "balance": 1000,
+            "nonce": 0
+        })))
+        .mount(&mock_server)
+        .await;
+
     let state = create_test_state(&mock_server.uri());
     let app = router(state.clone());
 
@@ -87,6 +100,20 @@ async fn test_submit_tx_valid() {
 #[tokio::test]
 async fn test_submit_tx_duplicate_rejected() {
     let mock_server = MockServer::start().await;
+
+    // Mock the indexer account lookup
+    Mock::given(method("GET"))
+        .and(path("/accounts/by-id/1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": 1,
+            "pk": "0000000000000000000000000000000000000000000000000000000000000000",
+            "balance": 1000,
+            "nonce": 0
+        })))
+        .expect(2) // Will be called twice
+        .mount(&mock_server)
+        .await;
+
     let state = create_test_state(&mock_server.uri());
 
     // Create and sign a transaction
@@ -186,6 +213,19 @@ async fn test_get_mempool_empty() {
 #[tokio::test]
 async fn test_get_mempool_with_txs() {
     let mock_server = MockServer::start().await;
+
+    // Mock the indexer account lookup for sender_id=42
+    Mock::given(method("GET"))
+        .and(path("/accounts/by-id/42"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": 42,
+            "pk": "0000000000000000000000000000000000000000000000000000000000000000",
+            "balance": 1000,
+            "nonce": 0
+        })))
+        .mount(&mock_server)
+        .await;
+
     let state = create_test_state(&mock_server.uri());
 
     // Add a tx to mempool directly
@@ -197,7 +237,7 @@ async fn test_get_mempool_with_txs() {
         fee: 2,
     };
     let sig = G2([0u8; G2_SIZE]);
-    state.mempool.lock().unwrap().push((tx, sig));
+    state.mempool.lock().unwrap().push((tx, sig, 0));
 
     let app = router(state);
     let response = app
@@ -216,6 +256,19 @@ async fn test_get_mempool_with_txs() {
 #[tokio::test]
 async fn test_get_mempool_filtered_by_sender() {
     let mock_server = MockServer::start().await;
+
+    // Mock the indexer account lookups for sender_id=1 (will be returned)
+    Mock::given(method("GET"))
+        .and(path("/accounts/by-id/1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": 1,
+            "pk": "0000000000000000000000000000000000000000000000000000000000000000",
+            "balance": 1000,
+            "nonce": 0
+        })))
+        .mount(&mock_server)
+        .await;
+
     let state = create_test_state(&mock_server.uri());
 
     // Add txs from different senders
@@ -235,8 +288,8 @@ async fn test_get_mempool_filtered_by_sender() {
     let sig = G2([0u8; G2_SIZE]);
     {
         let mut mempool = state.mempool.lock().unwrap();
-        mempool.push((tx1, sig));
-        mempool.push((tx2, G2([1u8; G2_SIZE])));
+        mempool.push((tx1, sig, 0));
+        mempool.push((tx2, G2([1u8; G2_SIZE]), 0));
     }
 
     let app = router(state);

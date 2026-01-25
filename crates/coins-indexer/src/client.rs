@@ -137,6 +137,19 @@ impl IndexerClient {
         Ok(response.status().is_success())
     }
 
+    /// Get block confirmation info by Bitcoin txid
+    pub async fn get_block_confirmation(&self, btc_txid: &str) -> Result<Option<BlockConfirmationInfo>> {
+        let url = format!("{}/blocks/by-txid/{}", self.base_url, btc_txid);
+        let response = self.client.get(&url).send().await?;
+
+        if response.status() == 404 {
+            return Ok(None);
+        }
+
+        let info = response.error_for_status()?.json().await?;
+        Ok(Some(info))
+    }
+
     /// Get account transaction history
     pub async fn get_account_transactions(&self, pk: &G1) -> Result<Vec<TransactionWithStatus>> {
         let url = format!("{}/accounts/{}/transactions", self.base_url, pk.to_hex());
@@ -156,6 +169,7 @@ pub enum TransactionDirection {
 pub struct TransactionWithStatus {
     #[serde(flatten)]
     pub tx: Transaction,
+    pub nonce: u32,
     pub btc_height: u32,
     pub btc_txid: String,
     pub confirmations: u32,
@@ -185,5 +199,14 @@ pub struct NetworkStats {
     pub total_blocks: u32,
     pub total_accounts: u64,
     pub total_supply: u64,
+    pub btc_height: u32,
     pub network: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BlockConfirmationInfo {
+    pub btc_height: u32,
+    pub btc_txid: String,
+    pub confirmations: u32,
+    pub finalized: bool,
 }

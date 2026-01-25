@@ -18,7 +18,7 @@ pub fn create_router(app_state: AppState) -> Router {
         .route("/accounts/:pk/transactions", get(get_account_transactions))
         .route("/accounts/by-id/:id", get(get_account_by_id))
         .route("/blocks/latest", get(get_latest_block))
-        .route("/blocks/by-txid/:txid", get(check_txid_indexed))
+        .route("/blocks/by-txid/:txid", get(get_block_by_txid))
         .route("/blocks/:height", get(get_block_by_height))
         .route("/blocks", get(get_blocks_range))
         .route("/stats", get(get_stats))
@@ -30,35 +30,72 @@ async fn health() -> impl IntoResponse {
     (StatusCode::OK, "OK")
 }
 
-/// Check if a Bitcoin txid has been indexed (returns 200 if yes, 404 if no)
-async fn check_txid_indexed(
+/// Get block confirmation info by Bitcoin txid
+/// Returns block height, btc_height, confirmations, finalized status
+async fn get_block_by_txid(
     AxumState(state): AxumState<AppState>,
     Path(txid_hex): Path<String>,
-) -> impl IntoResponse {
-    tracing::debug!(txid_hex = %txid_hex, "Checking if txid is indexed");
+) -> Result<Json<BlockConfirmationInfo>, StatusCode> {
+    tracing::debug!(txid_hex = %txid_hex, "Getting block by txid");
 
     let txid = match txid_hex.parse::<bitcoin::Txid>() {
         Ok(t) => t,
         Err(e) => {
             tracing::warn!(txid_hex = %txid_hex, error = ?e, "Invalid txid format");
-            return StatusCode::BAD_REQUEST;
+            return Err(StatusCode::BAD_REQUEST);
         }
     };
 
-    match state.indexer.has_txid(&txid) {
-        Ok(true) => {
-            tracing::debug!(txid = %txid, "Txid is indexed");
-            StatusCode::OK
-        }
-        Ok(false) => {
+    // Find the block with this txid
+    let chain_block = match state.indexer.get_block_by_txid(&txid) {
+        Ok(Some(block)) => block,
+        Ok(None) => {
             tracing::debug!(txid = %txid, "Txid not found in index");
-            StatusCode::NOT_FOUND
+            return Err(StatusCode::NOT_FOUND);
         }
         Err(e) => {
-            tracing::error!(txid = %txid, error = ?e, "Error checking txid");
-            StatusCode::INTERNAL_SERVER_ERROR
+            tracing::error!(txid = %txid, error = ?e, "Error getting block by txid");
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
-    }
+    };
+
+    // Get current Bitcoin blockchain height for confirmation calculation
+    let current_btc_height = match state.rpc_backend.get_current_height().await {
+        Ok(height) => height,
+        Err(_) => {
+            match state.indexer.get_latest_block() {
+                Ok(Some(block)) if block.btc_height > 0 => block.btc_height,
+                _ => 0,
+            }
+        }
+    };
+
+    // Calculate confirmation status
+    let (confirmations, finalized) = if chain_block.btc_height == 0 {
+        (0, false)
+    } else {
+        let confs = if current_btc_height >= chain_block.btc_height {
+            current_btc_height.saturating_sub(chain_block.btc_height) + 1
+        } else {
+            0
+        };
+        (confs, confs >= coins_indexer::FINALITY_DEPTH)
+    };
+
+    Ok(Json(BlockConfirmationInfo {
+        btc_height: chain_block.btc_height,
+        btc_txid: chain_block.btc_txid.to_string(),
+        confirmations,
+        finalized,
+    }))
+}
+
+#[derive(Debug, Serialize)]
+struct BlockConfirmationInfo {
+    pub btc_height: u32,
+    pub btc_txid: String,
+    pub confirmations: u32,
+    pub finalized: bool,
 }
 
 /// Get account by public key
@@ -124,9 +161,9 @@ async fn get_account_transactions(
         let chain_block = coins_indexer::ChainBlock::deserialize(&value, &state.state)
             .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
 
-        // Find transactions involving this public key (both incoming and outgoing)
-        for tx in &chain_block.sub_block.txs {
-            // Check if this is an incoming or outgoing transaction
+        // Process transactions with their stored nonces
+        for (tx_idx, tx) in chain_block.sub_block.txs.iter().enumerate() {
+            // Check if this tx involves the current account
             let direction = if &tx.recipient_pk == &pk {
                 Some(TransactionDirection::Incoming)
             } else if tx.sender_id == account_id {
@@ -135,15 +172,15 @@ async fn get_account_transactions(
                 None
             };
 
+            // Only add to history if it involves current account
             if let Some(dir) = direction {
+                // Get nonce from stored data (falls back to 0 for old entries)
+                let nonce = chain_block.nonces.get(tx_idx).copied().unwrap_or(0);
+
                 // If btc_height is 0, we don't have the actual Bitcoin block height yet
                 let (confirmations, finalized, confirmations_remaining) = if chain_block.btc_height == 0 {
-                    // Show as unconfirmed/in mempool until background task updates the height
-                    // This avoids showing incorrect status during the brief window between
-                    // when tx confirms and when background task updates btc_height
                     (0, false, coins_indexer::FINALITY_DEPTH)
                 } else {
-                    // Block is confirmed on Bitcoin - calculate confirmations
                     let confs = if current_btc_height >= chain_block.btc_height {
                         current_btc_height.saturating_sub(chain_block.btc_height) + 1
                     } else {
@@ -162,7 +199,6 @@ async fn get_account_transactions(
                 let sender_pk = match state.state.get_account(coins_types::AccountId(tx.sender_id)) {
                     Ok(Some(sender_account)) => sender_account.pk,
                     Ok(None) => {
-                        // Sender account not found - this shouldn't happen
                         tracing::warn!(sender_id = tx.sender_id, "Sender account not found");
                         continue;
                     }
@@ -174,6 +210,7 @@ async fn get_account_transactions(
 
                 history.push(TransactionWithStatus {
                     tx: tx.clone(),
+                    nonce,
                     btc_height: chain_block.btc_height,
                     btc_txid: chain_block.btc_txid.to_string(),
                     confirmations,
@@ -286,10 +323,14 @@ async fn get_stats(
     let total_supply = state.state.total_supply()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
+    // Get current Bitcoin block height
+    let btc_height = state.rpc_backend.get_current_height().await.unwrap_or(0);
+
     Ok(Json(NetworkStats {
         total_blocks,
         total_accounts,
         total_supply,
+        btc_height,
         network: state.network.clone(),
     }))
 }
@@ -299,6 +340,7 @@ struct NetworkStats {
     pub total_blocks: u32,
     pub total_accounts: u64,
     pub total_supply: u64,
+    pub btc_height: u32,
     pub network: String,
 }
 
@@ -313,6 +355,7 @@ enum TransactionDirection {
 struct TransactionWithStatus {
     #[serde(flatten)]
     pub tx: Transaction,
+    pub nonce: u32,
     pub btc_height: u32,
     pub btc_txid: String,
     pub confirmations: u32,

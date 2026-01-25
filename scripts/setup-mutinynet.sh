@@ -27,6 +27,13 @@ RPC_URL="http://168.119.139.152:38332"
 RPC_HOST="168.119.139.152"
 RPC_PORT="38332"
 
+# Faucet configuration for automatic funding
+# Fund this address to enable auto-funding of subchain and publisher
+FAUCET_WALLET="faucet"
+FAUCET_FUNDING_ADDRESS="tb1qm06yzqz4rhlvwgwp6xfdpept4vlf4tscguukun"
+SUBCHAIN_FUNDING_SATS=100000
+PUBLISHER_FUNDING_SATS=20000
+
 SUBCHAIN_COUNT=1000
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 SUBCHAIN_FILE="${SUBCHAIN_DIR}/subchain_mutinynet_${TIMESTAMP}.bin"
@@ -75,18 +82,43 @@ SUBCHAIN_ADDR=$(
     grep "Generated one-time address:" | awk '{print $4}'
 )
 
-echo -e "${GREEN}✓ Subchain address: ${SUBCHAIN_ADDR}${NC}\n"
+echo -e "${GREEN}✓ Subchain address: ${SUBCHAIN_ADDR}${NC}"
 
-echo -e "${YELLOW}⚠️  MANUAL FUNDING REQUIRED${NC}"
-echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo -e "Fund this address from mutinynet faucet:\n"
-echo -e "${BLUE}  Address: ${SUBCHAIN_ADDR}${NC}\n"
-echo -e "${BLUE}  Faucet: https://faucet.mutinynet.com${NC}"
-echo -e "${BLUE}  Amount: 0.001 BTC (minimum)${NC}\n"
-echo -e "Waiting for confirmation (~1 min)..."
-echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+SUBCHAIN_FUNDING_BTC=$(awk "BEGIN {printf \"%.8f\", $SUBCHAIN_FUNDING_SATS / 100000000}")
 
-# Poll for funding (one-time setup operation)
+# Try automatic funding via faucet wallet on remote node
+AUTO_FUNDED=false
+
+if bitcoin-cli -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcconnect="${RPC_HOST}" -rpcport="${RPC_PORT}" \
+    -rpcwallet="${FAUCET_WALLET}" getwalletinfo &>/dev/null; then
+
+    echo -e "  ${BLUE}→ Attempting automatic funding from faucet wallet...${NC}"
+
+    FUND_TXID=$(bitcoin-cli -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcconnect="${RPC_HOST}" -rpcport="${RPC_PORT}" \
+        -rpcwallet="${FAUCET_WALLET}" sendtoaddress "${SUBCHAIN_ADDR}" "${SUBCHAIN_FUNDING_BTC}" 2>/dev/null || echo "")
+
+    if [ -n "$FUND_TXID" ] && [ "$FUND_TXID" != "error" ]; then
+        echo -e "${GREEN}✓ Auto-funded subchain: ${SUBCHAIN_FUNDING_SATS} sats${NC}"
+        echo -e "  ${BLUE}TX: https://mutinynet.com/tx/${FUND_TXID}${NC}"
+        AUTO_FUNDED=true
+    fi
+fi
+
+# If automatic funding failed, show manual instructions
+if [ "$AUTO_FUNDED" = false ]; then
+    echo -e "${YELLOW}⚠️  MANUAL SUBCHAIN FUNDING REQUIRED${NC}"
+    echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo -e "Fund this address from mutinynet faucet:\n"
+    echo -e "${BLUE}  Address: ${SUBCHAIN_ADDR}${NC}\n"
+    echo -e "${BLUE}  Faucet: https://faucet.mutinynet.com${NC}"
+    echo -e "${BLUE}  Amount: 0.001 BTC (minimum)${NC}\n"
+    echo -e "Waiting for confirmation (~1 min)..."
+    echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo -e "${YELLOW}TIP: Fund ${FAUCET_FUNDING_ADDRESS} to enable automatic funding next time.${NC}\n"
+fi
+
+# Poll for funding confirmation (one-time setup operation)
+echo -e "  ${BLUE}→ Waiting for confirmation...${NC}"
 WAIT_COUNT=0
 MAX_WAIT=120
 
@@ -98,7 +130,7 @@ while true; do
     if [ -n "$UTXO_INFO" ]; then
         UTXO_OUTPOINT=$(echo "$UTXO_INFO" | awk '{print $1}')
         UTXO_VALUE=$(echo "$UTXO_INFO" | awk '{print $2}')
-        echo -e "${GREEN}✓ Funded: ${UTXO_OUTPOINT} (${UTXO_VALUE} sats)${NC}\n"
+        echo -e "${GREEN}✓ Subchain funded: ${UTXO_OUTPOINT} (${UTXO_VALUE} sats)${NC}\n"
         break
     fi
 
@@ -108,7 +140,7 @@ while true; do
         exit 1
     fi
 
-    echo -ne "\rWaiting... ($((WAIT_COUNT * 5))s)"
+    echo -ne "\r  Waiting... ($((WAIT_COUNT * 5))s)    "
     sleep 5
 done
 
@@ -213,37 +245,77 @@ PUBLISHER_BALANCE=$(bitcoin-cli -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}
 if [ "$PUBLISHER_BALANCE" -gt 0 ]; then
     echo -e "${GREEN}✓ Publisher funded: ${PUBLISHER_BALANCE} sats${NC}\n"
 else
-    echo -e "${YELLOW}⚠️  PUBLISHER FUNDING REQUIRED${NC}"
-    echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo -e "The publisher needs Bitcoin to pay transaction fees.\n"
-    echo -e "${BLUE}  Address: ${PUBLISHER_ADDR}${NC}"
-    echo -e "${BLUE}  Faucet: https://faucet.mutinynet.com${NC}"
-    echo -e "${BLUE}  Recommended: 20,000 sats (~10 publishes)${NC}\n"
-    echo -e "Waiting for funding (~1 min for confirmation)..."
-    echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    echo -e "  ${BLUE}→ Publisher needs funding for transaction fees${NC}"
 
-    # Poll for publisher funding silently
-    WAIT_COUNT=0
-    MAX_WAIT=120
+    # Try automatic funding via faucet wallet on remote node
+    AUTO_FUNDED=false
+    PUBLISHER_FUNDING_BTC=$(awk "BEGIN {printf \"%.8f\", $PUBLISHER_FUNDING_SATS / 100000000}")
 
-    while true; do
-        PUBLISHER_BALANCE=$(bitcoin-cli -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcconnect="${RPC_HOST}" -rpcport="${RPC_PORT}" \
-            scantxoutset start "[\"addr(${PUBLISHER_ADDR})\"]" 2>/dev/null | \
-            jq -r '.total_amount * 100000000 | floor' 2>/dev/null || echo "0")
+    # Check if faucet wallet exists and try to send
+    if bitcoin-cli -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcconnect="${RPC_HOST}" -rpcport="${RPC_PORT}" \
+        -rpcwallet="${FAUCET_WALLET}" getwalletinfo &>/dev/null; then
 
-        if [ "$PUBLISHER_BALANCE" -gt 0 ]; then
-            echo -e "${GREEN}✓ Publisher funded: ${PUBLISHER_BALANCE} sats${NC}\n"
-            break
+        echo -e "  ${BLUE}→ Attempting automatic funding from faucet wallet...${NC}"
+
+        FUND_TXID=$(bitcoin-cli -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcconnect="${RPC_HOST}" -rpcport="${RPC_PORT}" \
+            -rpcwallet="${FAUCET_WALLET}" sendtoaddress "${PUBLISHER_ADDR}" "${PUBLISHER_FUNDING_BTC}" 2>/dev/null || echo "")
+
+        if [ -n "$FUND_TXID" ] && [ "$FUND_TXID" != "error" ]; then
+            echo -e "${GREEN}✓ Auto-funded publisher: ${PUBLISHER_FUNDING_SATS} sats${NC}"
+            echo -e "  ${BLUE}TX: https://mutinynet.com/tx/${FUND_TXID}${NC}"
+            AUTO_FUNDED=true
+
+            # Wait for confirmation
+            echo -e "  ${BLUE}→ Waiting for confirmation...${NC}"
+            for i in {1..60}; do
+                PUBLISHER_BALANCE=$(bitcoin-cli -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcconnect="${RPC_HOST}" -rpcport="${RPC_PORT}" \
+                    scantxoutset start "[\"addr(${PUBLISHER_ADDR})\"]" 2>/dev/null | \
+                    jq -r '.total_amount * 100000000 | floor' 2>/dev/null || echo "0")
+
+                if [ "$PUBLISHER_BALANCE" -gt 0 ]; then
+                    echo -e "${GREEN}✓ Publisher balance confirmed: ${PUBLISHER_BALANCE} sats${NC}\n"
+                    break
+                fi
+                sleep 5
+            done
         fi
+    fi
 
-        WAIT_COUNT=$((WAIT_COUNT + 1))
-        if [ $WAIT_COUNT -ge $MAX_WAIT ]; then
-            echo -e "${RED}✗ Timeout waiting for publisher funding${NC}"
-            exit 1
-        fi
+    # If automatic funding failed, show manual instructions
+    if [ "$AUTO_FUNDED" = false ]; then
+        echo -e "${YELLOW}⚠️  MANUAL PUBLISHER FUNDING REQUIRED${NC}"
+        echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo -e "The publisher needs Bitcoin to pay transaction fees.\n"
+        echo -e "${BLUE}  Address: ${PUBLISHER_ADDR}${NC}"
+        echo -e "${BLUE}  Faucet: https://faucet.mutinynet.com${NC}"
+        echo -e "${BLUE}  Recommended: 50,000 sats (~25 publishes)${NC}\n"
+        echo -e "Waiting for funding (~1 min for confirmation)..."
+        echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        echo -e "${YELLOW}TIP: Fund ${FAUCET_FUNDING_ADDRESS} to enable automatic funding next time.${NC}\n"
 
-        sleep 5
-    done
+        # Poll for publisher funding
+        WAIT_COUNT=0
+        MAX_WAIT=120
+
+        while true; do
+            PUBLISHER_BALANCE=$(bitcoin-cli -rpcuser="${RPC_USER}" -rpcpassword="${RPC_PASS}" -rpcconnect="${RPC_HOST}" -rpcport="${RPC_PORT}" \
+                scantxoutset start "[\"addr(${PUBLISHER_ADDR})\"]" 2>/dev/null | \
+                jq -r '.total_amount * 100000000 | floor' 2>/dev/null || echo "0")
+
+            if [ "$PUBLISHER_BALANCE" -gt 0 ]; then
+                echo -e "${GREEN}✓ Publisher funded: ${PUBLISHER_BALANCE} sats${NC}\n"
+                break
+            fi
+
+            WAIT_COUNT=$((WAIT_COUNT + 1))
+            if [ $WAIT_COUNT -ge $MAX_WAIT ]; then
+                echo -e "${RED}✗ Timeout waiting for publisher funding${NC}"
+                exit 1
+            fi
+
+            sleep 5
+        done
+    fi
 fi
 
 echo -e "${YELLOW}[10/10] Funding test accounts from genesis...${NC}"

@@ -12,10 +12,11 @@ use coins_indexer::IndexerClient;
 #[derive(Clone)]
 pub struct AppState {
     pub indexer: Arc<IndexerClient>,
-    pub mempool: Arc<Mutex<Vec<(Transaction, G2)>>>,
+    /// Mempool: (tx, signature, nonce)
+    pub mempool: Arc<Mutex<Vec<(Transaction, G2, u32)>>>,
     pub fee_addr: Arc<Mutex<String>>,
-    /// Transactions that were recently broadcast to Bitcoin (with timestamp and btc_txid)
-    pub recently_broadcast: Arc<Mutex<Vec<(Transaction, Instant, Txid)>>>,
+    /// Transactions that were recently broadcast to Bitcoin (with timestamp, btc_txid, nonce)
+    pub recently_broadcast: Arc<Mutex<Vec<(Transaction, Instant, Txid, u32)>>>,
 }
 
 async fn get_account_by_pk(Path(pk_hex): Path<String>, State(app_state): State<AppState>) -> impl IntoResponse {
@@ -59,13 +60,23 @@ async fn submit_tx(State(state): State<AppState>, Json(body): Json<TxSubmission>
     };
     let signature = G2(sig_arr);
 
+    // Get sender's base nonce from indexer
+    let base_nonce = match state.indexer.get_account_by_id(tx.sender_id).await {
+        Ok(Some(acc)) => acc.nonce,
+        Ok(None) => return (StatusCode::BAD_REQUEST, "sender account not found").into_response(),
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "indexer error").into_response(),
+    };
+
     match state.mempool.lock() {
         Ok(mut mempool) => {
             // Check for duplicate signature (replay protection)
-            if mempool.iter().any(|(_, existing_sig)| existing_sig.0 == signature.0) {
+            if mempool.iter().any(|(_, existing_sig, _)| existing_sig.0 == signature.0) {
                 return (StatusCode::CONFLICT, "duplicate transaction").into_response();
             }
-            mempool.push((tx, signature));
+            // Compute nonce: base + count of pending txs from same sender
+            let pending_from_sender = mempool.iter().filter(|(t, _, _)| t.sender_id == tx.sender_id).count() as u32;
+            let nonce = base_nonce + pending_from_sender;
+            mempool.push((tx, signature, nonce));
             (StatusCode::OK, "accepted").into_response()
         }
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "mempool lock failed").into_response(),
@@ -83,10 +94,11 @@ struct MempoolQuery {
 #[derive(Debug, Serialize)]
 struct MempoolTxResponse {
     sender_id: u32,
+    sender_pk: String,
     recipient_pk: String,
     amount: u32,
     fee: u8,
-    signature: String,
+    nonce: u32,
 }
 
 async fn get_mempool(
@@ -103,51 +115,60 @@ async fn get_mempool(
         None
     };
 
-    // Lock mempool and filter transactions
-    let mempool = match state.mempool.lock() {
-        Ok(mp) => mp,
-        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "mempool lock failed").into_response(),
+    // Lock mempool and collect filtered transactions (release lock quickly)
+    let filtered_txs: Vec<(Transaction, u32)> = {
+        let mempool = match state.mempool.lock() {
+            Ok(mp) => mp,
+            Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "mempool lock failed").into_response(),
+        };
+
+        mempool
+            .iter()
+            .filter(|(tx, _sig, _nonce)| {
+                if let Some(sender_id) = query.sender_id {
+                    if tx.sender_id != sender_id {
+                        return false;
+                    }
+                }
+                if let Some(ref pk) = recipient_pk_filter {
+                    if tx.recipient_pk != *pk {
+                        return false;
+                    }
+                }
+                if let Some(amount) = query.amount {
+                    if tx.amount != amount {
+                        return false;
+                    }
+                }
+                if let Some(fee) = query.fee {
+                    if tx.fee != fee {
+                        return false;
+                    }
+                }
+                true
+            })
+            .map(|(tx, _sig, nonce)| (tx.clone(), *nonce))
+            .collect()
     };
 
-    let filtered: Vec<MempoolTxResponse> = mempool
-        .iter()
-        .filter(|(tx, _sig)| {
-            // Filter by sender_id if provided
-            if let Some(sender_id) = query.sender_id {
-                if tx.sender_id != sender_id {
-                    return false;
-                }
-            }
-            // Filter by recipient_pk if provided
-            if let Some(ref pk) = recipient_pk_filter {
-                if tx.recipient_pk != *pk {
-                    return false;
-                }
-            }
-            // Filter by amount if provided
-            if let Some(amount) = query.amount {
-                if tx.amount != amount {
-                    return false;
-                }
-            }
-            // Filter by fee if provided
-            if let Some(fee) = query.fee {
-                if tx.fee != fee {
-                    return false;
-                }
-            }
-            true
-        })
-        .map(|(tx, sig)| MempoolTxResponse {
+    // Look up sender_pk for each transaction
+    let mut results = Vec::new();
+    for (tx, nonce) in filtered_txs {
+        let sender_pk = match state.indexer.get_account_by_id(tx.sender_id).await {
+            Ok(Some(acc)) => acc.pk.to_hex(),
+            _ => continue, // Skip if sender not found
+        };
+        results.push(MempoolTxResponse {
             sender_id: tx.sender_id,
+            sender_pk,
             recipient_pk: tx.recipient_pk.to_hex(),
             amount: tx.amount,
             fee: tx.fee,
-            signature: hex::encode(sig.0),
-        })
-        .collect();
+            nonce,
+        });
+    }
 
-    Json(filtered).into_response()
+    Json(results).into_response()
 }
 
 #[derive(Debug, Serialize)]
@@ -167,9 +188,11 @@ async fn get_address(State(state): State<AppState>) -> impl IntoResponse {
 #[derive(Debug, Serialize)]
 struct RecentlyBroadcastTxResponse {
     sender_id: u32,
+    sender_pk: String,
     recipient_pk: String,
     amount: u32,
     fee: u8,
+    nonce: u32,
     btc_txid: String,
 }
 
@@ -189,7 +212,7 @@ async fn get_recently_broadcast(
     };
 
     // Get candidates from recently_broadcast (release lock quickly)
-    let candidates: Vec<(Transaction, Txid)> = {
+    let candidates: Vec<(Transaction, Txid, u32)> = {
         let recently_broadcast = match state.recently_broadcast.lock() {
             Ok(rb) => rb,
             Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "recently_broadcast lock failed").into_response(),
@@ -200,7 +223,7 @@ async fn get_recently_broadcast(
 
         recently_broadcast
             .iter()
-            .filter(|(tx, _timestamp, _btc_txid)| {
+            .filter(|(tx, _timestamp, _btc_txid, _nonce)| {
                 // Filter by sender_id if provided
                 if let Some(sender_id) = query.sender_id {
                     if tx.sender_id != sender_id {
@@ -215,13 +238,13 @@ async fn get_recently_broadcast(
                 }
                 true
             })
-            .map(|(tx, _timestamp, btc_txid)| (tx.clone(), *btc_txid))
+            .map(|(tx, _timestamp, btc_txid, nonce)| (tx.clone(), *btc_txid, *nonce))
             .collect()
     };
 
     // Filter out transactions already indexed (check async without holding lock)
     let mut results = Vec::new();
-    for (tx, btc_txid) in candidates {
+    for (tx, btc_txid, nonce) in candidates {
         // Check if indexer has already seen this txid
         let is_indexed = match state.indexer.is_txid_indexed(&btc_txid.to_string()).await {
             Ok(indexed) => {
@@ -242,11 +265,18 @@ async fn get_recently_broadcast(
             }
         };
         if !is_indexed {
+            // Look up sender_pk
+            let sender_pk = match state.indexer.get_account_by_id(tx.sender_id).await {
+                Ok(Some(acc)) => acc.pk.to_hex(),
+                _ => continue, // Skip if sender not found
+            };
             results.push(RecentlyBroadcastTxResponse {
                 sender_id: tx.sender_id,
+                sender_pk,
                 recipient_pk: tx.recipient_pk.to_hex(),
                 amount: tx.amount,
                 fee: tx.fee,
+                nonce,
                 btc_txid: btc_txid.to_string(),
             });
         }

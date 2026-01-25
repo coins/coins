@@ -24,13 +24,16 @@ pub enum ValidationError {
 }
 
 /// Validate a SubBlock and mutate the provided state atomically.
-pub fn validate_subblock(sb: &SubBlock, state: &State) -> Result<(), ValidationError> {
+/// Returns the nonces used by each transaction (parallel array to sb.txs).
+pub fn validate_subblock(sb: &SubBlock, state: &State) -> Result<Vec<u32>, ValidationError> {
     // staging area: updated accounts
     let mut updates: HashMap<u32, Account> = HashMap::new();
     let mut fee_total: u32 = 0;
 
     // collect pk/msg pairs for BLS check
     let mut pairs = Vec::with_capacity(sb.txs.len());
+    // collect nonces for each transaction (the nonce used for signing, before increment)
+    let mut nonces = Vec::with_capacity(sb.txs.len());
 
     for tx in &sb.txs {
         // fetch sender account - check updates first to handle multiple txs from same sender
@@ -47,8 +50,12 @@ pub fn validate_subblock(sb: &SubBlock, state: &State) -> Result<(), ValidationE
             return Err(ValidationError::Balance);
         }
 
+        // Record the nonce used for signing (before increment)
+        let signing_nonce = acct.nonce;
+        nonces.push(signing_nonce);
+
         // build message and collect for signature check
-        let msg = tx.message_to_sign(acct.nonce);
+        let msg = tx.message_to_sign(signing_nonce);
         pairs.push((acct.pk, msg));
 
         // stage account updates
@@ -94,5 +101,5 @@ pub fn validate_subblock(sb: &SubBlock, state: &State) -> Result<(), ValidationE
     let updated: Vec<Account> = updates.into_values().collect();
     state.apply_batch(&updated).map_err(|_| ValidationError::Db)?;
 
-    Ok(())
+    Ok(nonces)
 } 
