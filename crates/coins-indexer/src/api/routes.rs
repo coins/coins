@@ -7,8 +7,9 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use coins_crypto::G1;
-use coins_types::{Account, SubBlock, Transaction};
+use coins_types::Account;
 use super::AppState;
+use coins_indexer::client::{ChainBlockResponse, NetworkStats, TransactionDirection, TransactionWithStatus};
 
 /// Create the API router
 pub fn create_router(app_state: AppState) -> Router {
@@ -304,13 +305,6 @@ async fn get_blocks_range(
     Ok(Json(blocks))
 }
 
-#[derive(Serialize)]
-struct ChainBlockResponse {
-    pub height: u32,  // sub-chain height (sequential: 0, 1, 2, ...)
-    pub btc_height: u32,  // Bitcoin block height where this was anchored
-    pub btc_txid: String,
-    pub sub_block: SubBlock,
-}
 
 /// Get network statistics
 async fn get_stats(
@@ -335,32 +329,4 @@ async fn get_stats(
     }))
 }
 
-#[derive(Serialize)]
-struct NetworkStats {
-    pub total_blocks: u32,
-    pub total_accounts: u64,
-    pub total_supply: u64,
-    pub btc_height: u32,
-    pub network: String,
-}
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "lowercase")]
-enum TransactionDirection {
-    Incoming,
-    Outgoing,
-}
-
-#[derive(Serialize)]
-struct TransactionWithStatus {
-    #[serde(flatten)]
-    pub tx: Transaction,
-    pub nonce: u32,
-    pub btc_height: u32,
-    pub btc_txid: String,
-    pub confirmations: u32,
-    pub finalized: bool,
-    pub confirmations_remaining: u32,
-    pub direction: TransactionDirection,
-    pub sender_pk: G1,
-}

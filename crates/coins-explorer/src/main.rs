@@ -53,16 +53,20 @@ async fn main() -> Result<()> {
     // Create broadcast channel for WebSocket updates
     let (ws_tx, _) = broadcast::channel::<WsMessage>(100);
 
+    // Create shared HTTP client for publisher requests
+    let http_client = reqwest::Client::new();
+
     // Spawn state monitoring task for WebSocket updates
     let ws_tx_bg = ws_tx.clone();
     let indexer_client_bg = indexer_client.clone();
     let publisher_url_bg = config.indexer.publisher_url.clone();
+    let http_client_bg = http_client.clone();
     tokio::spawn(async move {
-        monitor_state_changes(indexer_client_bg, publisher_url_bg, ws_tx_bg).await;
+        monitor_state_changes(indexer_client_bg, publisher_url_bg, ws_tx_bg, http_client_bg).await;
     });
 
-    // Create simple proxy router
-    let app = simple_router(indexer_client, config.indexer.publisher_url.clone(), ws_tx);
+    // Create simple proxy router (uses the same http_client)
+    let app = simple_router(indexer_client, config.indexer.publisher_url.clone(), ws_tx, http_client);
 
     // Start server
     let addr = format!("{}:{}", config.server.host, config.server.api_port);
@@ -82,6 +86,7 @@ async fn monitor_state_changes(
     indexer_client: Arc<IndexerClient>,
     publisher_url: Option<String>,
     ws_tx: broadcast::Sender<WsMessage>,
+    http_client: reqwest::Client,
 ) {
     let mut last_block_height: Option<u32> = None;
     let mut last_btc_height: Option<u32> = None;
@@ -139,7 +144,7 @@ async fn monitor_state_changes(
 
         // Check for pending transaction changes (count AND status distribution)
         if let Some(ref pub_url) = publisher_url {
-            let current_state = fetch_pending_state(pub_url, &indexer_client).await;
+            let current_state = fetch_pending_state(pub_url, &indexer_client, &http_client).await;
             if last_pending_state.as_ref() != Some(&current_state) {
                 if !is_first_check {
                     let _ = ws_tx.send(WsMessage::PendingTxsUpdate { count: current_state.total() });
@@ -172,8 +177,7 @@ impl PendingState {
 
 /// Fetch pending transaction state from publisher
 /// Returns the distribution of transactions across publishing, broadcasting, and unconfirmed states
-async fn fetch_pending_state(publisher_url: &str, indexer_client: &IndexerClient) -> PendingState {
-    let client = reqwest::Client::new();
+async fn fetch_pending_state(publisher_url: &str, indexer_client: &IndexerClient, http_client: &reqwest::Client) -> PendingState {
     let mut state = PendingState {
         publishing: 0,
         broadcasting: 0,
@@ -181,14 +185,14 @@ async fn fetch_pending_state(publisher_url: &str, indexer_client: &IndexerClient
     };
 
     // Count mempool transactions (publishing)
-    if let Ok(response) = client.get(format!("{}/mempool", publisher_url)).send().await {
+    if let Ok(response) = http_client.get(format!("{}/mempool", publisher_url)).send().await {
         if let Ok(txs) = response.json::<Vec<serde_json::Value>>().await {
             state.publishing = txs.len();
         }
     }
 
     // Count recently broadcast transactions and check their indexer status
-    if let Ok(response) = client.get(format!("{}/recently-broadcast", publisher_url)).send().await {
+    if let Ok(response) = http_client.get(format!("{}/recently-broadcast", publisher_url)).send().await {
         if let Ok(txs) = response.json::<Vec<serde_json::Value>>().await {
             for tx in txs {
                 if let Some(btc_txid) = tx.get("btc_txid").and_then(|v| v.as_str()) {

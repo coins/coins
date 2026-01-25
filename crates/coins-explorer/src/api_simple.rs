@@ -46,6 +46,7 @@ pub struct SimpleAppState {
     pub indexer_client: Arc<IndexerClient>,
     pub publisher_url: Option<String>,
     pub ws_tx: broadcast::Sender<WsMessage>,
+    pub http_client: reqwest::Client,
 }
 
 #[derive(Deserialize)]
@@ -93,8 +94,14 @@ pub fn simple_router(
     indexer_client: Arc<IndexerClient>,
     publisher_url: Option<String>,
     ws_tx: broadcast::Sender<WsMessage>,
+    http_client: reqwest::Client,
 ) -> Router {
-    let state = SimpleAppState { indexer_client, publisher_url, ws_tx };
+    let state = SimpleAppState {
+        indexer_client,
+        publisher_url,
+        ws_tx,
+        http_client,
+    };
 
     Router::new()
         .route("/health", get(health))
@@ -225,8 +232,7 @@ async fn get_mempool(
         url.push_str(&params.join("&"));
     }
 
-    let client = reqwest::Client::new();
-    let response = client.get(&url).send().await
+    let response = state.http_client.get(&url).send().await
         .map_err(|_| StatusCode::BAD_GATEWAY)?;
 
     if !response.status().is_success() {
@@ -259,8 +265,7 @@ async fn get_recently_broadcast(
         url.push_str(&params.join("&"));
     }
 
-    let client = reqwest::Client::new();
-    let response = client.get(&url).send().await
+    let response = state.http_client.get(&url).send().await
         .map_err(|_| StatusCode::BAD_GATEWAY)?;
 
     if !response.status().is_success() {
@@ -281,8 +286,6 @@ async fn get_pending_transactions(
 ) -> Result<Json<Vec<PendingTransaction>>, StatusCode> {
     let publisher_url = state.publisher_url.as_ref()
         .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
-
-    let client = reqwest::Client::new();
     let mut results: Vec<PendingTransaction> = Vec::new();
     let mut seen_btc_txids: HashSet<String> = HashSet::new();
 
@@ -303,7 +306,7 @@ async fn get_pending_transactions(
     // 1. Fetch recently-broadcast transactions from publisher
     //    These have been broadcast to Bitcoin but may or may not be indexed yet
     let broadcast_url = format!("{}/recently-broadcast{}", publisher_url, query_string);
-    if let Ok(response) = client.get(&broadcast_url).send().await {
+    if let Ok(response) = state.http_client.get(&broadcast_url).send().await {
         if response.status().is_success() {
             if let Ok(txs) = response.json::<Vec<serde_json::Value>>().await {
                 for tx in txs {
@@ -353,7 +356,7 @@ async fn get_pending_transactions(
     // 2. Fetch mempool transactions from publisher
     //    These haven't been broadcast to Bitcoin yet
     let mempool_url = format!("{}/mempool{}", publisher_url, query_string);
-    if let Ok(response) = client.get(&mempool_url).send().await {
+    if let Ok(response) = state.http_client.get(&mempool_url).send().await {
         if response.status().is_success() {
             if let Ok(txs) = response.json::<Vec<serde_json::Value>>().await {
                 for tx in txs {
