@@ -5,6 +5,7 @@ use anyhow::Result;
 use std::sync::Arc;
 use coins_core::State;
 use coins_crypto::G1;
+use coins_types::NATIVE_TOKEN_ID;
 use coins_indexer::Indexer;
 use config::IndexerConfig;
 use api::{AppState, create_router};
@@ -50,7 +51,7 @@ async fn main() -> Result<()> {
     if state.get_by_pk(&genesis_pk)?.is_none() {
         tracing::info!("Creating genesis account");
         let mut genesis = state.create_account(genesis_pk)?;
-        genesis.balance = config.genesis.genesis_balance;
+        genesis.balances.insert(NATIVE_TOKEN_ID, config.genesis.genesis_balance);
         let genesis_id = genesis.id.0;
         state.apply_batch(&[genesis])?;
         tracing::info!(
