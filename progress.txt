@@ -22,6 +22,9 @@
 - Use `scripts/setup-mutinynet.sh` to connect to mutinynet testnet
 - Axum servers use tower-http for static file serving
 - WASM crates need getrandom with "js" feature for browser random number generation
+- WASM build requires lld linker - add `llvmPackages.lld` to flake.nix buildInputs
+- Build WASM with: `wasm-pack build --target web crates/coins-wallet/wasm`
+- WASM pkg/ directory is gitignored (build artifacts) - files must be rebuilt after clone
 
 ---
 
@@ -60,5 +63,22 @@
   - `console_error_panic_hook` provides better error messages in browser console
   - The lib.rs uses `#[wasm_bindgen(constructor)]` for the new() method and `#[wasm_bindgen(start)]` for init
   - crate-type must include both 'cdylib' (for WASM) and 'rlib' (for Rust library tests)
+---
+
+## 2026-01-28 - US-003
+- Built WASM module with wasm-pack for browser use
+- Files changed:
+  - Modified flake.nix to add llvmPackages.lld dependency for WASM linking
+- **Build output:**
+  - coins_wallet_wasm_bg.wasm (258KB optimized)
+  - coins_wallet_wasm.js (JavaScript loader)
+  - TypeScript definitions (.d.ts files)
+  - package.json for npm compatibility
+- **Learnings for future iterations:**
+  - Nix-installed Rust doesn't include rust-lld by default, need llvmPackages.lld in flake.nix
+  - Install wasm-pack with `cargo install wasm-pack`
+  - Build command: `wasm-pack build --target web crates/coins-wallet/wasm`
+  - Use `nix develop -c bash -c "..."` to run commands in updated nix shell
+  - pkg/ directory has .gitignore with "*" - build artifacts are not committed
 ---
 
