@@ -155,6 +155,52 @@ class WalletApp {
     }
 
     /**
+     * Import an existing wallet from a secret key hex string
+     * @param {string} secretKeyHex - The secret key as 64 hex characters
+     * @param {string} password - The password to encrypt the wallet
+     * @returns {Promise<string>} The public key hex
+     */
+    async importWallet(secretKeyHex, password) {
+        if (!this.initialized) {
+            await this.init();
+        }
+
+        // Validate secret key format: must be 64 hex characters
+        if (!/^[a-fA-F0-9]{64}$/.test(secretKeyHex)) {
+            throw new Error('Invalid secret key: must be 64 hexadecimal characters');
+        }
+
+        // Convert hex string to bytes
+        const secretKeyBytes = new Uint8Array(32);
+        for (let i = 0; i < 32; i++) {
+            secretKeyBytes[i] = parseInt(secretKeyHex.substr(i * 2, 2), 16);
+        }
+
+        // Try to create WalletKey from bytes
+        let walletKey;
+        try {
+            walletKey = wasmModule.WalletKey.from_bytes(secretKeyBytes);
+        } catch (error) {
+            console.error('Failed to create key from bytes:', error);
+            throw new Error('Invalid secret key: could not create wallet key');
+        }
+
+        // Encrypt the secret key
+        const encryptedKey = await this.encryptData(secretKeyBytes, password);
+
+        // Store in localStorage
+        localStorage.setItem(STORAGE_KEY, encryptedKey);
+
+        // Keep the key in memory
+        currentKey = walletKey;
+
+        console.log('Wallet imported successfully');
+        console.log('Public key:', walletKey.public_key_hex());
+
+        return walletKey.public_key_hex();
+    }
+
+    /**
      * Unlock an existing wallet with password
      * @param {string} password - The password to decrypt the wallet
      * @returns {Promise<string>} The public key hex
@@ -665,6 +711,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         showCreateLink.addEventListener('click', () => showScreen('create-screen'));
     }
 
+    const showImportLink = document.getElementById('show-import-link');
+    if (showImportLink) {
+        showImportLink.addEventListener('click', () => showScreen('import-screen'));
+    }
+
+    const showCreateFromImportLink = document.getElementById('show-create-from-import-link');
+    if (showCreateFromImportLink) {
+        showCreateFromImportLink.addEventListener('click', () => showScreen('create-screen'));
+    }
+
     // Create wallet button
     const createBtn = document.getElementById('create-wallet-btn');
     if (createBtn) {
@@ -696,6 +752,49 @@ document.addEventListener('DOMContentLoaded', async () => {
                 alert('Failed to create wallet: ' + error.message);
             } finally {
                 createBtn.classList.remove('is-loading');
+            }
+        });
+    }
+
+    // Import wallet button
+    const importBtn = document.getElementById('import-wallet-btn');
+    if (importBtn) {
+        importBtn.addEventListener('click', async () => {
+            const secretKeyHex = document.getElementById('import-secret-key').value.trim();
+            const password = document.getElementById('import-password').value;
+            const confirmPassword = document.getElementById('import-password-confirm').value;
+            hideError('import-error');
+
+            // Validate secret key is not empty
+            if (!secretKeyHex) {
+                showError('import-error', 'Please enter a secret key');
+                return;
+            }
+
+            // Validate passwords match
+            if (password !== confirmPassword) {
+                showError('import-error', 'Passwords do not match');
+                return;
+            }
+
+            // Validate password not empty
+            if (!password) {
+                showError('import-error', 'Please enter a password');
+                return;
+            }
+
+            try {
+                importBtn.classList.add('is-loading');
+                const publicKey = await walletApp.importWallet(secretKeyHex, password);
+                updateWalletDisplay(publicKey);
+                showScreen('wallet-screen');
+                // Auto-refresh balance and transactions after import
+                await refreshBalance();
+                await refreshTransactions();
+            } catch (error) {
+                showError('import-error', error.message);
+            } finally {
+                importBtn.classList.remove('is-loading');
             }
         });
     }

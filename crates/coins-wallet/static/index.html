@@ -84,7 +84,58 @@
                     <hr>
 
                     <p class="has-text-centered">
+                        <a id="show-import-link">Import existing wallet</a>
+                        <span class="mx-2">|</span>
                         <a id="show-unlock-link">Already have a wallet? Unlock it</a>
+                    </p>
+                </div>
+            </div>
+
+            <!-- Import Screen -->
+            <div id="import-screen" class="screen">
+                <div class="box">
+                    <h2 class="title is-4">Import Existing Wallet</h2>
+                    <p class="subtitle is-6">Import your wallet using a secret key</p>
+
+                    <div class="field">
+                        <label class="label">Secret Key</label>
+                        <div class="control">
+                            <input class="input is-family-monospace" type="text" id="import-secret-key" placeholder="64-character hex secret key">
+                        </div>
+                        <p class="help">Enter your 64-character hex secret key</p>
+                    </div>
+
+                    <div class="field">
+                        <label class="label">Password</label>
+                        <div class="control">
+                            <input class="input" type="password" id="import-password" placeholder="Enter a password to encrypt your wallet">
+                        </div>
+                        <p class="help">This password will be used to encrypt your wallet key</p>
+                    </div>
+
+                    <div class="field">
+                        <label class="label">Confirm Password</label>
+                        <div class="control">
+                            <input class="input" type="password" id="import-password-confirm" placeholder="Confirm your password">
+                        </div>
+                    </div>
+
+                    <div class="field">
+                        <div class="control">
+                            <button class="button is-primary is-fullwidth" id="import-wallet-btn">
+                                Import Wallet
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="import-error" class="notification is-danger" style="display: none;">
+                        <!-- Error message will be shown here -->
+                    </div>
+
+                    <hr>
+
+                    <p class="has-text-centered">
+                        <a id="show-create-from-import-link">Create a new wallet instead</a>
                     </p>
                 </div>
             </div>
