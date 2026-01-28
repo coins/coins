@@ -3,7 +3,7 @@
 //! Implements the state transition function as described in §6 of the spec.
 
 use coins_crypto as crypto;
-use coins_types::{SubBlock, Account, AccountId};
+use coins_types::{SubBlock, Account, AccountId, NATIVE_TOKEN_ID};
 use crate::state::State;
 use std::collections::HashMap;
 
@@ -46,7 +46,7 @@ pub fn validate_subblock(sb: &SubBlock, state: &State) -> Result<Vec<u32>, Valid
         };
 
         let spend = tx.amount as u64 + tx.fee as u64;
-        if acct.balance < spend {
+        if acct.balance(tx.token_id) < spend {
             return Err(ValidationError::Balance);
         }
 
@@ -59,7 +59,8 @@ pub fn validate_subblock(sb: &SubBlock, state: &State) -> Result<Vec<u32>, Valid
         pairs.push((acct.pk, msg));
 
         // stage account updates
-        acct.balance -= spend;
+        let old_balance = acct.balance(tx.token_id);
+        acct.balances.insert(tx.token_id, old_balance - spend);
         acct.nonce += 1;
         updates.insert(acct.id.0, acct);
 
@@ -72,7 +73,8 @@ pub fn validate_subblock(sb: &SubBlock, state: &State) -> Result<Vec<u32>, Valid
         // Check if recipient was already updated in this batch
         let mut recv = updates.get(&recv_from_state.id.0).cloned().unwrap_or(recv_from_state);
 
-        recv.balance = recv.balance.checked_add(tx.amount as u64).ok_or(ValidationError::Overflow)?;
+        let recv_old_balance = recv.balance(tx.token_id);
+        recv.balances.insert(tx.token_id, recv_old_balance.checked_add(tx.amount as u64).ok_or(ValidationError::Overflow)?);
         updates.insert(recv.id.0, recv);
 
         fee_total = fee_total.checked_add(tx.fee as u32).ok_or(ValidationError::Overflow)?;
@@ -94,7 +96,8 @@ pub fn validate_subblock(sb: &SubBlock, state: &State) -> Result<Vec<u32>, Valid
             state.create_account(sb.publisher_pk).map_err(|_| ValidationError::Db)?
         }
     };
-    pub_acct.balance = pub_acct.balance.checked_add(fee_total as u64).ok_or(ValidationError::Overflow)?;
+    let pub_old_balance = pub_acct.balance(NATIVE_TOKEN_ID);
+    pub_acct.balances.insert(NATIVE_TOKEN_ID, pub_old_balance.checked_add(fee_total as u64).ok_or(ValidationError::Overflow)?);
     updates.insert(pub_acct.id.0, pub_acct);
 
     // write batch

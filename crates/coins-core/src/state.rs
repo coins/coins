@@ -1,6 +1,7 @@
 //! Persistent key-value store abstraction on top of sled.
 
-use coins_types::{Account, AccountId, bin_config};
+use coins_types::{Account, AccountId, bin_config, NATIVE_TOKEN_ID};
+use std::collections::BTreeMap;
 use coins_crypto::G1;
 use sled::{Db, Tree};
 use thiserror::Error;
@@ -83,13 +84,13 @@ impl State {
         } else { Ok(None) }
     }
 
-    /// Create new account with given pk, zero balance.
+    /// Create new account with given pk, empty balances.
     pub fn create_account(&self, pk: G1) -> Result<Account, StateError> {
         if self.pk_index.contains_key(pk.0)? {
             return Err(StateError::Db(sled::Error::Unsupported("pk already exists".into())));
         }
         let id = self.next_id()?;
-        let acct = Account { id, pk, balance: 0, nonce: 0 };
+        let acct = Account { id, pk, balances: BTreeMap::new(), nonce: 0 };
         self.insert_account(&acct)?;
         Ok(acct)
     }
@@ -120,8 +121,8 @@ impl State {
         self.accounts.len().saturating_sub(1)
     }
 
-    /// Calculate total supply by summing all account balances
-    pub fn total_supply(&self) -> Result<u64, StateError> {
+    /// Calculate total supply for a specific token by summing all account balances
+    pub fn total_supply_of(&self, token_id: u16) -> Result<u64, StateError> {
         let mut total = 0u64;
         for item in self.accounts.iter() {
             let (_key, value) = item?;
@@ -130,10 +131,15 @@ impl State {
                 continue;
             }
             if let Ok((account, _)) = bincode_deserialize::<Account, _>(&value, bin_config()) {
-                total = total.saturating_add(account.balance);
+                total = total.saturating_add(account.balance(token_id));
             }
         }
         Ok(total)
+    }
+
+    /// Calculate total supply of native token by summing all account balances
+    pub fn total_supply(&self) -> Result<u64, StateError> {
+        self.total_supply_of(NATIVE_TOKEN_ID)
     }
 }
 
