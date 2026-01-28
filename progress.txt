@@ -163,3 +163,23 @@
   - Bulma's is-loading class on buttons shows spinner (works well with async operations)
 ---
 
+## 2026-01-28 - US-008
+- Verified wallet unlock functionality (already implemented in US-007)
+- Files changed: None (functionality was already complete)
+- **Verified features:**
+  - unlockWallet(password) decrypts key from localStorage (wallet.js:162-187)
+  - Uses same PBKDF2 + AES-GCM scheme via decryptData() method (wallet.js:111-127)
+  - On success, reconstructs WalletKey from decrypted bytes (wallet.js:174)
+  - On wrong password, shows error message without crashing (wallet.js:183-186, 334)
+  - After unlock, wallet screen is displayed with public key (wallet.js:330-332)
+- **Quality checks passed:**
+  - cargo check --all: OK
+  - cargo test --all: OK
+  - WASM build: OK
+  - Wallet server /health endpoint: OK
+- **Learnings for future iterations:**
+  - US-007 implemented unlock functionality proactively as part of the WalletApp class
+  - When stories build on each other, core functionality may already be implemented
+  - Always verify existing code before implementing - saves time and prevents duplication
+---
+
