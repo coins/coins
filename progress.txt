@@ -183,3 +183,29 @@
   - Always verify existing code before implementing - saves time and prevents duplication
 ---
 
+## 2026-01-28 - US-009
+- Implemented account balance display on wallet screen
+- Files changed:
+  - crates/coins-wallet/static/wallet.js - added balance fetching and display
+- **Implemented features:**
+  - WalletApp.getPublicKey() method to get current public key (wallet.js:214-218)
+  - WalletApp.refreshBalance() fetches account from /api/account/:pk (wallet.js:224-242)
+  - updateBalanceDisplay(account) renders token balances in a table (wallet.js:288-321)
+  - Shows "Account not found" message with explanation for new wallets (wallet.js:292-299)
+  - Displays all token balances from account.balances map with Token ID and Balance columns
+  - Shows Account ID and Nonce below the balance table (wallet.js:316)
+  - refreshBalance() function handles loading states and errors (wallet.js:324-345)
+  - Balance auto-refreshes after wallet creation (wallet.js:409)
+  - Balance auto-refreshes after wallet unlock (wallet.js:436)
+  - Refresh button wired to refreshBalance() function (wallet.js:472-475)
+  - window.refreshBalance exported for future features (wallet.js:482)
+- **Quality checks passed:**
+  - cargo check --all: OK
+  - cargo test --all: OK (43 tests passed)
+- **Learnings for future iterations:**
+  - Account struct from indexer has: id (AccountId), pk (G1), balances (BTreeMap<u16, u64>), nonce (u32)
+  - Native token is token_id = 0 (use '0' string comparison in JS since JSON object keys are strings)
+  - Handle 404 response for new wallets that don't exist on-chain yet
+  - Use Bulma's notification classes for info/warning messages (is-info, is-light)
+---
+
