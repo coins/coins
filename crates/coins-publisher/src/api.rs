@@ -5,7 +5,7 @@ use std::time::Instant;
 use axum::response::IntoResponse;
 use axum::http::StatusCode;
 use bitcoin::Txid;
-use coins_types::Transaction;
+use coins_types::{Transaction, bin_config};
 use coins_crypto::{G1, G2, G2_SIZE};
 use coins_indexer::IndexerClient;
 
@@ -44,7 +44,7 @@ async fn submit_tx(State(state): State<AppState>, Json(body): Json<TxSubmission>
         Ok(bytes) => bytes,
         Err(_) => return (StatusCode::BAD_REQUEST, "invalid hex in tx").into_response(),
     };
-    let tx: Transaction = match bincode::serde::decode_from_slice(&tx_bytes, bincode::config::standard()) {
+    let tx: Transaction = match bincode::serde::decode_from_slice(&tx_bytes, bin_config()) {
         Ok((tx, _)) => tx,
         Err(_) => return (StatusCode::BAD_REQUEST, "invalid transaction data").into_response(),
     };
