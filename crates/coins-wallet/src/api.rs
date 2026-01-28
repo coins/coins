@@ -27,8 +27,8 @@ pub struct AppState {
 /// Create the API router for wallet proxy endpoints
 pub fn create_router(state: AppState) -> Router {
     Router::new()
-        .route("/api/account/{pk}", get(get_account))
-        .route("/api/account/{pk}/transactions", get(get_account_transactions))
+        .route("/api/account/:pk", get(get_account))
+        .route("/api/account/:pk/transactions", get(get_account_transactions))
         .route("/api/tx/submit", post(submit_tx))
         .with_state(state)
 }
