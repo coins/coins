@@ -1,11 +1,238 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Coins Wallet</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+    <style>
+        .screen {
+            display: none;
+        }
+        .screen.active {
+            display: block;
+        }
+        .wallet-container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding-top: 2rem;
+        }
+        .public-key-display {
+            font-family: monospace;
+            word-break: break-all;
+            background: #f5f5f5;
+            padding: 0.75rem;
+            border-radius: 4px;
+            font-size: 0.85rem;
+        }
+        .balance-card {
+            margin-bottom: 1.5rem;
+        }
+        .transaction-item {
+            padding: 0.75rem;
+            border-bottom: 1px solid #eee;
+        }
+        .transaction-item:last-child {
+            border-bottom: none;
+        }
+    </style>
 </head>
 <body>
-    <h1>Coins Wallet</h1>
-    <p>Wallet UI will be implemented in US-006.</p>
+    <!-- Navigation -->
+    <nav class="navbar is-primary" role="navigation">
+        <div class="container">
+            <div class="navbar-brand">
+                <span class="navbar-item">
+                    <strong>Coins Wallet</strong>
+                </span>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <section class="section">
+        <div class="wallet-container">
+            <!-- Create Screen -->
+            <div id="create-screen" class="screen active">
+                <div class="box">
+                    <h2 class="title is-4">Create New Wallet</h2>
+                    <p class="subtitle is-6">Create a new wallet with a secure password</p>
+
+                    <div class="field">
+                        <label class="label">Password</label>
+                        <div class="control">
+                            <input class="input" type="password" id="create-password" placeholder="Enter a strong password">
+                        </div>
+                        <p class="help">Your password will be used to encrypt your wallet key</p>
+                    </div>
+
+                    <div class="field">
+                        <label class="label">Confirm Password</label>
+                        <div class="control">
+                            <input class="input" type="password" id="create-password-confirm" placeholder="Confirm your password">
+                        </div>
+                    </div>
+
+                    <div class="field">
+                        <div class="control">
+                            <button class="button is-primary is-fullwidth" id="create-wallet-btn">
+                                Create Wallet
+                            </button>
+                        </div>
+                    </div>
+
+                    <hr>
+
+                    <p class="has-text-centered">
+                        <a id="show-unlock-link">Already have a wallet? Unlock it</a>
+                    </p>
+                </div>
+            </div>
+
+            <!-- Unlock Screen -->
+            <div id="unlock-screen" class="screen">
+                <div class="box">
+                    <h2 class="title is-4">Unlock Wallet</h2>
+                    <p class="subtitle is-6">Enter your password to unlock your wallet</p>
+
+                    <div class="field">
+                        <label class="label">Password</label>
+                        <div class="control">
+                            <input class="input" type="password" id="unlock-password" placeholder="Enter your password">
+                        </div>
+                    </div>
+
+                    <div class="field">
+                        <div class="control">
+                            <button class="button is-primary is-fullwidth" id="unlock-wallet-btn">
+                                Unlock
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="unlock-error" class="notification is-danger" style="display: none;">
+                        <!-- Error message will be shown here -->
+                    </div>
+
+                    <hr>
+
+                    <p class="has-text-centered">
+                        <a id="show-create-link">Create a new wallet instead</a>
+                    </p>
+                </div>
+            </div>
+
+            <!-- Wallet Screen -->
+            <div id="wallet-screen" class="screen">
+                <!-- Account Info -->
+                <div class="box">
+                    <h2 class="title is-5">Your Account</h2>
+                    <div class="field">
+                        <label class="label is-small">Public Key</label>
+                        <div class="public-key-display">
+                            <span id="wallet-public-key">Loading...</span>
+                        </div>
+                        <button class="button is-small is-light mt-2" id="copy-pk-btn">
+                            Copy
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Balance -->
+                <div class="box balance-card">
+                    <h2 class="title is-5">Balance</h2>
+                    <div id="balance-display">
+                        <p class="has-text-grey">Loading...</p>
+                    </div>
+                    <button class="button is-small is-light mt-2" id="refresh-balance-btn">
+                        Refresh
+                    </button>
+                </div>
+
+                <!-- Send Form -->
+                <div class="box">
+                    <h2 class="title is-5">Send Tokens</h2>
+
+                    <div class="field">
+                        <label class="label">Recipient Public Key</label>
+                        <div class="control">
+                            <input class="input" type="text" id="send-recipient" placeholder="64-character hex public key">
+                        </div>
+                    </div>
+
+                    <div class="columns">
+                        <div class="column">
+                            <div class="field">
+                                <label class="label">Amount</label>
+                                <div class="control">
+                                    <input class="input" type="number" id="send-amount" placeholder="0" min="0">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="column">
+                            <div class="field">
+                                <label class="label">Token ID</label>
+                                <div class="control">
+                                    <input class="input" type="number" id="send-token-id" placeholder="0" value="0" min="0">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="column">
+                            <div class="field">
+                                <label class="label">Fee</label>
+                                <div class="control">
+                                    <input class="input" type="number" id="send-fee" placeholder="1" value="1" min="1">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="field">
+                        <div class="control">
+                            <button class="button is-primary is-fullwidth" id="send-tx-btn">
+                                Send Transaction
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="send-status" class="notification mt-3" style="display: none;">
+                        <!-- Transaction status will be shown here -->
+                    </div>
+                </div>
+
+                <!-- Transaction History (placeholder) -->
+                <div class="box">
+                    <h2 class="title is-5">Recent Transactions</h2>
+                    <div id="transaction-history">
+                        <p class="has-text-grey">No transactions yet</p>
+                    </div>
+                </div>
+
+                <!-- Wallet Actions -->
+                <div class="box">
+                    <h2 class="title is-5">Wallet Actions</h2>
+                    <div class="buttons">
+                        <button class="button is-warning" id="backup-wallet-btn">
+                            Backup Wallet
+                        </button>
+                        <button class="button is-danger is-light" id="lock-wallet-btn">
+                            Lock Wallet
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="content has-text-centered">
+            <p>
+                <strong>Coins Wallet</strong> - Secure browser-based wallet
+            </p>
+        </div>
+    </footer>
+
+    <script src="/wallet.js"></script>
 </body>
 </html>
