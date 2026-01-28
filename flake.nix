@@ -28,6 +28,9 @@
             pkg-config
             openssl
 
+            # WASM build dependencies
+            llvmPackages.lld  # Provides lld linker for WASM
+
             # Script utilities
             jq
             curl
