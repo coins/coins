@@ -232,6 +232,14 @@ class ExplorerApp {
         return `tx-${senderPk}-${nonce}`;
     }
 
+    // Generate token badge HTML
+    renderTokenBadge(tokenId) {
+        if (tokenId === undefined || tokenId === null || tokenId === 0) {
+            return '';
+        }
+        return `<span class="tag is-link is-light">Token ${tokenId}</span>`;
+    }
+
     // Generate HTML for a single transaction row
     renderTransactionRow(tx) {
         const isIncoming = tx.direction === 'incoming';
@@ -259,12 +267,15 @@ class ExplorerApp {
         const statusBadge = this.renderStatusBadge(tx);
         const txKey = this.getTxKey(tx);
 
+        const tokenBadge = this.renderTokenBadge(tx.token_id);
+
         return `
             <tr data-tx-key="${txKey}">
                 <td>${typeBadge}</td>
                 <td>${counterparty}</td>
                 <td><strong style="color: ${amountColor};">${isIncoming ? '+' : '-'}${tx.amount} sats</strong></td>
                 <td>${tx.fee} sats</td>
+                <td>${tokenBadge}</td>
                 <td class="tx-status-cell">${statusBadge}</td>
             </tr>
         `;
@@ -767,12 +778,14 @@ class ExplorerApp {
                             <th>Recipient</th>
                             <th>Amount</th>
                             <th>Fee</th>
+                            <th>Token</th>
                             <th>Status</th>
                         </tr>
                     </thead>
                     <tbody>
                         ${txs.map(tx => {
                             const recipientPk = tx.recipient_pk;
+                            const tokenBadge = this.renderTokenBadge(tx.token_id);
                             const explorerUrl = status === 'broadcasting' && tx.btc_txid
                                 ? this.getBitcoinExplorerUrl(tx.btc_txid)
                                 : null;
@@ -791,6 +804,7 @@ class ExplorerApp {
                                     </td>
                                     <td><strong>${tx.amount} sats</strong></td>
                                     <td>${tx.fee} sats</td>
+                                    <td>${tokenBadge}</td>
                                     <td>${statusBadge}</td>
                                 </tr>
                             `;
@@ -815,12 +829,14 @@ class ExplorerApp {
                             <th>Recipient</th>
                             <th>Amount</th>
                             <th>Fee</th>
+                            <th>Token</th>
                             <th>Status</th>
                         </tr>
                     </thead>
                     <tbody>
                         ${txs.map(tx => {
                             const recipientPk = tx.recipient_pk;
+                            const tokenBadge = this.renderTokenBadge(tx.token_id);
                             const explorerUrl = tx.btc_txid ? this.getBitcoinExplorerUrl(tx.btc_txid) : null;
 
                             let statusBadge;
@@ -851,6 +867,7 @@ class ExplorerApp {
                                     </td>
                                     <td><strong>${tx.amount} sats</strong></td>
                                     <td>${tx.fee} sats</td>
+                                    <td>${tokenBadge}</td>
                                     <td>${statusBadge}</td>
                                 </tr>
                             `;
@@ -918,11 +935,13 @@ class ExplorerApp {
                             <th>Recipient PK</th>
                             <th>Amount</th>
                             <th>Fee</th>
+                            <th>Token</th>
                         </tr>
                     </thead>
                     <tbody>
                         ${block.sub_block.txs.map(tx => {
                             const recipient_pk_hex = this.ensureHex(tx.recipient_pk);
+                            const tokenBadge = this.renderTokenBadge(tx.token_id);
                             return `
                                 <tr>
                                     <td><strong>${tx.sender_id}</strong></td>
@@ -933,6 +952,7 @@ class ExplorerApp {
                                     </td>
                                     <td>${tx.amount}</td>
                                     <td>${tx.fee}</td>
+                                    <td>${tokenBadge}</td>
                                 </tr>
                             `;
                         }).join('')}
@@ -1012,6 +1032,7 @@ class ExplorerApp {
             recipient_pk: tx.recipient_pk,  // Already hex from publisher API
             amount: tx.amount,
             fee: tx.fee,
+            token_id: tx.token_id || 0,
             btc_height: 0,
             btc_txid: null,
             confirmations: 0,
@@ -1029,6 +1050,7 @@ class ExplorerApp {
             recipient_pk: tx.recipient_pk,  // Already hex from publisher API
             amount: tx.amount,
             fee: tx.fee,
+            token_id: tx.token_id || 0,
             btc_height: 0,
             btc_txid: tx.btc_txid,  // Now available from publisher API
             confirmations: 0,
@@ -1058,6 +1080,7 @@ class ExplorerApp {
             recipient_pk: tx.recipient_pk,
             amount: tx.amount,
             fee: tx.fee,
+            token_id: tx.token_id || 0,
             nonce: tx.nonce,
             btc_height: btcHeight,
             btc_txid: tx.btc_txid || null,
@@ -1139,6 +1162,7 @@ class ExplorerApp {
                                 <th>Counterparty</th>
                                 <th>Amount</th>
                                 <th>Fee</th>
+                                <th>Token</th>
                                 <th>Status</th>
                             </tr>
                         </thead>
