@@ -5,7 +5,7 @@ use ark_bn254::{Fr, G1Projective};
 use ark_ff::{PrimeField, BigInteger};
 use std::fs;
 use std::path::PathBuf;
-use coins_types::{Account, Transaction};
+use coins_types::{Account, Transaction, NATIVE_TOKEN_ID};
 use bincode::serde::encode_to_vec;
 use ark_ec::Group;
 use std::ops::Mul;
@@ -60,6 +60,9 @@ enum Commands {
         /// The amount of coins to send
         #[arg(long)]
         amount: u32,
+        /// The token ID to send (0 = native token)
+        #[arg(long, default_value = "0")]
+        token_id: u16,
     },
 }
 
@@ -122,7 +125,17 @@ async fn main() -> anyhow::Result<()> {
 
             if res.status().is_success() {
                 let account: Account = res.json().await?;
-                println!("Balance: {}", account.balance);
+                if account.balances.is_empty() {
+                    println!("No token balances.");
+                } else {
+                    for (&token_id, &balance) in &account.balances {
+                        if token_id == NATIVE_TOKEN_ID {
+                            println!("Token {}: {} sats (native)", token_id, balance);
+                        } else {
+                            println!("Token {}: {} sats", token_id, balance);
+                        }
+                    }
+                }
             } else if res.status() == reqwest::StatusCode::NOT_FOUND {
                 println!("Account not found. Your public key is: {}", pk.to_hex());
                 println!("Please ensure the account has been funded.");
@@ -130,7 +143,7 @@ async fn main() -> anyhow::Result<()> {
                 println!("Error fetching account: {}", res.status());
             }
         }
-        Commands::Send { recipient_pk, amount } => {
+        Commands::Send { recipient_pk, amount, token_id } => {
             if !keyfile.exists() {
                 println!("Secret key file not found at: {}", keyfile.display());
                 println!("Please run `init` first.");
@@ -174,6 +187,7 @@ async fn main() -> anyhow::Result<()> {
             let tx = Transaction {
                 sender_id: sender_account.id.0,
                 recipient_pk,
+                token_id,
                 amount,
                 fee: 0, // Assuming no fee for now
             };
