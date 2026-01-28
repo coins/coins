@@ -45,9 +45,27 @@ pub fn validate_subblock(sb: &SubBlock, state: &State) -> Result<Vec<u32>, Valid
                 .ok_or(ValidationError::UnknownSender(tx.sender_id))?,
         };
 
-        let spend = tx.amount as u64 + tx.fee as u64;
-        if acct.balance(tx.token_id) < spend {
-            return Err(ValidationError::Balance);
+        // Check balances based on token type
+        // For native token: check native_balance >= amount + fee
+        // For non-native token: check token_balance >= amount AND native_balance >= fee
+        let token_balance = acct.balance(tx.token_id);
+        let native_balance = acct.native_balance();
+        let fee = tx.fee as u64;
+        let amount = tx.amount as u64;
+
+        if tx.token_id == NATIVE_TOKEN_ID {
+            // Native token transfer: amount + fee both come from native balance
+            if native_balance < amount + fee {
+                return Err(ValidationError::Balance);
+            }
+        } else {
+            // Non-native token transfer: amount from token balance, fee from native balance
+            if token_balance < amount {
+                return Err(ValidationError::Balance);
+            }
+            if native_balance < fee {
+                return Err(ValidationError::Balance);
+            }
         }
 
         // Record the nonce used for signing (before increment)
@@ -58,9 +76,18 @@ pub fn validate_subblock(sb: &SubBlock, state: &State) -> Result<Vec<u32>, Valid
         let msg = tx.message_to_sign(signing_nonce);
         pairs.push((acct.pk, msg));
 
-        // stage account updates
-        let old_balance = acct.balance(tx.token_id);
-        acct.balances.insert(tx.token_id, old_balance - spend);
+        // Stage account updates - deduct from correct balances
+        if tx.token_id == NATIVE_TOKEN_ID {
+            // Native token: deduct amount + fee from native balance
+            let old_native = acct.native_balance();
+            acct.balances.insert(NATIVE_TOKEN_ID, old_native - amount - fee);
+        } else {
+            // Non-native token: deduct amount from token balance, fee from native balance
+            let old_token = acct.balance(tx.token_id);
+            acct.balances.insert(tx.token_id, old_token - amount);
+            let old_native = acct.native_balance();
+            acct.balances.insert(NATIVE_TOKEN_ID, old_native - fee);
+        }
         acct.nonce += 1;
         updates.insert(acct.id.0, acct);
 
