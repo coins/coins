@@ -30,14 +30,32 @@
 
             # WASM build dependencies
             llvmPackages.lld  # Provides lld linker for WASM
+            wasm-pack         # WASM packaging tool
+
+            # Node.js for dev-browser and other tools
+            nodejs_22
+
+            # Playwright browser automation (NixOS-compatible)
+            playwright-driver.browsers
 
             # Script utilities
             jq
             curl
             lsof
+
+            # FHS compatibility for scripts with /bin/bash shebang
+            steam-run
           ];
 
           shellHook = ''
+            # Workaround for scripts with /bin/bash shebang on NixOS
+            # Use: fhs ./script.sh  (runs in FHS-compatible environment)
+            alias fhs='steam-run'
+
+            # Set Playwright to use nix-provided browsers
+            export PLAYWRIGHT_BROWSERS_PATH="${pkgs.playwright-driver.browsers}"
+            export PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=true
+
             # Setup commands
             alias setup-regtest='./scripts/setup-regtest.sh'
             alias setup-mutinynet='./scripts/setup-mutinynet.sh'

@@ -243,6 +243,30 @@ class WalletApp {
     }
 
     /**
+     * Fetch transaction history from the indexer
+     * @returns {Promise<Array|null>} Array of transactions or null if not found
+     */
+    async fetchTransactions() {
+        if (!currentKey) {
+            throw new Error('Wallet is locked');
+        }
+
+        const pk = currentKey.public_key_hex();
+        const response = await fetch(`/api/account/${pk}/transactions`);
+
+        if (response.status === 404) {
+            // Account not found - no transactions
+            return null;
+        }
+
+        if (!response.ok) {
+            throw new Error(`Failed to fetch transactions: ${response.status}`);
+        }
+
+        return await response.json();
+    }
+
+    /**
      * Send a transaction
      * @param {string} recipientPk - Recipient public key hex (64 chars)
      * @param {number} amount - Amount to send
@@ -423,6 +447,90 @@ function hideSendStatus() {
     }
 }
 
+// Update transaction history display
+function updateTransactionHistory(transactions) {
+    const historyEl = document.getElementById('transaction-history');
+    if (!historyEl) return;
+
+    if (transactions === null || transactions.length === 0) {
+        historyEl.innerHTML = '<p class="has-text-grey">No transactions yet</p>';
+        return;
+    }
+
+    // Get current public key for display
+    const currentPk = walletApp.getPublicKey();
+
+    // Build transaction list HTML
+    let html = '';
+    for (const tx of transactions) {
+        const isOutgoing = tx.direction === 'Outgoing';
+        const directionClass = isOutgoing ? 'has-text-danger' : 'has-text-success';
+        const directionIcon = isOutgoing ? '-' : '+';
+        const directionLabel = isOutgoing ? 'Sent' : 'Received';
+
+        // Format counterparty address (truncate for display)
+        const counterpartyPk = isOutgoing ? tx.recipient_pk : tx.sender_pk;
+        const counterpartyShort = counterpartyPk.substring(0, 8) + '...' + counterpartyPk.substring(56);
+
+        // Format token display
+        const tokenLabel = tx.token_id === 0 ? 'Native' : `Token ${tx.token_id}`;
+
+        // Format status
+        let statusHtml;
+        if (tx.finalized) {
+            statusHtml = '<span class="tag is-success is-light">Finalized</span>';
+        } else if (tx.confirmations > 0) {
+            statusHtml = `<span class="tag is-warning is-light">${tx.confirmations} conf (${tx.confirmations_remaining} more needed)</span>`;
+        } else {
+            statusHtml = '<span class="tag is-info is-light">Pending</span>';
+        }
+
+        html += `
+            <div class="transaction-item">
+                <div class="columns is-mobile is-vcentered mb-0">
+                    <div class="column">
+                        <p class="has-text-weight-semibold ${directionClass}">
+                            ${directionIcon} ${tx.amount.toLocaleString()} ${tokenLabel}
+                        </p>
+                        <p class="is-size-7 has-text-grey">
+                            ${directionLabel} ${isOutgoing ? 'to' : 'from'}
+                            <span class="is-family-monospace">${counterpartyShort}</span>
+                        </p>
+                    </div>
+                    <div class="column is-narrow has-text-right">
+                        ${statusHtml}
+                        ${tx.fee > 0 ? `<p class="is-size-7 has-text-grey">Fee: ${tx.fee}</p>` : ''}
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    historyEl.innerHTML = html;
+}
+
+// Refresh transaction history from API
+async function refreshTransactions() {
+    const historyEl = document.getElementById('transaction-history');
+
+    if (!walletApp.isUnlocked()) {
+        if (historyEl) historyEl.innerHTML = '<p class="has-text-danger">Wallet is locked</p>';
+        return;
+    }
+
+    try {
+        if (historyEl) historyEl.innerHTML = '<p class="has-text-grey">Loading...</p>';
+
+        const transactions = await walletApp.fetchTransactions();
+        updateTransactionHistory(transactions);
+    } catch (error) {
+        console.error('Failed to refresh transactions:', error);
+        if (historyEl) {
+            historyEl.innerHTML = `<p class="has-text-danger">Error: ${error.message}</p>`;
+        }
+    }
+}
+
 // Send transaction from form
 async function sendTransaction() {
     const sendBtn = document.getElementById('send-tx-btn');
@@ -461,8 +569,9 @@ async function sendTransaction() {
         recipientEl.value = '';
         amountEl.value = '';
 
-        // Refresh balance after successful send
+        // Refresh balance and transactions after successful send
         await refreshBalance();
+        await refreshTransactions();
 
     } catch (error) {
         console.error('Send transaction failed:', error);
@@ -554,8 +663,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const publicKey = await walletApp.createWallet(password);
                 updateWalletDisplay(publicKey);
                 showScreen('wallet-screen');
-                // Auto-refresh balance after creation
+                // Auto-refresh balance and transactions after creation
                 await refreshBalance();
+                await refreshTransactions();
             } catch (error) {
                 alert('Failed to create wallet: ' + error.message);
             } finally {
@@ -581,8 +691,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const publicKey = await walletApp.unlockWallet(password);
                 updateWalletDisplay(publicKey);
                 showScreen('wallet-screen');
-                // Auto-refresh balance after unlock
+                // Auto-refresh balance and transactions after unlock
                 await refreshBalance();
+                await refreshTransactions();
             } catch (error) {
                 showError('unlock-error', error.message);
             } finally {
@@ -636,4 +747,5 @@ document.addEventListener('DOMContentLoaded', async () => {
 window.walletApp = walletApp;
 window.showScreen = showScreen;
 window.refreshBalance = refreshBalance;
+window.refreshTransactions = refreshTransactions;
 window.sendTransaction = sendTransaction;
