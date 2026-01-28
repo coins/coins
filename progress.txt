@@ -329,3 +329,28 @@
   - Navigation between create/import/unlock screens uses the same showScreen() pattern
 ---
 
+## 2026-01-28 - US-014
+- Implemented setup script for wallet development
+- Files changed:
+  - Created scripts/setup-wallet.sh with WASM build and wallet server startup
+- **Implemented features:**
+  - Automated WASM build using wasm-pack
+  - Automated wallet server build (release mode)
+  - Server startup on port 8085 (configurable via WALLET_PORT env var)
+  - Configuration display for indexer and publisher URLs
+  - --dev flag support (acknowledged in output, auto-rebuild not yet implemented)
+  - Prints wallet URL and health check command
+  - PATH setup for ~/.cargo/bin to find wasm-pack in Nix environments
+- **Quality checks passed:**
+  - cargo check --all: OK
+  - cargo test --all: OK
+  - Script execution verified: OK
+- **Learnings for future iterations:**
+  - In Nix environments, cargo-installed binaries (like wasm-pack) are in ~/.cargo/bin but not in PATH
+  - Add ~/.cargo/bin to PATH in scripts using: export PATH="$HOME/.cargo/bin:$PATH"
+  - Script follows same pattern as existing setup scripts (setup-regtest.sh, setup-mutinynet.sh)
+  - Use colored output for better UX: GREEN for success, YELLOW for progress, BLUE for info
+  - timeout command is useful for testing scripts that run indefinitely (servers)
+  - Script builds WASM first, then server binary, then starts server - logical progression
+---
+
