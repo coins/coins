@@ -225,6 +225,77 @@
     </section>
 
     <!-- Footer -->
+    <!-- Backup Wallet Modal -->
+    <div id="backup-modal" class="modal">
+        <div class="modal-background"></div>
+        <div class="modal-card">
+            <header class="modal-card-head">
+                <p class="modal-card-title">Backup Wallet</p>
+                <button class="delete" aria-label="close" id="close-backup-modal"></button>
+            </header>
+            <section class="modal-card-body">
+                <!-- Password confirmation step -->
+                <div id="backup-password-step">
+                    <div class="notification is-warning is-light">
+                        <p><strong>⚠️ Security Warning</strong></p>
+                        <p class="is-size-7">You are about to view your secret key. Make sure no one is looking at your screen.</p>
+                    </div>
+
+                    <div class="field">
+                        <label class="label">Confirm Password</label>
+                        <div class="control">
+                            <input class="input" type="password" id="backup-password" placeholder="Enter your password">
+                        </div>
+                        <p class="help">Enter your wallet password to confirm</p>
+                    </div>
+
+                    <div id="backup-password-error" class="notification is-danger" style="display: none;">
+                        <!-- Error message will be shown here -->
+                    </div>
+
+                    <div class="field">
+                        <div class="control">
+                            <button class="button is-primary" id="confirm-backup-btn">
+                                Show Secret Key
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Secret key display step -->
+                <div id="backup-key-step" style="display: none;">
+                    <div class="notification is-danger">
+                        <p><strong>🔒 Keep This Safe!</strong></p>
+                        <p class="is-size-7 mb-2">Your secret key gives full access to your wallet. Never share it with anyone!</p>
+                        <ul class="is-size-7" style="margin-left: 1.5rem;">
+                            <li>Store it in a secure location (password manager, encrypted file, or offline)</li>
+                            <li>Anyone with this key can steal all your funds</li>
+                            <li>If you lose this key, you cannot recover your wallet</li>
+                        </ul>
+                    </div>
+
+                    <div class="field">
+                        <label class="label">Secret Key (64 hex characters)</label>
+                        <div class="control">
+                            <textarea class="textarea is-family-monospace" id="backup-secret-key" rows="3" readonly></textarea>
+                        </div>
+                    </div>
+
+                    <div class="field">
+                        <div class="control">
+                            <button class="button is-primary" id="copy-secret-key-btn">
+                                Copy to Clipboard
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            <footer class="modal-card-foot">
+                <button class="button" id="close-backup-btn">Close</button>
+            </footer>
+        </div>
+    </div>
+
     <footer class="footer">
         <div class="content has-text-centered">
             <p>

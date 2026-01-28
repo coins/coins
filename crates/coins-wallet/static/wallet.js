@@ -267,6 +267,32 @@ class WalletApp {
     }
 
     /**
+     * Get the secret key from localStorage by decrypting with password
+     * @param {string} password - The password to decrypt the wallet
+     * @returns {Promise<string>} The secret key hex
+     */
+    async getSecretKeyHex(password) {
+        if (!this.initialized) {
+            await this.init();
+        }
+
+        const encryptedKey = localStorage.getItem(STORAGE_KEY);
+        if (!encryptedKey) {
+            throw new Error('No wallet found');
+        }
+
+        try {
+            const decryptedBytes = await this.decryptData(encryptedKey, password);
+            // Convert bytes to hex
+            const hexKey = Array.from(decryptedBytes).map(b => b.toString(16).padStart(2, '0')).join('');
+            return hexKey;
+        } catch (error) {
+            console.error('Failed to decrypt wallet:', error);
+            throw new Error('Wrong password or corrupted wallet data');
+        }
+    }
+
+    /**
      * Send a transaction
      * @param {string} recipientPk - Recipient public key hex (64 chars)
      * @param {number} amount - Amount to send
@@ -738,6 +764,98 @@ document.addEventListener('DOMContentLoaded', async () => {
     const sendBtn = document.getElementById('send-tx-btn');
     if (sendBtn) {
         sendBtn.addEventListener('click', sendTransaction);
+    }
+
+    // Backup wallet button - shows modal
+    const backupBtn = document.getElementById('backup-wallet-btn');
+    if (backupBtn) {
+        backupBtn.addEventListener('click', () => {
+            const modal = document.getElementById('backup-modal');
+            if (modal) {
+                modal.classList.add('is-active');
+                // Reset to password step
+                document.getElementById('backup-password-step').style.display = 'block';
+                document.getElementById('backup-key-step').style.display = 'none';
+                document.getElementById('backup-password').value = '';
+                document.getElementById('backup-secret-key').value = '';
+                hideError('backup-password-error');
+            }
+        });
+    }
+
+    // Close backup modal buttons
+    const closeBackupModal = document.getElementById('close-backup-modal');
+    const closeBackupBtn = document.getElementById('close-backup-btn');
+    if (closeBackupModal) {
+        closeBackupModal.addEventListener('click', () => {
+            const modal = document.getElementById('backup-modal');
+            if (modal) modal.classList.remove('is-active');
+        });
+    }
+    if (closeBackupBtn) {
+        closeBackupBtn.addEventListener('click', () => {
+            const modal = document.getElementById('backup-modal');
+            if (modal) modal.classList.remove('is-active');
+        });
+    }
+
+    // Close modal when clicking background
+    const modalBackground = document.querySelector('#backup-modal .modal-background');
+    if (modalBackground) {
+        modalBackground.addEventListener('click', () => {
+            const modal = document.getElementById('backup-modal');
+            if (modal) modal.classList.remove('is-active');
+        });
+    }
+
+    // Confirm password and show secret key
+    const confirmBackupBtn = document.getElementById('confirm-backup-btn');
+    if (confirmBackupBtn) {
+        confirmBackupBtn.addEventListener('click', async () => {
+            const password = document.getElementById('backup-password').value;
+            hideError('backup-password-error');
+
+            if (!password) {
+                showError('backup-password-error', 'Please enter your password');
+                return;
+            }
+
+            try {
+                confirmBackupBtn.classList.add('is-loading');
+                const secretKeyHex = await walletApp.getSecretKeyHex(password);
+
+                // Show the secret key
+                document.getElementById('backup-secret-key').value = secretKeyHex;
+
+                // Switch to key display step
+                document.getElementById('backup-password-step').style.display = 'none';
+                document.getElementById('backup-key-step').style.display = 'block';
+            } catch (error) {
+                showError('backup-password-error', error.message);
+            } finally {
+                confirmBackupBtn.classList.remove('is-loading');
+            }
+        });
+    }
+
+    // Copy secret key to clipboard
+    const copySecretKeyBtn = document.getElementById('copy-secret-key-btn');
+    if (copySecretKeyBtn) {
+        copySecretKeyBtn.addEventListener('click', () => {
+            const secretKeyField = document.getElementById('backup-secret-key');
+            if (secretKeyField) {
+                navigator.clipboard.writeText(secretKeyField.value).then(() => {
+                    copySecretKeyBtn.textContent = 'Copied!';
+                    copySecretKeyBtn.classList.remove('is-primary');
+                    copySecretKeyBtn.classList.add('is-success');
+                    setTimeout(() => {
+                        copySecretKeyBtn.textContent = 'Copy to Clipboard';
+                        copySecretKeyBtn.classList.remove('is-success');
+                        copySecretKeyBtn.classList.add('is-primary');
+                    }, 2000);
+                });
+            }
+        });
     }
 
     console.log('Coins Wallet initialized');
