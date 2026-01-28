@@ -138,3 +138,28 @@
   - Keep placeholder wallet.js functional with basic screen navigation to allow HTML testing
 ---
 
+## 2026-01-28 - US-007
+- Implemented wallet.js WASM loading and key generation with encryption
+- Files changed:
+  - Rewrote crates/coins-wallet/static/wallet.js with full WalletApp class
+- **Implemented features:**
+  - WalletApp class that manages all wallet operations
+  - WASM module loading via dynamic import from /wasm/coins_wallet_wasm.js
+  - createWallet(password) generates new key using WASM WalletKey constructor
+  - Encryption using Web Crypto API: PBKDF2 (100k iterations, SHA-256) + AES-GCM (256-bit)
+  - Encrypted key stored in localStorage as 'coins_wallet_key' (base64 encoded: salt + iv + ciphertext)
+  - unlockWallet(password) decrypts key and reconstructs WalletKey from bytes
+  - lockWallet() clears key from memory
+  - Error handling for wrong password (shows error, doesn't crash)
+  - Screen navigation with loading states on buttons (is-loading class)
+  - Public key displayed after creation/unlock
+  - Copy public key to clipboard functionality
+  - Global walletApp instance exported to window for future stories
+- **Learnings for future iterations:**
+  - Use dynamic import() for WASM modules: `const wasm = await import('/path/to.js'); await wasm.default();`
+  - Web Crypto API requires PBKDF2 key import before deriveKey (can't pass password directly)
+  - AES-GCM requires unique IV per encryption - use crypto.getRandomValues()
+  - Store salt + iv + ciphertext together in base64 for easy localStorage storage
+  - Bulma's is-loading class on buttons shows spinner (works well with async operations)
+---
+
