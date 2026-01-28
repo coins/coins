@@ -7,7 +7,7 @@
 //! Run with: cargo test --test e2e -- --nocapture
 
 use coins_crypto::{SecretKey, G1};
-use coins_types::{Transaction, Account};
+use coins_types::{Transaction, Account, NATIVE_TOKEN_ID};
 use reqwest::blocking::Client;
 
 const PUBLISHER_URL: &str = "http://localhost:8080";
@@ -71,16 +71,17 @@ fn test_e2e_transfers() {
     println!("\nStep 2: Checking genesis account...");
     let genesis = get_account_by_pk_hex(GENESIS_PK_HEX).expect("Genesis account should exist");
     println!("  Genesis ID: {}", genesis.id.0);
-    println!("  Genesis balance: {}", genesis.balance);
+    println!("  Genesis balance: {}", genesis.native_balance());
     println!("  Genesis nonce: {}", genesis.nonce);
 
-    assert!(genesis.balance > 0, "Genesis should have balance");
+    assert!(genesis.native_balance() > 0, "Genesis should have balance");
 
     // Step 3: Transfer from genesis to Alice (100 tokens)
     println!("\nStep 3: Transferring 100 tokens from genesis to Alice...");
     let _tx1 = Transaction {
         sender_id: genesis.id.0,
         recipient_pk: alice.pk,
+        token_id: NATIVE_TOKEN_ID,
         amount: 100,
         fee: 1,
     };
@@ -127,7 +128,7 @@ fn test_submit_and_verify() {
         Ok(acc) => {
             println!("  ✓ Alice account found!");
             println!("    ID: {}", acc.id.0);
-            println!("    Balance: {}", acc.balance);
+            println!("    Balance: {}", acc.native_balance());
             println!("    Nonce: {}", acc.nonce);
         }
         Err(_) => {

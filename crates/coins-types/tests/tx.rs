@@ -1,4 +1,4 @@
-use coins_types::{Transaction, TX_SIZE};
+use coins_types::{Transaction, TX_SIZE, NATIVE_TOKEN_ID};
 use coins_crypto::{SecretKey, G1};
 
 #[test]
@@ -8,6 +8,7 @@ fn wire_roundtrip() {
     let tx = Transaction {
         sender_id: 42,
         recipient_pk: pk,
+        token_id: NATIVE_TOKEN_ID,
         amount: 1_234_567,
         fee: 10,
     };
@@ -27,12 +28,13 @@ fn message_to_sign_layout() {
     let tx = Transaction {
         sender_id: 1,
         recipient_pk: pk,
+        token_id: NATIVE_TOKEN_ID,
         amount: 2,
         fee: 3,
     };
     let nonce = 99u32;
     let msg = tx.message_to_sign(nonce);
-    assert_eq!(msg.len(), 45);
+    assert_eq!(msg.len(), TX_SIZE + 4);
     let expected = {
         let mut v = Vec::new();
         v.extend_from_slice(&tx.serialize());

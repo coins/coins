@@ -13,6 +13,10 @@
 - Native token is token_id = 0
 - Fees are always paid in native token
 - Publisher has a mempool overlay (mempool.rs) that mirrors validator balance logic - keep in sync with validator changes
+- Test files are in `crates/*/tests/` and examples in `crates/*/examples/` - struct changes require updating all of these
+- When changing Account or Transaction structs, always run `cargo test --all` to catch test failures across ALL crates
+- Use `account.native_balance()` to read native balance, `account.balances.insert(TOKEN_ID, value)` to set
+- Prefer constants (TX_SIZE, COMPACT_TX_SIZE) over magic numbers in test assertions
 
 ---
 
@@ -180,5 +184,35 @@
   - The `updateAccountBalance` WebSocket handler targets `[data-account-balances]` for live updates
   - The search account result card on the home page also displays balance info - keep it in sync with the account page format
   - Sort balance entries by `parseInt(tokenId)` for consistent numeric ordering
+---
+
+## 2026-01-28 - US-011
+- What was implemented:
+  - Fixed all test failures caused by multi-token struct changes across the codebase
+  - Updated Transaction constructors in test files to include `token_id: NATIVE_TOKEN_ID`
+  - Updated Account balance access from `account.balance` to `account.native_balance()` in tests/examples
+  - Updated Account balance assignment from `account.balance = X` to `account.balances.insert(NATIVE_TOKEN_ID, X)` in tests
+  - Updated Account struct literals to use `balances: BTreeMap` instead of `balance: u64`
+  - Updated mock JSON responses in api.rs to use `"balances": {"0": 1000}` instead of `"balance": 1000`
+  - Updated hardcoded size assertions to use constants (TX_SIZE, COMPACT_TX_SIZE) instead of magic numbers
+  - Updated message_to_sign test to use `TX_SIZE + 4` instead of hardcoded 45
+  - All 46 tests pass (including 2 ignored e2e tests)
+- Files changed:
+  - crates/coins-types/tests/tx.rs
+  - crates/coins-types/tests/subblock.rs
+  - crates/coins-core/tests/validator.rs
+  - crates/coins-publisher/tests/mempool.rs
+  - crates/coins-publisher/tests/api.rs
+  - crates/coins-publisher/tests/e2e.rs
+  - crates/coins-publisher/examples/submit_many_txs.rs
+  - crates/coins-publisher/examples/e2e_test.rs
+  - crates/coins-publisher/examples/submit_txs.rs
+- **Learnings for future iterations:**
+  - When Account struct changes from `balance: u64` to `balances: BTreeMap<u16, u64>`, ALL test files and examples need updating - not just the main source code
+  - Test files span multiple crates: coins-types/tests/, coins-core/tests/, coins-publisher/tests/, and coins-publisher/examples/
+  - Mock JSON responses in wiremock tests must also be updated to match the new serialization format (balance -> balances map)
+  - Use `account.native_balance()` for reading native balance, `account.balances.insert(NATIVE_TOKEN_ID, value)` for writing
+  - Prefer using constants (TX_SIZE, COMPACT_TX_SIZE) in test assertions rather than hardcoded numbers - this makes tests resilient to future size changes
+  - The `#[ignore]` e2e tests require a running publisher and don't run in CI
 ---
 

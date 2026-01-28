@@ -16,7 +16,7 @@ use ark_bn254::Fr;
 use ark_ff::PrimeField;
 use ark_serialize::CanonicalSerialize;
 use coins_crypto::{sign, G1, G2, SecretKey};
-use coins_types::{Account, Transaction};
+use coins_types::{Account, Transaction, NATIVE_TOKEN_ID};
 use reqwest::blocking::Client;
 use serde_json::json;
 use std::path::Path;
@@ -121,18 +121,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!(
         "  Alice (ID {}): balance={}, nonce={}",
-        alice_before.id.0, alice_before.balance, alice_before.nonce
+        alice_before.id.0, alice_before.native_balance(), alice_before.nonce
     );
     println!(
         "  Bob (ID {}): balance={}, nonce={}",
-        bob_before.id.0, bob_before.balance, bob_before.nonce
+        bob_before.id.0, bob_before.native_balance(), bob_before.nonce
     );
     println!();
 
-    if alice_before.balance < 200 {
+    if alice_before.native_balance() < 200 {
         println!(
             "Warning: Alice doesn't have enough balance ({}). Transaction may fail.",
-            alice_before.balance
+            alice_before.native_balance()
         );
         println!("  Run setup_test_accounts first to fund Alice.");
         return Ok(());
@@ -145,6 +145,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tx = Transaction {
         sender_id: alice_before.id.0,
         recipient_pk: G1(bob_pk_bytes),
+        token_id: NATIVE_TOKEN_ID,
         amount: 100,
         fee: 1,
     };
@@ -179,51 +180,51 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!(
         "  Alice (ID {}): balance={} (was {}), nonce={} (was {})",
         alice_after.id.0,
-        alice_after.balance,
-        alice_before.balance,
+        alice_after.native_balance(),
+        alice_before.native_balance(),
         alice_after.nonce,
         alice_before.nonce
     );
     println!(
         "  Bob (ID {}): balance={} (was {}), nonce={} (was {})",
         bob_after.id.0,
-        bob_after.balance,
-        bob_before.balance,
+        bob_after.native_balance(),
+        bob_before.native_balance(),
         bob_after.nonce,
         bob_before.nonce
     );
     println!();
 
     // Calculate expected balances
-    let alice_expected = alice_before.balance - 100 - 1; // amount + fee
-    let bob_expected = bob_before.balance + 100; // amount
+    let alice_expected = alice_before.native_balance() - 100 - 1; // amount + fee
+    let bob_expected = bob_before.native_balance() + 100; // amount
 
     println!("Step 6: Validation...");
 
     let mut success = true;
 
-    if alice_after.balance == alice_expected {
+    if alice_after.native_balance() == alice_expected {
         println!(
             "  Alice balance correct: {} (expected {})",
-            alice_after.balance, alice_expected
+            alice_after.native_balance(), alice_expected
         );
     } else {
         println!(
             "  Alice balance INCORRECT: got {}, expected {}",
-            alice_after.balance, alice_expected
+            alice_after.native_balance(), alice_expected
         );
         success = false;
     }
 
-    if bob_after.balance == bob_expected {
+    if bob_after.native_balance() == bob_expected {
         println!(
             "  Bob balance correct: {} (expected {})",
-            bob_after.balance, bob_expected
+            bob_after.native_balance(), bob_expected
         );
     } else {
         println!(
             "  Bob balance INCORRECT: got {}, expected {}",
-            bob_after.balance, bob_expected
+            bob_after.native_balance(), bob_expected
         );
         success = false;
     }

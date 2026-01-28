@@ -168,7 +168,7 @@
         "All tests pass"
       ],
       "priority": 11,
-      "passes": false,
+      "passes": true,
       "notes": "Tests may need updating to include token_id in test transactions and use balances map in test accounts."
     }
   ]

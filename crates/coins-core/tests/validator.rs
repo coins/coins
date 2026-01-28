@@ -2,7 +2,7 @@
 
 use ark_ff::PrimeField;
 use coins_crypto::{sign, aggregate, verify_aggregate, SecretKey, G1};
-use coins_types::{Transaction, SubBlock};
+use coins_types::{Transaction, SubBlock, NATIVE_TOKEN_ID};
 
 /// Test that signing a transaction and verifying with the same message works
 #[test]
@@ -25,6 +25,7 @@ fn sign_and_verify_transaction() {
     let tx = Transaction {
         sender_id: 0,  // genesis is always account 0
         recipient_pk,
+        token_id: NATIVE_TOKEN_ID,
         amount: 1000,
         fee: 1,
     };
@@ -72,6 +73,7 @@ fn multiple_txs_same_sender() {
     let tx1 = Transaction {
         sender_id: 0,
         recipient_pk: recipient1,
+        token_id: NATIVE_TOKEN_ID,
         amount: 100,
         fee: 1,
     };
@@ -79,6 +81,7 @@ fn multiple_txs_same_sender() {
     let tx2 = Transaction {
         sender_id: 0,
         recipient_pk: recipient2,
+        token_id: NATIVE_TOKEN_ID,
         amount: 200,
         fee: 1,
     };
@@ -116,6 +119,7 @@ fn wrong_nonce_fails() {
     let tx = Transaction {
         sender_id: 0,
         recipient_pk: recipient,
+        token_id: NATIVE_TOKEN_ID,
         amount: 100,
         fee: 1,
     };
