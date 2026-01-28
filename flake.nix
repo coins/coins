@@ -71,6 +71,10 @@
             alias explorer-regtest='./target/release/coins-explorer --config config/explorer-regtest.toml'
             alias explorer-mutinynet='./target/release/coins-explorer --config config/explorer-mutinynet.toml'
 
+            # Wallet commands
+            alias wallet-regtest='INDEXER_URL=http://localhost:8084 PUBLISHER_URL=http://localhost:8080 cargo run --release -p coins-wallet'
+            alias wallet-mutinynet='INDEXER_URL=http://localhost:8083 PUBLISHER_URL=http://localhost:8082 cargo run --release -p coins-wallet'
+
             # Send tokens from Alice to Bob
             # Usage: send <network> [amount]
             # Examples: send regtest 100, send mutinynet 500
@@ -100,6 +104,43 @@
               esac
             }
 
+            # Send tokens from Alice to a specific public key
+            # Usage: send-to <network> <pubkey> [amount]
+            # Examples: send-to regtest abc123... 100
+            send-to() {
+              local network="$1"
+              local pubkey="$2"
+              local amount=''${3:-100}
+
+              if [ -z "$pubkey" ]; then
+                echo "Usage: send-to <network> <pubkey> [amount]"
+                echo "  network: regtest | mutinynet"
+                echo "  pubkey: recipient public key (64 hex chars)"
+                echo "  amount: tokens to send (default: 100)"
+                echo ""
+                echo "Examples:"
+                echo "  send-to regtest abc123def456... 100"
+                echo "  send-to mutinynet abc123def456... 500"
+                return 1
+              fi
+
+              case "$network" in
+                regtest)
+                  ./target/release/coins-client --keyfile .data/regtest/test-keys/alice_sk.hex --publisher-url "http://localhost:8080" send --recipient-pk "$pubkey" --amount "$amount"
+                  ;;
+                mutinynet)
+                  ./target/release/coins-client --keyfile .data/mutinynet/keys/alice_sk.hex --publisher-url "http://localhost:8082" send --recipient-pk "$pubkey" --amount "$amount"
+                  ;;
+                *)
+                  echo "Usage: send-to <network> <pubkey> [amount]"
+                  echo "  network: regtest | mutinynet"
+                  echo "  pubkey: recipient public key (64 hex chars)"
+                  echo "  amount: tokens to send (default: 100)"
+                  return 1
+                  ;;
+              esac
+            }
+
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             echo "  Development Environment Ready"
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -118,8 +159,13 @@
             echo "  explorer-regtest         - Start explorer for regtest"
             echo "  explorer-mutinynet       - Start explorer for mutinynet"
             echo ""
+            echo "Wallet:"
+            echo "  wallet-regtest           - Start wallet for regtest"
+            echo "  wallet-mutinynet         - Start wallet for mutinynet"
+            echo ""
             echo "Transactions:"
-            echo "  send <network> [amount]  - Send tokens Alice->Bob"
+            echo "  send <network> [amount]       - Send tokens Alice->Bob"
+            echo "  send-to <network> <pk> [amt]  - Send from Alice to specific pubkey"
             echo ""
           '';
         };
