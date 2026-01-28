@@ -19,3 +19,7 @@ indexer.db/
 
 # Old subchain bin file
 subchain_regtest.bin
+
+# Ralph
+prd.json
+tools
