@@ -1,0 +1,33 @@
+[package]
+name = "coins-wallet-wasm"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# WASM bindings
+wasm-bindgen = "0.2"
+
+# Internal crates
+coins-crypto = { path = "../../coins-crypto" }
+coins-types = { path = "../../coins-types" }
+
+# Arkworks for Fr type access
+ark-bn254 = "0.4"
+ark-ff = "0.4"
+ark-serialize = "0.4"
+
+# Random number generation for WASM
+getrandom = { version = "0.2", features = ["js"] }
+rand = "0.8"
+
+# Serialization
+hex = "0.4"
+bincode = "2"
+serde = { version = "1", features = ["derive"] }
+
+# WASM console logging and error handling
+web-sys = { version = "0.3", features = ["console"] }
+console_error_panic_hook = "0.1"
