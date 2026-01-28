@@ -209,3 +209,37 @@
   - Use Bulma's notification classes for info/warning messages (is-info, is-light)
 ---
 
+## 2026-01-28 - US-010
+- Implemented send transaction form functionality
+- Files changed:
+  - crates/coins-wallet/static/wallet.js - added sendTransaction method and UI wiring
+- **Implemented features:**
+  - WalletApp.sendTransaction(recipientPk, amount, tokenId, fee) method (wallet.js:246-310)
+  - Validates recipient public key is 64 hex characters
+  - Validates amount is a positive integer
+  - Validates fee is between 1 and 255
+  - Fetches account to get sender_id and nonce before building transaction
+  - Builds transaction using WASM build_transaction(sender_id, recipient_pk, token_id, amount, fee)
+  - Builds signing message using WASM build_signing_message(tx_bytes, nonce)
+  - Signs message with currentKey.sign(signingMessage)
+  - Converts tx bytes to hex string for submission
+  - Submits to /api/tx/submit with JSON body { tx: hex, signature: hex }
+  - showSendStatus(message, isError) and hideSendStatus() helper functions (wallet.js:327-340)
+  - sendTransaction() UI handler reads form values, validates, calls walletApp method (wallet.js:343-380)
+  - Send button wired to sendTransaction() handler (wallet.js:530-533)
+  - Shows success message (green notification) on successful submission
+  - Shows error message (red notification) on failure
+  - Clears recipient and amount fields after successful send
+  - Auto-refreshes balance after successful send
+  - window.sendTransaction exported for testing/debugging
+- **Quality checks passed:**
+  - cargo check --all: OK
+  - cargo test --all: OK (43 tests passed)
+- **Learnings for future iterations:**
+  - Transaction submission requires account to exist (must receive tokens first)
+  - WASM functions build_transaction() and build_signing_message() return Uint8Array
+  - Convert Uint8Array to hex with: Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('')
+  - Signing message format is: tx_bytes (43 bytes) || nonce (4 bytes LE) = 47 bytes total
+  - POST /api/tx/submit proxies to publisher /tx endpoint
+---
+

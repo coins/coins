@@ -241,6 +241,87 @@ class WalletApp {
 
         return await response.json();
     }
+
+    /**
+     * Send a transaction
+     * @param {string} recipientPk - Recipient public key hex (64 chars)
+     * @param {number} amount - Amount to send
+     * @param {number} tokenId - Token ID (default 0 for native)
+     * @param {number} fee - Transaction fee
+     * @returns {Promise<Object>} Transaction result
+     */
+    async sendTransaction(recipientPk, amount, tokenId = 0, fee = 1) {
+        if (!currentKey) {
+            throw new Error('Wallet is locked');
+        }
+
+        // Validate recipient public key (should be 64 hex chars)
+        if (!/^[a-fA-F0-9]{64}$/.test(recipientPk)) {
+            throw new Error('Invalid recipient public key: must be 64 hex characters');
+        }
+
+        // Validate amount
+        if (!Number.isInteger(amount) || amount <= 0) {
+            throw new Error('Amount must be a positive integer');
+        }
+
+        // Validate fee
+        if (!Number.isInteger(fee) || fee < 1 || fee > 255) {
+            throw new Error('Fee must be between 1 and 255');
+        }
+
+        // Fetch account to get sender_id and nonce
+        const account = await this.refreshBalance();
+        if (account === null) {
+            throw new Error('Account not found. You need to receive tokens first before sending.');
+        }
+
+        const senderId = account.id;
+        const nonce = account.nonce;
+
+        console.log('Building transaction:', { senderId, recipientPk, tokenId, amount, fee, nonce });
+
+        // Build the transaction using WASM
+        const txBytes = wasmModule.build_transaction(
+            senderId,
+            recipientPk,
+            tokenId,
+            amount,
+            fee
+        );
+
+        // Build the signing message (tx || nonce)
+        const signingMessage = wasmModule.build_signing_message(txBytes, nonce);
+
+        // Sign the message
+        const signature = currentKey.sign(signingMessage);
+
+        // Convert tx bytes to hex
+        const txHex = Array.from(txBytes).map(b => b.toString(16).padStart(2, '0')).join('');
+
+        console.log('Submitting transaction:', { tx: txHex, signature });
+
+        // Submit to the publisher via wallet API
+        const response = await fetch('/api/tx/submit', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                tx: txHex,
+                signature: signature,
+            }),
+        });
+
+        const responseText = await response.text();
+
+        if (!response.ok) {
+            throw new Error(`Transaction failed: ${responseText}`);
+        }
+
+        console.log('Transaction submitted successfully:', responseText);
+        return { success: true, message: responseText };
+    }
 }
 
 // Global wallet app instance
@@ -322,6 +403,73 @@ function updateBalanceDisplay(account) {
     html += `<p class="is-size-7 has-text-grey mt-2">Account ID: ${account.id} | Nonce: ${account.nonce}</p>`;
 
     balanceEl.innerHTML = html;
+}
+
+// Show send status message
+function showSendStatus(message, isError = false) {
+    const statusEl = document.getElementById('send-status');
+    if (statusEl) {
+        statusEl.textContent = message;
+        statusEl.className = `notification mt-3 ${isError ? 'is-danger' : 'is-success'}`;
+        statusEl.style.display = 'block';
+    }
+}
+
+// Hide send status message
+function hideSendStatus() {
+    const statusEl = document.getElementById('send-status');
+    if (statusEl) {
+        statusEl.style.display = 'none';
+    }
+}
+
+// Send transaction from form
+async function sendTransaction() {
+    const sendBtn = document.getElementById('send-tx-btn');
+    const recipientEl = document.getElementById('send-recipient');
+    const amountEl = document.getElementById('send-amount');
+    const tokenIdEl = document.getElementById('send-token-id');
+    const feeEl = document.getElementById('send-fee');
+
+    hideSendStatus();
+
+    // Get form values
+    const recipient = recipientEl.value.trim();
+    const amount = parseInt(amountEl.value, 10);
+    const tokenId = parseInt(tokenIdEl.value || '0', 10);
+    const fee = parseInt(feeEl.value || '1', 10);
+
+    // Basic validation
+    if (!recipient) {
+        showSendStatus('Please enter a recipient public key', true);
+        return;
+    }
+
+    if (isNaN(amount) || amount <= 0) {
+        showSendStatus('Please enter a valid amount', true);
+        return;
+    }
+
+    try {
+        sendBtn.classList.add('is-loading');
+
+        const result = await walletApp.sendTransaction(recipient, amount, tokenId, fee);
+
+        showSendStatus(`Transaction submitted successfully!`);
+
+        // Clear form
+        recipientEl.value = '';
+        amountEl.value = '';
+
+        // Refresh balance after successful send
+        await refreshBalance();
+
+    } catch (error) {
+        console.error('Send transaction failed:', error);
+        showSendStatus(error.message, true);
+    } finally {
+        sendBtn.classList.remove('is-loading');
+    }
 }
 
 // Refresh balance from API
@@ -475,6 +623,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         refreshBtn.addEventListener('click', refreshBalance);
     }
 
+    // Send transaction button
+    const sendBtn = document.getElementById('send-tx-btn');
+    if (sendBtn) {
+        sendBtn.addEventListener('click', sendTransaction);
+    }
+
     console.log('Coins Wallet initialized');
 });
 
@@ -482,3 +636,4 @@ document.addEventListener('DOMContentLoaded', async () => {
 window.walletApp = walletApp;
 window.showScreen = showScreen;
 window.refreshBalance = refreshBalance;
+window.sendTransaction = sendTransaction;
