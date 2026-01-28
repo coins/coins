@@ -243,3 +243,89 @@
   - POST /api/tx/submit proxies to publisher /tx endpoint
 ---
 
+
+## 2026-01-28 - US-011
+- Implemented transaction history display on wallet screen
+- Files changed:
+  - crates/coins-wallet/static/wallet.js - added fetchTransactions, updateTransactionHistory, refreshTransactions functions
+  - flake.nix - added nodejs_22, wasm-pack, playwright-driver.browsers, steam-run for dev tooling
+- **Implemented features:**
+  - WalletApp.fetchTransactions() method fetches from /api/account/:pk/transactions (wallet.js:249-267)
+  - updateTransactionHistory(transactions) renders transaction list with type/amount/token/status (wallet.js:427-486)
+  - refreshTransactions() function handles loading states and errors (wallet.js:489-508)
+  - Shows "No transactions yet" for empty history
+  - Displays transaction direction (Sent/Received) with color coding (red/green)
+  - Shows counterparty address (truncated)
+  - Shows token label (Native for token_id=0, otherwise "Token N")
+  - Shows confirmation status: Pending, "N conf (M more needed)", or Finalized
+  - Auto-refreshes transactions after wallet creation (wallet.js:559)
+  - Auto-refreshes transactions after wallet unlock (wallet.js:586)
+  - Auto-refreshes transactions after successful send (wallet.js:466)
+  - window.refreshTransactions exported for debugging (wallet.js:639)
+- **Quality checks passed:**
+  - cargo check --all: OK
+  - cargo test --all: OK
+  - Browser verification: OK (dev-browser skill)
+- **Learnings for future iterations:**
+  - TransactionWithStatus from indexer includes: direction (Incoming/Outgoing), sender_pk, recipient_pk, amount, token_id, fee, confirmations, finalized, confirmations_remaining
+  - Use Bulma tags (is-success, is-warning, is-info) with is-light modifier for status badges
+  - NixOS requires PLAYWRIGHT_BROWSERS_PATH env var pointing to nix-provided playwright browsers
+  - Added steam-run (alias: fhs) for running scripts with /bin/bash shebang on NixOS
+---
+
+## 2026-01-28 - US-012
+- Implemented wallet export/backup functionality
+- Files changed:
+  - crates/coins-wallet/static/index.html - added backup modal UI
+  - crates/coins-wallet/static/wallet.js - added getSecretKeyHex() method and backup event handlers
+- **Implemented features:**
+  - WalletApp.getSecretKeyHex(password) method decrypts and returns secret key hex (wallet.js:274-295)
+  - Backup Wallet button opens modal (index.html:216, wallet.js:770-782)
+  - Two-step backup process: password confirmation → secret key display
+  - Password confirmation step with security warning (index.html:238-257)
+  - Secret key display step with safety warnings and best practices (index.html:260-283)
+  - Copy to Clipboard functionality for secret key (wallet.js:821-833)
+  - Modal can be closed via X button, Close button, or clicking background (wallet.js:787-803)
+  - Wrong password shows error message without crashing (wallet.js:811-817)
+  - Security warnings include: keep key safe, never share, anyone with key can steal funds, cannot recover if lost
+- **Quality checks passed:**
+  - cargo check --all: OK
+  - cargo test --all: OK
+- **Learnings for future iterations:**
+  - Bulma modal uses .is-active class to show/hide, requires modal-background and modal-card structure
+  - Two-step modal flows work well: toggle display style on step divs (password step → key step)
+  - getSecretKeyHex() re-decrypts from localStorage rather than exposing currentKey for security
+  - Use textarea with is-family-monospace class for displaying hex keys (better for copying)
+  - Copy button state change (text + color) provides good UX feedback
+---
+## 2026-01-28 - US-013
+- Implemented wallet import functionality
+- Files changed:
+  - crates/coins-wallet/static/index.html - added import screen UI with secret key input, password fields, and navigation
+  - crates/coins-wallet/static/wallet.js - added importWallet() method and event handlers
+- **Implemented features:**
+  - Import screen with secret key hex input field (monospace font for better readability)
+  - Password and confirm password fields for encryption
+  - WalletApp.importWallet(secretKeyHex, password) method (wallet.js:163-201)
+  - Validates secret key format: must be exactly 64 hex characters using regex /^[a-fA-F0-9]{64}$/
+  - Converts hex string to bytes using parseInt() with base 16
+  - Creates WalletKey from bytes using wasmModule.WalletKey.from_bytes()
+  - Encrypts and stores in localStorage using same AES-GCM encryption as createWallet
+  - Error handling for invalid secret key format and key creation failures
+  - Navigation links: "Import existing wallet" on create screen, "Create a new wallet instead" on import screen
+  - Import button event handler with validation and loading states (wallet.js:759-799)
+  - Auto-refreshes balance and transactions after successful import
+  - Shows error messages for: empty secret key, mismatched passwords, empty password, invalid hex format
+- **Quality checks passed:**
+  - cargo check --all: OK
+  - cargo test --all: OK (43 tests passed)
+  - Wallet server verified running and serving updated files
+- **Learnings for future iterations:**
+  - Secret key validation happens at two levels: format check (regex) and key creation (WASM)
+  - Using substr() to parse hex pairs is simple and effective: parseInt(hexString.substr(i * 2, 2), 16)
+  - WalletKey.from_bytes() throws an error if the bytes don't represent a valid BLS secret key
+  - Import flow mirrors create flow: validate inputs → create/import key → encrypt → store → show wallet screen
+  - is-family-monospace class on input fields improves UX for hex values
+  - Navigation between create/import/unlock screens uses the same showScreen() pattern
+---
+
