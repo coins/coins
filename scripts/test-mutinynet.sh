@@ -129,7 +129,7 @@ else
     echo -n "  Waiting for indexer to discover Alice's account"
     FOUND=false
     for i in {1..12}; do  # 60 seconds max (12 * 5s)
-        if curl -s http://localhost:8082/account/${ALICE_PK} 2>/dev/null | jq -e '.balance >= 0' &>/dev/null; then
+        if curl -s http://localhost:8082/account/${ALICE_PK} 2>/dev/null | jq -e '.balances["0"] >= 0' &>/dev/null; then
             FOUND=true
             echo ""
             break
@@ -139,7 +139,7 @@ else
     done
 
     if [ "$FOUND" = true ]; then
-        ALICE_BAL=$(curl -s http://localhost:8082/account/${ALICE_PK} | jq -r '.balance')
+        ALICE_BAL=$(curl -s http://localhost:8082/account/${ALICE_PK} | jq -r '.balances["0"]')
         echo -e "${GREEN}  ✓ PASS - Alice balance: ${ALICE_BAL}${NC}"
         PASS_COUNT=$((PASS_COUNT + 1))
     else

@@ -17,6 +17,9 @@
 - When changing Account or Transaction structs, always run `cargo test --all` to catch test failures across ALL crates
 - Use `account.native_balance()` to read native balance, `account.balances.insert(TOKEN_ID, value)` to set
 - Prefer constants (TX_SIZE, COMPACT_TX_SIZE) over magic numbers in test assertions
+- Integration test scripts are in `scripts/` folder: test-regtest.sh, test-mutinynet.sh, test-ibd.sh, test-explorer.sh, test-publish-formats.sh
+- Use `scripts/setup-regtest.sh` to start local regtest environment, `scripts/stop-regtest.sh` to stop it
+- Use `scripts/setup-mutinynet.sh` to connect to mutinynet testnet
 
 ---
 

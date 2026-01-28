@@ -380,8 +380,8 @@ sleep 15
 
 # Verify accounts were created
 echo -e "  ${BLUE}→ Verifying accounts...${NC}"
-ALICE_BAL=$(curl -s "http://localhost:8080/account/${ALICE_PK}" | jq -r '.balance // "not found"')
-BOB_BAL=$(curl -s "http://localhost:8080/account/${BOB_PK}" | jq -r '.balance // "not found"')
+ALICE_BAL=$(curl -s "http://localhost:8080/account/${ALICE_PK}" | jq -r '.balances["0"] // "not found"')
+BOB_BAL=$(curl -s "http://localhost:8080/account/${BOB_PK}" | jq -r '.balances["0"] // "not found"')
 
 echo -e "  Alice balance: ${ALICE_BAL}"
 echo -e "  Bob balance: ${BOB_BAL}"

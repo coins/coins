@@ -121,7 +121,7 @@ run_test "Explorer health endpoint" \
 
 # Test 2: Get account via explorer
 run_test "Explorer account lookup" \
-    "curl -s $EXPLORER_URL/api/v1/accounts/$ALICE_PK | jq -e '.balance >= 0'"
+    "curl -s $EXPLORER_URL/api/v1/accounts/$ALICE_PK | jq -e '.balances[\"0\"] >= 0'"
 
 # Test 3: Get latest block
 run_test "Explorer latest block" \
@@ -143,8 +143,8 @@ echo ""
 echo -e "${BLUE}=== Confirmation Status Tests ===${NC}"
 echo ""
 
-# Get Alice's current balance
-ALICE_BEFORE=$(curl -s "$PUBLISHER_URL/account/$ALICE_PK" | jq -r '.balance // 0')
+# Get Alice's current balance (native token)
+ALICE_BEFORE=$(curl -s "$PUBLISHER_URL/account/$ALICE_PK" | jq -r '.balances["0"] // 0')
 echo -e "  Alice balance before: $ALICE_BEFORE"
 
 # Test 7: Submit a new transaction
@@ -239,7 +239,7 @@ fi
 echo -e "${YELLOW}[Test $((TEST_COUNT + 1))] Balance updated after confirmation${NC}"
 TEST_COUNT=$((TEST_COUNT + 1))
 
-ALICE_AFTER=$(curl -s "$PUBLISHER_URL/account/$ALICE_PK" | jq -r '.balance // 0')
+ALICE_AFTER=$(curl -s "$PUBLISHER_URL/account/$ALICE_PK" | jq -r '.balances["0"] // 0')
 echo -e "  Alice balance after: $ALICE_AFTER (was: $ALICE_BEFORE)"
 
 # Balance should have decreased by at least 50 (amount) + fee
