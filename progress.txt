@@ -100,3 +100,41 @@
   - Server must be run from repo root for relative paths to static directories to work
 ---
 
+## 2026-01-28 - US-005
+- Implemented API proxy endpoints for wallet server
+- Files changed:
+  - Created crates/coins-wallet/src/api.rs with proxy endpoints
+  - Modified crates/coins-wallet/src/lib.rs to export api module
+  - Modified crates/coins-wallet/src/main.rs to integrate API router
+- **Implemented features:**
+  - GET /api/account/:pk proxies to indexer /accounts/:pk
+  - GET /api/account/:pk/transactions proxies to indexer /accounts/:pk/transactions
+  - POST /api/tx/submit proxies to publisher /tx with JSON body { tx, signature }
+  - All endpoints return appropriate HTTP status codes (404, 502, etc.)
+  - AppState struct holds reqwest::Client, indexer_url, and publisher_url
+- **Learnings for future iterations:**
+  - Use `Router::merge()` to combine API routes with existing router
+  - Use `{pk}` syntax for path parameters in axum routes (not `:pk`)
+  - reqwest::Client can be cloned efficiently (uses Arc internally)
+  - Forward exact status codes from upstream services using StatusCode::from_u16()
+---
+
+## 2026-01-28 - US-006
+- Created wallet HTML structure with three screens
+- Files changed:
+  - Rewrote crates/coins-wallet/static/index.html with full UI
+  - Created crates/coins-wallet/static/wallet.js with screen navigation
+- **Implemented features:**
+  - Bulma CSS from CDN for consistent styling
+  - Three screen sections: #create-screen, #unlock-screen, #wallet-screen
+  - Create screen: password + confirm password inputs, Create Wallet button
+  - Unlock screen: password input, Unlock button, error display area
+  - Wallet screen: public key display with copy button, balance section, send form with recipient/amount/token/fee fields, transaction history placeholder, backup and lock buttons
+  - Navigation between screens with show/hide via CSS class 'active'
+  - Auto-detect existing wallet in localStorage to show unlock vs create screen
+- **Learnings for future iterations:**
+  - Use CSS class toggling for screen visibility (display: none by default, display: block when .active)
+  - Bulma's columns/column classes for responsive multi-column layouts
+  - Keep placeholder wallet.js functional with basic screen navigation to allow HTML testing
+---
+
