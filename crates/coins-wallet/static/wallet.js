@@ -208,6 +208,39 @@ class WalletApp {
     isUnlocked() {
         return currentKey !== null;
     }
+
+    /**
+     * Get the current public key (if unlocked)
+     * @returns {string|null} Public key hex or null if locked
+     */
+    getPublicKey() {
+        if (!currentKey) return null;
+        return currentKey.public_key_hex();
+    }
+
+    /**
+     * Fetch account balance from the indexer
+     * @returns {Promise<Object|null>} Account data or null if not found
+     */
+    async refreshBalance() {
+        if (!currentKey) {
+            throw new Error('Wallet is locked');
+        }
+
+        const pk = currentKey.public_key_hex();
+        const response = await fetch(`/api/account/${pk}`);
+
+        if (response.status === 404) {
+            // Account not found - this is normal for new wallets
+            return null;
+        }
+
+        if (!response.ok) {
+            throw new Error(`Failed to fetch account: ${response.status}`);
+        }
+
+        return await response.json();
+    }
 }
 
 // Global wallet app instance
@@ -246,6 +279,74 @@ function updateWalletDisplay(publicKey) {
     const pkElement = document.getElementById('wallet-public-key');
     if (pkElement) {
         pkElement.textContent = publicKey;
+    }
+}
+
+// Update balance display with account data
+function updateBalanceDisplay(account) {
+    const balanceEl = document.getElementById('balance-display');
+    if (!balanceEl) return;
+
+    if (account === null) {
+        // Account not found - new wallet
+        balanceEl.innerHTML = `
+            <div class="notification is-info is-light">
+                <p><strong>Account not found</strong></p>
+                <p class="is-size-7">This is a new wallet. Your account will be created when you receive your first transaction.</p>
+            </div>
+        `;
+        return;
+    }
+
+    // Display all token balances
+    const balances = account.balances || {};
+    const tokenIds = Object.keys(balances).sort((a, b) => parseInt(a) - parseInt(b));
+
+    if (tokenIds.length === 0) {
+        balanceEl.innerHTML = '<p class="has-text-grey">No tokens</p>';
+        return;
+    }
+
+    let html = '<table class="table is-fullwidth is-hoverable"><thead><tr><th>Token ID</th><th class="has-text-right">Balance</th></tr></thead><tbody>';
+
+    for (const tokenId of tokenIds) {
+        const balance = balances[tokenId];
+        const isNative = tokenId === '0';
+        const label = isNative ? 'Native (0)' : tokenId;
+        html += `<tr><td>${label}</td><td class="has-text-right"><strong>${balance.toLocaleString()}</strong></td></tr>`;
+    }
+
+    html += '</tbody></table>';
+
+    // Also show nonce for reference
+    html += `<p class="is-size-7 has-text-grey mt-2">Account ID: ${account.id} | Nonce: ${account.nonce}</p>`;
+
+    balanceEl.innerHTML = html;
+}
+
+// Refresh balance from API
+async function refreshBalance() {
+    const balanceEl = document.getElementById('balance-display');
+    const refreshBtn = document.getElementById('refresh-balance-btn');
+
+    if (!walletApp.isUnlocked()) {
+        if (balanceEl) balanceEl.innerHTML = '<p class="has-text-danger">Wallet is locked</p>';
+        return;
+    }
+
+    try {
+        if (refreshBtn) refreshBtn.classList.add('is-loading');
+        if (balanceEl) balanceEl.innerHTML = '<p class="has-text-grey">Loading...</p>';
+
+        const account = await walletApp.refreshBalance();
+        updateBalanceDisplay(account);
+    } catch (error) {
+        console.error('Failed to refresh balance:', error);
+        if (balanceEl) {
+            balanceEl.innerHTML = `<p class="has-text-danger">Error: ${error.message}</p>`;
+        }
+    } finally {
+        if (refreshBtn) refreshBtn.classList.remove('is-loading');
     }
 }
 
@@ -305,6 +406,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const publicKey = await walletApp.createWallet(password);
                 updateWalletDisplay(publicKey);
                 showScreen('wallet-screen');
+                // Auto-refresh balance after creation
+                await refreshBalance();
             } catch (error) {
                 alert('Failed to create wallet: ' + error.message);
             } finally {
@@ -330,6 +433,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const publicKey = await walletApp.unlockWallet(password);
                 updateWalletDisplay(publicKey);
                 showScreen('wallet-screen');
+                // Auto-refresh balance after unlock
+                await refreshBalance();
             } catch (error) {
                 showError('unlock-error', error.message);
             } finally {
@@ -364,9 +469,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
+    // Refresh balance button
+    const refreshBtn = document.getElementById('refresh-balance-btn');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', refreshBalance);
+    }
+
     console.log('Coins Wallet initialized');
 });
 
 // Export for use by other scripts (future stories)
 window.walletApp = walletApp;
 window.showScreen = showScreen;
+window.refreshBalance = refreshBalance;
