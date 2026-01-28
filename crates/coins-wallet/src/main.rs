@@ -4,6 +4,8 @@
 //! Serves static files for the wallet UI and WASM module.
 
 use axum::{routing::get, Router};
+use coins_wallet::api::{self, AppState};
+use reqwest::Client;
 use std::env;
 use tokio::net::TcpListener;
 use tower_http::services::ServeDir;
@@ -57,9 +59,19 @@ async fn main() -> anyhow::Result<()> {
     info!("Indexer URL: {}", config.indexer_url);
     info!("Publisher URL: {}", config.publisher_url);
 
-    // Build router with static file serving
+    // Create HTTP client for API proxying
+    let client = Client::new();
+    let app_state = AppState {
+        client,
+        indexer_url: config.indexer_url.clone(),
+        publisher_url: config.publisher_url.clone(),
+    };
+
+    // Build router with API endpoints and static file serving
     let app = Router::new()
         .route("/health", get(health))
+        // Merge API proxy routes
+        .merge(api::create_router(app_state))
         // Serve WASM files at /wasm path
         .nest_service("/wasm", ServeDir::new("crates/coins-wallet/wasm/pkg"))
         // Serve static files at root (must be last)
