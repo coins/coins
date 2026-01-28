@@ -5,7 +5,7 @@
 //! Usage: cargo run --example e2e_test
 
 use coins_crypto::{SecretKey, G1, G2, sign};
-use coins_types::{Transaction, Account};
+use coins_types::{Transaction, Account, NATIVE_TOKEN_ID};
 use coins_core::State;
 use std::path::PathBuf;
 use std::thread::sleep;
@@ -60,6 +60,7 @@ impl TestUser {
         let tx = Transaction {
             sender_id,
             recipient_pk,
+            token_id: NATIVE_TOKEN_ID,
             amount,
             fee,
         };
@@ -113,7 +114,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Give Alice some balance
     let mut alice_acc = alice_account.clone();
-    alice_acc.balance = 1000;
+    alice_acc.balances.insert(NATIVE_TOKEN_ID, 1000);
     state.apply_batch(&[alice_acc])?;
     println!("  Funded Alice with 1000 tokens");
 
@@ -128,11 +129,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let alice_info = alice.get_account()?;
     println!("  Alice - ID: {}, Balance: {}, Nonce: {}",
-             alice_info.id.0, alice_info.balance, alice_info.nonce);
+             alice_info.id.0, alice_info.native_balance(), alice_info.nonce);
 
     let bob_info = bob.get_account()?;
     println!("  Bob - ID: {}, Balance: {}, Nonce: {}",
-             bob_info.id.0, bob_info.balance, bob_info.nonce);
+             bob_info.id.0, bob_info.native_balance(), bob_info.nonce);
     println!();
 
     // Step 4: Create and submit transaction: Alice -> Bob (100 tokens)
@@ -182,10 +183,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let bob_after = bob.get_account()?;
 
     println!("  Alice - Balance: {} (was {}), Nonce: {} (was {})",
-             alice_after.balance, alice_info.balance,
+             alice_after.native_balance(), alice_info.native_balance(),
              alice_after.nonce, alice_info.nonce);
     println!("  Bob - Balance: {} (was {}), Nonce: {} (was {})",
-             bob_after.balance, bob_info.balance,
+             bob_after.native_balance(), bob_info.native_balance(),
              bob_after.nonce, bob_info.nonce);
     println!();
 
@@ -194,18 +195,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let expected_bob = 100 + 50; // received amounts
 
     println!("Step 8: Validating results...");
-    if alice_after.balance == expected_alice {
-        println!("  ✓ Alice balance correct: {}", alice_after.balance);
+    if alice_after.native_balance() == expected_alice {
+        println!("  ✓ Alice balance correct: {}", alice_after.native_balance());
     } else {
         println!("  ✗ Alice balance incorrect: got {}, expected {}",
-                 alice_after.balance, expected_alice);
+                 alice_after.native_balance(), expected_alice);
     }
 
-    if bob_after.balance == expected_bob {
-        println!("  ✓ Bob balance correct: {}", bob_after.balance);
+    if bob_after.native_balance() == expected_bob {
+        println!("  ✓ Bob balance correct: {}", bob_after.native_balance());
     } else {
         println!("  ✗ Bob balance incorrect: got {}, expected {}",
-                 bob_after.balance, expected_bob);
+                 bob_after.native_balance(), expected_bob);
     }
 
     if alice_after.nonce == alice_info.nonce + 2 {

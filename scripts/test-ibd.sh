@@ -296,7 +296,7 @@ echo -e "  ${GREEN}✓ Block mined: ${BLOCKHASH:0:16}...${NC}"
 echo -n "  Waiting for indexer to process"
 ALICE_BAL_NODE1=""
 for i in {1..60}; do
-    ALICE_BAL_NODE1=$(curl -s "http://localhost:8083/accounts/${ALICE_PK}" | jq -r '.balance // "null"')
+    ALICE_BAL_NODE1=$(curl -s "http://localhost:8083/accounts/${ALICE_PK}" | jq -r '.balances["0"] // "null"')
     if [ "$ALICE_BAL_NODE1" != "null" ] && [ "$ALICE_BAL_NODE1" != "0" ] && [ -n "$ALICE_BAL_NODE1" ]; then
         echo ""
         break
@@ -406,7 +406,7 @@ echo -e "${YELLOW}[11/11] Verifying IBD sync...${NC}"
 echo -n "  Waiting for IBD to complete"
 ALICE_BAL_NODE2=""
 for i in {1..90}; do
-    ALICE_BAL_NODE2=$(curl -s "http://localhost:8084/accounts/${ALICE_PK}" | jq -r '.balance // "null"')
+    ALICE_BAL_NODE2=$(curl -s "http://localhost:8084/accounts/${ALICE_PK}" | jq -r '.balances["0"] // "null"')
     if [ "$ALICE_BAL_NODE2" != "null" ] && [ "$ALICE_BAL_NODE2" != "0" ] && [ -n "$ALICE_BAL_NODE2" ]; then
         echo ""
         break

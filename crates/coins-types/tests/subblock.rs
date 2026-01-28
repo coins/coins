@@ -1,4 +1,4 @@
-use coins_types::{Transaction, SubBlock, TX_SIZE, SubBlockState};
+use coins_types::{Transaction, SubBlock, TX_SIZE, COMPACT_TX_SIZE, NATIVE_TOKEN_ID, SubBlockState};
 use coins_crypto::{SecretKey, G1, G2};
 use std::collections::HashMap;
 
@@ -33,6 +33,7 @@ fn subblock_roundtrip_no_compression() {
         txs.push(Transaction {
             sender_id: i,
             recipient_pk: G1(sk.public_key()),
+            token_id: NATIVE_TOKEN_ID,
             amount: 100 + i,
             fee: i as u8,
         });
@@ -44,7 +45,7 @@ fn subblock_roundtrip_no_compression() {
 
     let bytes = sb.serialize(&state);
 
-    // size check with new format: 64 (sigma) + 32 (pk) + 2 (count) + 1 (format_bits) + n*41
+    // size check with new format: 64 (sigma) + 32 (pk) + 2 (count) + 1 (format_bits) + n*TX_SIZE
     // For 5 TXs: ceil(5/8) = 1 byte for format bits
     // Header: 98 bytes (publisher NOT compressed to avoid bootstrapping issues)
     assert_eq!(bytes.len(), 98 + 1 + txs.len()*TX_SIZE);
@@ -74,6 +75,7 @@ fn subblock_roundtrip_with_compression() {
         txs.push(Transaction {
             sender_id: i,
             recipient_pk,
+            token_id: NATIVE_TOKEN_ID,
             amount: 100 + i,
             fee: i as u8,
         });
@@ -88,9 +90,9 @@ fn subblock_roundtrip_with_compression() {
 
     let bytes = sb.serialize(&state);
 
-    // size check with compression: 64 (sigma) + 32 (pk) + 2 (count) + 1 (format_bits) + n*13
-    // All TXs should be compressed to 13 bytes each
-    assert_eq!(bytes.len(), 98 + 1 + txs.len() * 13);
+    // size check with compression: 64 (sigma) + 32 (pk) + 2 (count) + 1 (format_bits) + n*COMPACT_TX_SIZE
+    // All TXs should be compressed to COMPACT_TX_SIZE bytes each
+    assert_eq!(bytes.len(), 98 + 1 + txs.len() * COMPACT_TX_SIZE);
 
     let parsed = SubBlock::deserialize(&bytes, &state).expect("parse");
     assert_eq!(parsed.txs.len(), txs.len());
@@ -118,6 +120,7 @@ fn subblock_hybrid_format() {
         txs.push(Transaction {
             sender_id: i,
             recipient_pk,
+            token_id: NATIVE_TOKEN_ID,
             amount: 100 + i,
             fee: i as u8,
         });
@@ -129,6 +132,7 @@ fn subblock_hybrid_format() {
         txs.push(Transaction {
             sender_id: i,
             recipient_pk: G1(sk.public_key()),
+            token_id: NATIVE_TOKEN_ID,
             amount: 100 + i,
             fee: i as u8,
         });
@@ -142,8 +146,8 @@ fn subblock_hybrid_format() {
 
     let bytes = sb.serialize(&state);
 
-    // Expected: 98 (header) + 1 (format_bits for 5 TXs) + 3*13 (compact) + 2*41 (canonical)
-    assert_eq!(bytes.len(), 98 + 1 + 3 * 13 + 2 * 41);
+    // Expected: 98 (header) + 1 (format_bits for 5 TXs) + 3*COMPACT_TX_SIZE (compact) + 2*TX_SIZE (canonical)
+    assert_eq!(bytes.len(), 98 + 1 + 3 * COMPACT_TX_SIZE + 2 * TX_SIZE);
 
     let parsed = SubBlock::deserialize(&bytes, &state).expect("parse");
     assert_eq!(parsed.txs.len(), txs.len());

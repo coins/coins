@@ -4,16 +4,22 @@
 //! crates can already depend on them while the detailed serialization logic
 //! is filled in later phases.
 
+use std::collections::BTreeMap;
 use coins_crypto::{G1, G2, G1_SIZE, G2_SIZE};
 use serde::{Serialize, Deserialize};
 use bincode::serde::{encode_to_vec as bincode_serialize, decode_from_slice as bincode_deserialize};
 use bincode::config::{standard, Config};
 
 /// Wire-size constant for canonical transaction
-pub const TX_SIZE: usize = 41;
+/// sender_id(4) + recipient_pk(32) + token_id(2) + amount(4) + fee(1) = 43 bytes
+pub const TX_SIZE: usize = 43;
 
 /// Wire-size constant for compact transaction
-pub const COMPACT_TX_SIZE: usize = 13;
+/// sender_id(4) + recipient_id(4) + token_id(2) + amount(4) + fee(1) = 15 bytes
+pub const COMPACT_TX_SIZE: usize = 15;
+
+/// Native token ID (BTC-denominated)
+pub const NATIVE_TOKEN_ID: u16 = 0;
 
 /// SubBlock header size (G2 signature + G1 publisher key)
 pub const SUBBLOCK_HEADER_SIZE: usize = G2_SIZE + G1_SIZE;
@@ -30,21 +36,34 @@ pub struct AccountId(pub u32);
 pub struct Account {
     pub id: AccountId,
     pub pk: G1,
-    pub balance: u64,
+    pub balances: BTreeMap<u16, u64>,
     pub nonce: u32,
 }
 
-/// Wire-format transaction (41 bytes).
+impl Account {
+    /// Get balance for a specific token, returns 0 if not held
+    pub fn balance(&self, token_id: u16) -> u64 {
+        self.balances.get(&token_id).copied().unwrap_or(0)
+    }
+
+    /// Get native token balance (convenience method for token_id = 0)
+    pub fn native_balance(&self) -> u64 {
+        self.balance(NATIVE_TOKEN_ID)
+    }
+}
+
+/// Wire-format transaction (43 bytes).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Transaction {
     pub sender_id: u32,
     pub recipient_pk: G1,
+    pub token_id: u16,
     pub amount: Amount,
     pub fee: Fee,
 }
 
 impl Transaction {
-    /// Serialize the transaction to fixed 41-byte array using spec bincode options.
+    /// Serialize the transaction to fixed 43-byte array using spec bincode options.
     pub fn serialize(&self) -> [u8; TX_SIZE] {
         let vec: Vec<u8> = bincode_serialize(self, bin_config()).expect("bincode serialize");
         debug_assert_eq!(vec.len(), TX_SIZE);
@@ -53,7 +72,7 @@ impl Transaction {
         arr
     }
 
-    /// Deserialize from a 41-byte slice (panics on failure, helper for tests).
+    /// Deserialize from a 43-byte slice (panics on failure, helper for tests).
     pub fn deserialize(bytes: &[u8]) -> Self {
         assert_eq!(bytes.len(), TX_SIZE, "tx size mismatch");
         bincode_deserialize(bytes, bin_config()).expect("bincode deserialize").0
@@ -71,18 +90,20 @@ impl Transaction {
         CompactTransaction {
             sender_id: self.sender_id,
             recipient_id,
+            token_id: self.token_id,
             amount: self.amount,
             fee: self.fee,
         }
     }
 }
 
-/// Compact wire-format transaction (13 bytes).
+/// Compact wire-format transaction (15 bytes).
 /// Uses recipient_id instead of recipient_pk to reduce size.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompactTransaction {
     pub sender_id: u32,
     pub recipient_id: u32,
+    pub token_id: u16,
     pub amount: Amount,
     pub fee: Fee,
 }
@@ -109,6 +130,7 @@ impl CompactTransaction {
         Transaction {
             sender_id: self.sender_id,
             recipient_pk,
+            token_id: self.token_id,
             amount: self.amount,
             fee: self.fee,
         }

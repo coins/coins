@@ -79,11 +79,11 @@ echo ""
 
 # Test 1: Get Alice's current balance
 run_test "Alice account exists" \
-    "curl -s http://localhost:8080/account/${ALICE_PK} | jq -e '.balance >= 0'"
+    "curl -s http://localhost:8080/account/${ALICE_PK} | jq -e '.balances[\"0\"] >= 0'"
 
-# Get Alice's balance before transaction
-ALICE_BEFORE=$(curl -s "http://localhost:8080/account/${ALICE_PK}" | jq -r '.balance // 0')
-BOB_BEFORE=$(curl -s "http://localhost:8080/account/${BOB_PK}" | jq -r '.balance // 0')
+# Get Alice's balance before transaction (use native token balance)
+ALICE_BEFORE=$(curl -s "http://localhost:8080/account/${ALICE_PK}" | jq -r '.balances["0"] // 0')
+BOB_BEFORE=$(curl -s "http://localhost:8080/account/${BOB_PK}" | jq -r '.balances["0"] // 0')
 
 # Test 2: Submit transaction using coins-client
 echo -e "${YELLOW}[Test 2] Submit transaction (Alice -> Bob, 100 tokens)${NC}"
@@ -129,7 +129,7 @@ sleep 15
 
 # Test 4: Account balance updated
 run_test "Alice account balance (via publisher)" \
-    "curl -s http://localhost:8080/account/${ALICE_PK} | jq -e '.balance >= 0'"
+    "curl -s http://localhost:8080/account/${ALICE_PK} | jq -e '.balances[\"0\"] >= 0'"
 
 # Test 5: Indexer functionality
 run_test "Indexer has indexed blocks" \

@@ -195,13 +195,13 @@ class ExplorerApp {
         }
     }
 
-    // Targeted update: refresh only account balance
+    // Targeted update: refresh account balances table
     async updateAccountBalance(pk) {
         try {
             const account = await this.fetchAPI(`/accounts/${pk}`);
-            const balanceEl = document.querySelector('[data-account-balance]');
-            if (balanceEl && account) {
-                balanceEl.textContent = `${account.balance} sats`;
+            const balancesEl = document.querySelector('[data-account-balances]');
+            if (balancesEl && account) {
+                balancesEl.innerHTML = this.renderBalancesTable(account.balances);
             }
         } catch (error) {
             console.warn('Could not update account balance:', error);
@@ -232,6 +232,47 @@ class ExplorerApp {
         return `tx-${senderPk}-${nonce}`;
     }
 
+    // Generate token badge HTML
+    renderTokenBadge(tokenId) {
+        if (tokenId === undefined || tokenId === null || tokenId === 0) {
+            return '';
+        }
+        return `<span class="tag is-link is-light">Token ${tokenId}</span>`;
+    }
+
+    // Generate balances table HTML for account page
+    renderBalancesTable(balances) {
+        const entries = balances ? Object.entries(balances) : [];
+        if (entries.length === 0) {
+            return '<p class="has-text-grey">No tokens</p>';
+        }
+
+        // Sort by token ID numerically
+        entries.sort((a, b) => parseInt(a[0]) - parseInt(b[0]));
+
+        return `
+            <table class="table is-fullwidth is-striped">
+                <thead>
+                    <tr>
+                        <th>Token ID</th>
+                        <th>Balance</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${entries.map(([tokenId, balance]) => {
+                        const label = parseInt(tokenId) === 0 ? ' <span class="tag is-light">(native)</span>' : '';
+                        return `
+                            <tr>
+                                <td>${tokenId}${label}</td>
+                                <td><strong style="color: #23d160;">${balance} sats</strong></td>
+                            </tr>
+                        `;
+                    }).join('')}
+                </tbody>
+            </table>
+        `;
+    }
+
     // Generate HTML for a single transaction row
     renderTransactionRow(tx) {
         const isIncoming = tx.direction === 'incoming';
@@ -259,12 +300,15 @@ class ExplorerApp {
         const statusBadge = this.renderStatusBadge(tx);
         const txKey = this.getTxKey(tx);
 
+        const tokenBadge = this.renderTokenBadge(tx.token_id);
+
         return `
             <tr data-tx-key="${txKey}">
                 <td>${typeBadge}</td>
                 <td>${counterparty}</td>
                 <td><strong style="color: ${amountColor};">${isIncoming ? '+' : '-'}${tx.amount} sats</strong></td>
                 <td>${tx.fee} sats</td>
+                <td>${tokenBadge}</td>
                 <td class="tx-status-cell">${statusBadge}</td>
             </tr>
         `;
@@ -609,6 +653,16 @@ class ExplorerApp {
         try {
             const account = await this.fetchAPI(`/accounts/${pk}`);
             const pk_hex = this.ensureHex(account.pk);
+            const balanceEntries = account.balances ? Object.entries(account.balances) : [];
+            const balanceSummary = balanceEntries.length === 0
+                ? '<em class="has-text-grey">No tokens</em>'
+                : balanceEntries
+                    .sort((a, b) => parseInt(a[0]) - parseInt(b[0]))
+                    .map(([tokenId, balance]) => {
+                        const label = parseInt(tokenId) === 0 ? ' (native)' : '';
+                        return `Token ${tokenId}${label}: <strong style="color: #23d160;">${balance} sats</strong>`;
+                    }).join('<br>');
+
             resultDiv.innerHTML = `
                 <div class="box">
                     <h3 class="title is-5">Account Details</h3>
@@ -622,8 +676,8 @@ class ExplorerApp {
                             <td><code style="font-size: 0.85em; word-break: break-all;">${pk_hex}</code></td>
                         </tr>
                         <tr>
-                            <th>Balance</th>
-                            <td><strong style="color: #23d160;">${account.balance} sats</strong></td>
+                            <th>Balances</th>
+                            <td>${balanceSummary}</td>
                         </tr>
                         <tr>
                             <th>Nonce</th>
@@ -767,12 +821,14 @@ class ExplorerApp {
                             <th>Recipient</th>
                             <th>Amount</th>
                             <th>Fee</th>
+                            <th>Token</th>
                             <th>Status</th>
                         </tr>
                     </thead>
                     <tbody>
                         ${txs.map(tx => {
                             const recipientPk = tx.recipient_pk;
+                            const tokenBadge = this.renderTokenBadge(tx.token_id);
                             const explorerUrl = status === 'broadcasting' && tx.btc_txid
                                 ? this.getBitcoinExplorerUrl(tx.btc_txid)
                                 : null;
@@ -791,6 +847,7 @@ class ExplorerApp {
                                     </td>
                                     <td><strong>${tx.amount} sats</strong></td>
                                     <td>${tx.fee} sats</td>
+                                    <td>${tokenBadge}</td>
                                     <td>${statusBadge}</td>
                                 </tr>
                             `;
@@ -815,12 +872,14 @@ class ExplorerApp {
                             <th>Recipient</th>
                             <th>Amount</th>
                             <th>Fee</th>
+                            <th>Token</th>
                             <th>Status</th>
                         </tr>
                     </thead>
                     <tbody>
                         ${txs.map(tx => {
                             const recipientPk = tx.recipient_pk;
+                            const tokenBadge = this.renderTokenBadge(tx.token_id);
                             const explorerUrl = tx.btc_txid ? this.getBitcoinExplorerUrl(tx.btc_txid) : null;
 
                             let statusBadge;
@@ -851,6 +910,7 @@ class ExplorerApp {
                                     </td>
                                     <td><strong>${tx.amount} sats</strong></td>
                                     <td>${tx.fee} sats</td>
+                                    <td>${tokenBadge}</td>
                                     <td>${statusBadge}</td>
                                 </tr>
                             `;
@@ -918,11 +978,13 @@ class ExplorerApp {
                             <th>Recipient PK</th>
                             <th>Amount</th>
                             <th>Fee</th>
+                            <th>Token</th>
                         </tr>
                     </thead>
                     <tbody>
                         ${block.sub_block.txs.map(tx => {
                             const recipient_pk_hex = this.ensureHex(tx.recipient_pk);
+                            const tokenBadge = this.renderTokenBadge(tx.token_id);
                             return `
                                 <tr>
                                     <td><strong>${tx.sender_id}</strong></td>
@@ -933,6 +995,7 @@ class ExplorerApp {
                                     </td>
                                     <td>${tx.amount}</td>
                                     <td>${tx.fee}</td>
+                                    <td>${tokenBadge}</td>
                                 </tr>
                             `;
                         }).join('')}
@@ -986,14 +1049,15 @@ class ExplorerApp {
                         <td><code style="font-size: 0.85em; word-break: break-all;">${pk_hex}</code></td>
                     </tr>
                     <tr>
-                        <th>Balance</th>
-                        <td><strong style="font-size: 1.2em; color: #23d160;" data-account-balance>${account.balance} sats</strong></td>
-                    </tr>
-                    <tr>
                         <th>Nonce</th>
                         <td>${account.nonce}</td>
                     </tr>
                 </table>
+            </div>
+
+            <h2 class="title is-4" style="margin-top: 2rem;">Balances</h2>
+            <div class="box" data-account-balances>
+                ${this.renderBalancesTable(account.balances)}
             </div>
 
             <h2 class="title is-4" style="margin-top: 2rem;">Transaction History</h2>
@@ -1012,6 +1076,7 @@ class ExplorerApp {
             recipient_pk: tx.recipient_pk,  // Already hex from publisher API
             amount: tx.amount,
             fee: tx.fee,
+            token_id: tx.token_id || 0,
             btc_height: 0,
             btc_txid: null,
             confirmations: 0,
@@ -1029,6 +1094,7 @@ class ExplorerApp {
             recipient_pk: tx.recipient_pk,  // Already hex from publisher API
             amount: tx.amount,
             fee: tx.fee,
+            token_id: tx.token_id || 0,
             btc_height: 0,
             btc_txid: tx.btc_txid,  // Now available from publisher API
             confirmations: 0,
@@ -1058,6 +1124,7 @@ class ExplorerApp {
             recipient_pk: tx.recipient_pk,
             amount: tx.amount,
             fee: tx.fee,
+            token_id: tx.token_id || 0,
             nonce: tx.nonce,
             btc_height: btcHeight,
             btc_txid: tx.btc_txid || null,
@@ -1139,6 +1206,7 @@ class ExplorerApp {
                                 <th>Counterparty</th>
                                 <th>Amount</th>
                                 <th>Fee</th>
+                                <th>Token</th>
                                 <th>Status</th>
                             </tr>
                         </thead>

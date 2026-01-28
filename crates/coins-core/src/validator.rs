@@ -3,7 +3,7 @@
 //! Implements the state transition function as described in §6 of the spec.
 
 use coins_crypto as crypto;
-use coins_types::{SubBlock, Account, AccountId};
+use coins_types::{SubBlock, Account, AccountId, NATIVE_TOKEN_ID};
 use crate::state::State;
 use std::collections::HashMap;
 
@@ -45,9 +45,27 @@ pub fn validate_subblock(sb: &SubBlock, state: &State) -> Result<Vec<u32>, Valid
                 .ok_or(ValidationError::UnknownSender(tx.sender_id))?,
         };
 
-        let spend = tx.amount as u64 + tx.fee as u64;
-        if acct.balance < spend {
-            return Err(ValidationError::Balance);
+        // Check balances based on token type
+        // For native token: check native_balance >= amount + fee
+        // For non-native token: check token_balance >= amount AND native_balance >= fee
+        let token_balance = acct.balance(tx.token_id);
+        let native_balance = acct.native_balance();
+        let fee = tx.fee as u64;
+        let amount = tx.amount as u64;
+
+        if tx.token_id == NATIVE_TOKEN_ID {
+            // Native token transfer: amount + fee both come from native balance
+            if native_balance < amount + fee {
+                return Err(ValidationError::Balance);
+            }
+        } else {
+            // Non-native token transfer: amount from token balance, fee from native balance
+            if token_balance < amount {
+                return Err(ValidationError::Balance);
+            }
+            if native_balance < fee {
+                return Err(ValidationError::Balance);
+            }
         }
 
         // Record the nonce used for signing (before increment)
@@ -58,8 +76,18 @@ pub fn validate_subblock(sb: &SubBlock, state: &State) -> Result<Vec<u32>, Valid
         let msg = tx.message_to_sign(signing_nonce);
         pairs.push((acct.pk, msg));
 
-        // stage account updates
-        acct.balance -= spend;
+        // Stage account updates - deduct from correct balances
+        if tx.token_id == NATIVE_TOKEN_ID {
+            // Native token: deduct amount + fee from native balance
+            let old_native = acct.native_balance();
+            acct.balances.insert(NATIVE_TOKEN_ID, old_native - amount - fee);
+        } else {
+            // Non-native token: deduct amount from token balance, fee from native balance
+            let old_token = acct.balance(tx.token_id);
+            acct.balances.insert(tx.token_id, old_token - amount);
+            let old_native = acct.native_balance();
+            acct.balances.insert(NATIVE_TOKEN_ID, old_native - fee);
+        }
         acct.nonce += 1;
         updates.insert(acct.id.0, acct);
 
@@ -72,7 +100,8 @@ pub fn validate_subblock(sb: &SubBlock, state: &State) -> Result<Vec<u32>, Valid
         // Check if recipient was already updated in this batch
         let mut recv = updates.get(&recv_from_state.id.0).cloned().unwrap_or(recv_from_state);
 
-        recv.balance = recv.balance.checked_add(tx.amount as u64).ok_or(ValidationError::Overflow)?;
+        let recv_old_balance = recv.balance(tx.token_id);
+        recv.balances.insert(tx.token_id, recv_old_balance.checked_add(tx.amount as u64).ok_or(ValidationError::Overflow)?);
         updates.insert(recv.id.0, recv);
 
         fee_total = fee_total.checked_add(tx.fee as u32).ok_or(ValidationError::Overflow)?;
@@ -94,7 +123,8 @@ pub fn validate_subblock(sb: &SubBlock, state: &State) -> Result<Vec<u32>, Valid
             state.create_account(sb.publisher_pk).map_err(|_| ValidationError::Db)?
         }
     };
-    pub_acct.balance = pub_acct.balance.checked_add(fee_total as u64).ok_or(ValidationError::Overflow)?;
+    let pub_old_balance = pub_acct.balance(NATIVE_TOKEN_ID);
+    pub_acct.balances.insert(NATIVE_TOKEN_ID, pub_old_balance.checked_add(fee_total as u64).ok_or(ValidationError::Overflow)?);
     updates.insert(pub_acct.id.0, pub_acct);
 
     // write batch

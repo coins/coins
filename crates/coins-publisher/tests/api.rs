@@ -3,7 +3,7 @@ use axum::http::{Request, StatusCode};
 use coins_crypto::{sign, G1, G2, G2_SIZE, SecretKey};
 use coins_indexer::IndexerClient;
 use coins_publisher::api::{AppState, router};
-use coins_types::Transaction;
+use coins_types::{Transaction, NATIVE_TOKEN_ID};
 use http_body_util::BodyExt;
 use std::sync::{Arc, Mutex};
 use tower::ServiceExt;
@@ -46,7 +46,7 @@ async fn test_submit_tx_valid() {
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "id": 1,
             "pk": "0000000000000000000000000000000000000000000000000000000000000000",
-            "balance": 1000,
+            "balances": {"0": 1000},
             "nonce": 0
         })))
         .mount(&mock_server)
@@ -61,6 +61,7 @@ async fn test_submit_tx_valid() {
     let tx = Transaction {
         sender_id: 1,
         recipient_pk: G1(recipient_pk),
+        token_id: NATIVE_TOKEN_ID,
         amount: 100,
         fee: 1,
     };
@@ -107,7 +108,7 @@ async fn test_submit_tx_duplicate_rejected() {
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "id": 1,
             "pk": "0000000000000000000000000000000000000000000000000000000000000000",
-            "balance": 1000,
+            "balances": {"0": 1000},
             "nonce": 0
         })))
         .expect(2) // Will be called twice
@@ -122,6 +123,7 @@ async fn test_submit_tx_duplicate_rejected() {
     let tx = Transaction {
         sender_id: 1,
         recipient_pk: G1(recipient_pk),
+        token_id: NATIVE_TOKEN_ID,
         amount: 100,
         fee: 1,
     };
@@ -220,7 +222,7 @@ async fn test_get_mempool_with_txs() {
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "id": 42,
             "pk": "0000000000000000000000000000000000000000000000000000000000000000",
-            "balance": 1000,
+            "balances": {"0": 1000},
             "nonce": 0
         })))
         .mount(&mock_server)
@@ -233,6 +235,7 @@ async fn test_get_mempool_with_txs() {
     let tx = Transaction {
         sender_id: 42,
         recipient_pk: G1(recipient_pk),
+        token_id: NATIVE_TOKEN_ID,
         amount: 500,
         fee: 2,
     };
@@ -263,7 +266,7 @@ async fn test_get_mempool_filtered_by_sender() {
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "id": 1,
             "pk": "0000000000000000000000000000000000000000000000000000000000000000",
-            "balance": 1000,
+            "balances": {"0": 1000},
             "nonce": 0
         })))
         .mount(&mock_server)
@@ -276,12 +279,14 @@ async fn test_get_mempool_filtered_by_sender() {
     let tx1 = Transaction {
         sender_id: 1,
         recipient_pk: G1(recipient_pk),
+        token_id: NATIVE_TOKEN_ID,
         amount: 100,
         fee: 1,
     };
     let tx2 = Transaction {
         sender_id: 2,
         recipient_pk: G1(recipient_pk),
+        token_id: NATIVE_TOKEN_ID,
         amount: 200,
         fee: 1,
     };
@@ -342,6 +347,7 @@ async fn test_get_account_not_found() {
 #[tokio::test]
 async fn test_get_account_found() {
     use coins_types::{Account, AccountId};
+    use std::collections::BTreeMap;
 
     let mock_server = MockServer::start().await;
 
@@ -349,10 +355,12 @@ async fn test_get_account_found() {
     let pk_hex = hex::encode(pk);
 
     // Create a real Account object and serialize it
+    let mut balances = BTreeMap::new();
+    balances.insert(NATIVE_TOKEN_ID, 1000u64);
     let account = Account {
         id: AccountId(1),
         pk: G1(pk),
-        balance: 1000,
+        balances,
         nonce: 5,
     };
 
@@ -378,7 +386,7 @@ async fn test_get_account_found() {
     assert_eq!(response.status(), StatusCode::OK);
     let body = response.into_body().collect().await.unwrap().to_bytes();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["balance"], 1000);
+    assert_eq!(json["balances"]["0"], 1000);
     assert_eq!(json["nonce"], 5);
 }
 

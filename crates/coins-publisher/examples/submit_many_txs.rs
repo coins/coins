@@ -3,7 +3,7 @@
 //! Usage: cargo run --example submit_many_txs <count>
 
 use coins_crypto::{SecretKey, G1, G2, sign};
-use coins_types::{Transaction, Account};
+use coins_types::{Transaction, Account, NATIVE_TOKEN_ID};
 use std::path::Path;
 use std::fs;
 use reqwest::blocking::Client;
@@ -64,7 +64,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let alice_account = get_account(&alice_pk_hex)?;
     println!("Alice (ID {}): balance={}, nonce={}\n",
-        alice_account.id.0, alice_account.balance, alice_account.nonce);
+        alice_account.id.0, alice_account.native_balance(), alice_account.nonce);
 
     let mut current_nonce = alice_account.nonce;
     let amount = 10u32;
@@ -74,6 +74,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let tx = Transaction {
             sender_id: alice_account.id.0,
             recipient_pk: G1(bob_pk_bytes),
+            token_id: NATIVE_TOKEN_ID,
             amount,
             fee,
         };

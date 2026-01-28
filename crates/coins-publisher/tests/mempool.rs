@@ -3,7 +3,7 @@ use std::sync::Arc;
 use coins_core::State;
 use coins_publisher::mempool::{Mempool, MempoolError};
 use coins_crypto::{SecretKey, G1};
-use coins_types::{Transaction};
+use coins_types::{Transaction, NATIVE_TOKEN_ID};
 
 #[tokio::test]
 async fn valid_tx_gets_enqueued() {
@@ -15,21 +15,21 @@ async fn valid_tx_gets_enqueued() {
     let sk = SecretKey::random();
     let pk = sk.public_key();
     let mut sender = state.create_account(G1(pk)).unwrap();
-    sender.balance = 1_000;
+    sender.balances.insert(NATIVE_TOKEN_ID, 1_000);
     state.insert_account(&sender).unwrap();
 
     // recipient
     let r_sk = SecretKey::random();
     let r_pk = r_sk.public_key();
 
-    let tx = Transaction { sender_id: sender.id.0, recipient_pk: G1(r_pk), amount: 100, fee: 1 };
+    let tx = Transaction { sender_id: sender.id.0, recipient_pk: G1(r_pk), token_id: NATIVE_TOKEN_ID, amount: 100, fee: 1 };
 
     let mp = Mempool::new(state.clone());
     assert!(mp.validate_and_enqueue(tx.clone()).await.is_ok());
     assert_eq!(mp.len().await, 1);
 
     // send second, different tx – should be accepted with updated nonce/balance
-    let tx2 = Transaction { sender_id: sender.id.0, recipient_pk: G1(r_pk), amount: 200, fee: 1 };
+    let tx2 = Transaction { sender_id: sender.id.0, recipient_pk: G1(r_pk), token_id: NATIVE_TOKEN_ID, amount: 200, fee: 1 };
     assert!(mp.validate_and_enqueue(tx2.clone()).await.is_ok());
 
     // duplicate of tx2 should be rejected
@@ -48,7 +48,7 @@ async fn unknown_sender_rejected() {
 
     // build tx from non-existent sender id 999
     let r_pk = SecretKey::random().public_key();
-    let tx = Transaction { sender_id: 999, recipient_pk: G1(r_pk), amount: 1, fee: 1 };
+    let tx = Transaction { sender_id: 999, recipient_pk: G1(r_pk), token_id: NATIVE_TOKEN_ID, amount: 1, fee: 1 };
 
     let err = mp.validate_and_enqueue(tx).await.err().unwrap();
     assert!(matches!(err, MempoolError::UnknownSender));
@@ -63,12 +63,12 @@ async fn insufficient_balance_rejected() {
     let sk = SecretKey::random();
     let pk = sk.public_key();
     let mut acct = state.create_account(G1(pk)).unwrap();
-    acct.balance = 10; // 10 sats
+    acct.balances.insert(NATIVE_TOKEN_ID, 10); // 10 sats
     state.insert_account(&acct).unwrap();
 
     let mp = Mempool::new(state);
     let r_pk = SecretKey::random().public_key();
-    let tx = Transaction { sender_id: acct.id.0, recipient_pk: G1(r_pk), amount: 20, fee: 1 };
+    let tx = Transaction { sender_id: acct.id.0, recipient_pk: G1(r_pk), token_id: NATIVE_TOKEN_ID, amount: 20, fee: 1 };
 
     let err = mp.validate_and_enqueue(tx).await.err().unwrap();
     assert!(matches!(err, MempoolError::InsufficientBalance));
@@ -83,13 +83,13 @@ async fn multiple_txs_enqueue() {
     let sk = SecretKey::random();
     let pk = sk.public_key();
     let mut acct = state.create_account(G1(pk)).unwrap();
-    acct.balance = 1_000;
+    acct.balances.insert(NATIVE_TOKEN_ID, 1_000);
     state.insert_account(&acct).unwrap();
 
     let mp = Mempool::new(state.clone());
     let r_pk = SecretKey::random().public_key();
-    let tx1 = Transaction { sender_id: acct.id.0, recipient_pk: G1(r_pk), amount: 10, fee: 1 };
-    let tx2 = Transaction { sender_id: acct.id.0, recipient_pk: G1(r_pk), amount: 20, fee: 1 };
+    let tx1 = Transaction { sender_id: acct.id.0, recipient_pk: G1(r_pk), token_id: NATIVE_TOKEN_ID, amount: 10, fee: 1 };
+    let tx2 = Transaction { sender_id: acct.id.0, recipient_pk: G1(r_pk), token_id: NATIVE_TOKEN_ID, amount: 20, fee: 1 };
 
     mp.validate_and_enqueue(tx1.clone()).await.unwrap();
     mp.validate_and_enqueue(tx2.clone()).await.unwrap();
@@ -106,19 +106,19 @@ async fn nonce_is_incremented() {
     let sk = SecretKey::random();
     let pk = sk.public_key();
     let mut sender = state.create_account(G1(pk)).unwrap();
-    sender.balance = 1_000;
+    sender.balances.insert(NATIVE_TOKEN_ID, 1_000);
     state.insert_account(&sender).unwrap();
 
     let mp = Mempool::new(state.clone());
     let r_pk = SecretKey::random().public_key();
 
     // first tx
-    let tx1 = Transaction { sender_id: sender.id.0, recipient_pk: G1(r_pk), amount: 50, fee: 1 };
+    let tx1 = Transaction { sender_id: sender.id.0, recipient_pk: G1(r_pk), token_id: NATIVE_TOKEN_ID, amount: 50, fee: 1 };
     mp.validate_and_enqueue(tx1).await.unwrap();
     assert_eq!(mp.nonce_of(sender.id).await, Some(1));
 
     // second tx
-    let tx2 = Transaction { sender_id: sender.id.0, recipient_pk: G1(r_pk), amount: 70, fee: 1 };
+    let tx2 = Transaction { sender_id: sender.id.0, recipient_pk: G1(r_pk), token_id: NATIVE_TOKEN_ID, amount: 70, fee: 1 };
     mp.validate_and_enqueue(tx2).await.unwrap();
     assert_eq!(mp.nonce_of(sender.id).await, Some(2));
 }
@@ -131,14 +131,14 @@ async fn refresh_removes_executed_txs() {
     // sender with enough balance
     let pk = SecretKey::random().public_key();
     let mut sender = state.create_account(G1(pk)).unwrap();
-    sender.balance = 1_000;
+    sender.balances.insert(NATIVE_TOKEN_ID, 1_000);
     state.insert_account(&sender).unwrap();
 
     let r_pk = SecretKey::random().public_key();
 
     // two txs queued
-    let tx1 = Transaction { sender_id: sender.id.0, recipient_pk: G1(r_pk), amount: 100, fee: 1 };
-    let tx2 = Transaction { sender_id: sender.id.0, recipient_pk: G1(r_pk), amount: 150, fee: 1 };
+    let tx1 = Transaction { sender_id: sender.id.0, recipient_pk: G1(r_pk), token_id: NATIVE_TOKEN_ID, amount: 100, fee: 1 };
+    let tx2 = Transaction { sender_id: sender.id.0, recipient_pk: G1(r_pk), token_id: NATIVE_TOKEN_ID, amount: 150, fee: 1 };
 
     let mp = Mempool::new(state.clone());
     mp.validate_and_enqueue(tx1.clone()).await.unwrap();
@@ -147,7 +147,8 @@ async fn refresh_removes_executed_txs() {
     // Simulate execution of tx1 in a sub-block: update state and then inform mempool
     {
         let mut acct = state.get_account(sender.id).unwrap().unwrap();
-        acct.balance -= 100 + 1;
+        let old = acct.balance(NATIVE_TOKEN_ID);
+        acct.balances.insert(NATIVE_TOKEN_ID, old - 100 - 1);
         acct.nonce += 1;
         state.insert_account(&acct).unwrap();
     }
