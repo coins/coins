@@ -1,8 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use coins_types::{Account, AccountId, Transaction};
+use coins_types::{Account, AccountId, Transaction, NATIVE_TOKEN_ID};
 use coins_core::State;
 
 #[derive(thiserror::Error, Debug)]
@@ -58,18 +58,41 @@ impl Mempool {
             }
         }
 
-        if sender_acc.balance < (tx.amount as u64 + tx.fee as u64) {
-            return Err(MempoolError::InsufficientBalance);
+        // Check balance based on token type
+        // For native tokens: check native_balance >= amount + fee
+        // For non-native tokens: check token_balance >= amount AND native_balance >= fee
+        if tx.token_id == NATIVE_TOKEN_ID {
+            if sender_acc.native_balance() < (tx.amount as u64 + tx.fee as u64) {
+                return Err(MempoolError::InsufficientBalance);
+            }
+        } else {
+            if sender_acc.balance(tx.token_id) < tx.amount as u64 {
+                return Err(MempoolError::InsufficientBalance);
+            }
+            if sender_acc.native_balance() < tx.fee as u64 {
+                return Err(MempoolError::InsufficientBalance);
+            }
         }
-        // apply
-        sender_acc.balance -= tx.amount as u64 + tx.fee as u64;
+        // apply deductions
+        if tx.token_id == NATIVE_TOKEN_ID {
+            let new_balance = sender_acc.native_balance() - tx.amount as u64 - tx.fee as u64;
+            sender_acc.balances.insert(NATIVE_TOKEN_ID, new_balance);
+        } else {
+            // Deduct token amount
+            let new_token_balance = sender_acc.balance(tx.token_id) - tx.amount as u64;
+            sender_acc.balances.insert(tx.token_id, new_token_balance);
+            // Deduct fee from native balance
+            let new_native_balance = sender_acc.native_balance() - tx.fee as u64;
+            sender_acc.balances.insert(NATIVE_TOKEN_ID, new_native_balance);
+        }
         sender_acc.nonce += 1;
         // credit recipient overlay lazily (create if needed)
         // Map recipient pk to deterministic but demo-only account id via first 4 bytes.
         let mut tmp=[0u8;4]; tmp.copy_from_slice(&tx.recipient_pk.0[..4]);
         let recipient_id = AccountId(u32::from_le_bytes(tmp));
-        let rec_acc = ov.entry(recipient_id).or_insert(Account { id: recipient_id, pk: tx.recipient_pk, balance:0, nonce:0});
-        rec_acc.balance += tx.amount as u64;
+        let rec_acc = ov.entry(recipient_id).or_insert(Account { id: recipient_id, pk: tx.recipient_pk, balances: BTreeMap::new(), nonce:0});
+        let new_rec_balance = rec_acc.balance(tx.token_id) + tx.amount as u64;
+        rec_acc.balances.insert(tx.token_id, new_rec_balance);
 
         drop(ov);
         self.queue.write().await.push(tx);
