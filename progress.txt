@@ -20,202 +20,45 @@
 - Integration test scripts are in `scripts/` folder: test-regtest.sh, test-mutinynet.sh, test-ibd.sh, test-explorer.sh, test-publish-formats.sh
 - Use `scripts/setup-regtest.sh` to start local regtest environment, `scripts/stop-regtest.sh` to stop it
 - Use `scripts/setup-mutinynet.sh` to connect to mutinynet testnet
+- Axum servers use tower-http for static file serving
+- WASM crates need getrandom with "js" feature for browser random number generation
 
 ---
 
 ## 2026-01-28 - US-001
-- What was implemented:
-  - Added `token_id: u16` field to Transaction struct after recipient_pk
-  - Added `token_id: u16` field to CompactTransaction struct
-  - Updated TX_SIZE constant from 41 to 43 bytes
-  - Updated COMPACT_TX_SIZE constant from 13 to 15 bytes
-  - Added NATIVE_TOKEN_ID constant (pub const NATIVE_TOKEN_ID: u16 = 0)
-  - Updated compact() and expand() methods to propagate token_id
+- Implemented basic coins-wallet crate structure
 - Files changed:
-  - crates/coins-types/src/lib.rs
+  - Created crates/coins-wallet/Cargo.toml with axum, tokio, tower-http, reqwest, serde dependencies
+  - Created crates/coins-wallet/src/main.rs with placeholder main function
+  - Created crates/coins-wallet/src/lib.rs that exports modules (commented out for now)
+  - Added coins-wallet to workspace members in root Cargo.toml
 - **Learnings for future iterations:**
-  - Transaction serialization uses bincode's derive macros, so adding fields automatically updates serialize()
-  - message_to_sign() uses serialize() internally, so no separate update needed
-  - Changing Transaction struct breaks dependent crates until they add token_id field to constructors
+  - Followed coins-explorer as reference for Cargo.toml structure
+  - Workspace uses edition = "2024" but individual crates can use "2021"
+  - cargo check confirmed crate compiles successfully
 ---
 
 ## 2026-01-28 - US-002
-- What was implemented:
-  - Changed `Account.balance: u64` to `Account.balances: BTreeMap<u16, u64>`
-  - Added `impl Account` with `balance(token_id: u16) -> u64` method (returns 0 if not held)
-  - Added `native_balance() -> u64` convenience method that calls `balance(NATIVE_TOKEN_ID)`
-  - Added `use std::collections::BTreeMap` import
+- Implemented WASM crate for BLS signing operations in the browser
 - Files changed:
-  - crates/coins-types/src/lib.rs
+  - Created crates/coins-wallet/wasm/Cargo.toml with wasm-bindgen, coins-crypto, coins-types dependencies
+  - Created crates/coins-wallet/wasm/src/lib.rs with WalletKey struct and transaction building functions
+  - Added coins-wallet/wasm to workspace members in root Cargo.toml
+- **Implemented features:**
+  - WalletKey struct with new() constructor for random key generation
+  - from_bytes(sk_bytes) method for importing existing keys (32-byte LE format)
+  - public_key_hex() returns 64-char hex G1 compressed point
+  - secret_key_hex() returns hex-encoded secret key for backup
+  - secret_key_bytes() returns raw bytes for encryption use cases
+  - sign(message) returns 128-char hex G2 signature
+  - build_transaction() creates wire-format (43-byte) transactions
+  - build_signing_message() appends nonce to tx bytes for signing
+  - Helper functions get_tx_size() and get_pk_size() expose constants
 - **Learnings for future iterations:**
-  - Account balance access should now use `acct.balance(token_id)` instead of `acct.balance`
-  - For native balance access, use `acct.native_balance()` convenience method
-  - BTreeMap is used to maintain deterministic ordering of token IDs for serialization
-  - This change breaks all dependent crates that access `account.balance` directly
----
-
-## 2026-01-28 - US-003
-- What was implemented:
-  - Updated `create_account()` in state.rs to use `balances: BTreeMap::new()` instead of `balance: 0`
-  - Added `total_supply_of(token_id: u16)` method that sums balances for a specific token across all accounts
-  - Updated `total_supply()` to call `total_supply_of(NATIVE_TOKEN_ID)`
-  - Imported `NATIVE_TOKEN_ID` from coins_types and `BTreeMap` from std::collections
-  - Also updated validator.rs balance operations to use new balances map API (required for coins-core to compile)
-- Files changed:
-  - crates/coins-core/src/state.rs
-  - crates/coins-core/src/validator.rs
-- **Learnings for future iterations:**
-  - When updating Account struct, validator.rs also needs updating since it's in the same crate
-  - To update a balance: `acct.balances.insert(token_id, new_value)`
-  - To read a balance: `acct.balance(token_id)` returns 0 if token not held
-  - US-003 and US-004 have a compile-time dependency - both affect coins-core
----
-
-## 2026-01-28 - US-004
-- What was implemented:
-  - Updated validator to properly check balances per token_id
-  - For native token transfers: checks native_balance >= amount + fee
-  - For non-native token transfers: checks token_balance >= amount AND native_balance >= fee
-  - Deducts from sender correctly: native tokens deduct (amount + fee) from native balance
-  - For non-native tokens: deducts amount from token balance and fee from native balance separately
-  - Credits recipient with correct token_id
-  - Credits publisher fees to native token only (already implemented in US-003)
-- Files changed:
-  - crates/coins-core/src/validator.rs
-- **Learnings for future iterations:**
-  - Non-native token transfers require two balance checks: one for the token amount, one for the native fee
-  - Non-native token transfers require two balance updates on sender: deduct token amount AND deduct native fee
-  - The validator already had NATIVE_TOKEN_ID imported and publisher fee logic from US-003
----
-
-## 2026-01-28 - US-005
-- What was implemented:
-  - Added `token_id: u16` field to MempoolTxResponse struct
-  - Added `token_id: u16` field to RecentlyBroadcastTxResponse struct
-  - Updated get_mempool handler to include tx.token_id in response
-  - Updated get_recently_broadcast handler to include tx.token_id in response
-  - Also fixed mempool.rs to use new multi-token balance API (was blocking compilation)
-- Files changed:
-  - crates/coins-publisher/src/api.rs
-  - crates/coins-publisher/src/mempool.rs
-- **Learnings for future iterations:**
-  - Publisher crate has a mempool.rs that tracks account balances in an overlay - it also needs multi-token updates
-  - When Account struct changes, any code that creates Account instances needs updating (balance -> balances: BTreeMap::new())
-  - mempool.rs uses the same balance checking logic as validator.rs
----
-
-## 2026-01-28 - US-006
-- What was implemented:
-  - Updated genesis account creation in indexer main.rs to use `balances.insert(NATIVE_TOKEN_ID, ...)` instead of `balance = ...`
-  - Verified TransactionWithStatus already works with token_id via `#[serde(flatten)]` on Transaction
-  - Verified routes.rs account endpoints already return balances as JSON map (Account serializes via serde derive)
-  - Imported `NATIVE_TOKEN_ID` from coins_types
-- Files changed:
-  - crates/coins-indexer/src/main.rs
-- **Learnings for future iterations:**
-  - The indexer's main.rs creates a genesis account - any Account struct changes need updating here too
-  - TransactionWithStatus uses `#[serde(flatten)]` on Transaction, so new Transaction fields come through automatically
-  - Account endpoints return `Json<Account>` directly - serde handles balances map serialization automatically
-  - The indexer routes.rs has no custom account serialization logic, it relies on serde derive on Account
----
-
-## 2026-01-28 - US-007
-- What was implemented:
-  - Added `token_id: u16` field to Send command with `#[arg(long, default_value = "0")]`
-  - Updated Send match arm to destructure token_id from CLI args
-  - Included token_id in Transaction creation
-  - Updated Balance command to iterate over `account.balances` map and display each token
-  - Format: `Token X: Y sats` with `(native)` label for token 0
-  - Handles empty balances with "No token balances." message
-  - Imported `NATIVE_TOKEN_ID` from coins_types
-- Files changed:
-  - crates/coins-client/src/main.rs
-- **Learnings for future iterations:**
-  - CLI client uses clap derive macros - adding new args is straightforward with `#[arg(long, default_value = "...")]`
-  - Account.balances is a BTreeMap<u16, u64> - iterate with `for (&token_id, &balance) in &account.balances`
-  - Default value for token_id is "0" (string) since clap parses it from string
-  - The client had a stale `account.balance` field access that needed updating to use the balances map
----
-
-## 2026-01-28 - US-008
-- What was implemented:
-  - Added `token_id: u16` field to PendingTransaction struct (after recipient_pk)
-  - Updated get_pending_transactions handler to parse token_id from upstream JSON responses
-  - Both broadcast and mempool transaction sections now extract token_id using `tx.get("token_id").and_then(|v| v.as_u64()).unwrap_or(0) as u16`
-- Files changed:
-  - crates/coins-explorer/src/api_simple.rs
-- **Learnings for future iterations:**
-  - PendingTransaction is constructed from serde_json::Value parsed from upstream publisher API responses
-  - The pattern `tx.get("field").and_then(|v| v.as_TYPE()).unwrap_or(default) as TARGET` is used throughout for safe JSON parsing
-  - There are two PendingTransaction construction sites in get_pending_transactions: one for broadcast txs and one for mempool txs
-  - The explorer proxies publisher API responses - it doesn't access coins-types directly for transaction data
----
-
-## 2026-01-28 - US-009
-- What was implemented:
-  - Added `renderTokenBadge(tokenId)` helper method that shows empty string for native token (0) and `Token X` badge for non-native tokens
-  - Added Token column header to account transaction table in `loadAccountTransactions()`
-  - Added Token column to `renderTransactionRow()` for account transaction rows
-  - Added Token column header and data to block transaction table in `renderBlock()`
-  - Added Token column header and data to `renderMempoolTable()` (legacy mempool table)
-  - Added Token column header and data to `renderPendingTxTable()` (unified pending tx table)
-  - Propagated `token_id` through `formatPendingTx()`, `formatMempoolTx()`, and `formatBroadcastingTx()` methods
-- Files changed:
-  - crates/coins-explorer/src/web/static/app.js
-- **Learnings for future iterations:**
-  - The explorer has multiple table rendering methods: `renderMempoolTable`, `renderPendingTxTable`, `renderTransactionRow`, and inline tables in `renderBlock` - all need updating for new columns
-  - Three formatter methods (`formatPendingTx`, `formatMempoolTx`, `formatBroadcastingTx`) create tx objects for the account view - all need new fields added
-  - Token badge uses Bulma's `tag is-link is-light` class for a subtle blue appearance
-  - Native tokens (token_id === 0) show empty cell rather than a badge to keep the UI clean
-  - The `renderTransactionRow` is shared between initial load and WebSocket-driven updates, so the Token column automatically works in both scenarios
----
-
-## 2026-01-28 - US-010
-- What was implemented:
-  - Replaced single balance display on account page with a multi-token balances table
-  - Added `renderBalancesTable(balances)` method that renders Token ID and Balance columns
-  - Token 0 is labeled as `(native)` in the balances table
-  - Empty balances handled gracefully with "No tokens" message
-  - Updated `updateAccountBalance(pk)` WebSocket handler to refresh the balances table via `data-account-balances` attribute
-  - Updated `searchAccount()` to show multi-token balance summary instead of single balance
-  - Moved Nonce row above the balances section (balances now in its own box)
-- Files changed:
-  - crates/coins-explorer/src/web/static/app.js
-- **Learnings for future iterations:**
-  - Account API now returns `balances` as a JSON object (e.g., `{"0": 12345, "3": 500}`) instead of `balance` as a single number
-  - `Object.entries(balances)` gives string keys - use `parseInt()` to compare token IDs numerically
-  - The `updateAccountBalance` WebSocket handler targets `[data-account-balances]` for live updates
-  - The search account result card on the home page also displays balance info - keep it in sync with the account page format
-  - Sort balance entries by `parseInt(tokenId)` for consistent numeric ordering
----
-
-## 2026-01-28 - US-011
-- What was implemented:
-  - Fixed all test failures caused by multi-token struct changes across the codebase
-  - Updated Transaction constructors in test files to include `token_id: NATIVE_TOKEN_ID`
-  - Updated Account balance access from `account.balance` to `account.native_balance()` in tests/examples
-  - Updated Account balance assignment from `account.balance = X` to `account.balances.insert(NATIVE_TOKEN_ID, X)` in tests
-  - Updated Account struct literals to use `balances: BTreeMap` instead of `balance: u64`
-  - Updated mock JSON responses in api.rs to use `"balances": {"0": 1000}` instead of `"balance": 1000`
-  - Updated hardcoded size assertions to use constants (TX_SIZE, COMPACT_TX_SIZE) instead of magic numbers
-  - Updated message_to_sign test to use `TX_SIZE + 4` instead of hardcoded 45
-  - All 46 tests pass (including 2 ignored e2e tests)
-- Files changed:
-  - crates/coins-types/tests/tx.rs
-  - crates/coins-types/tests/subblock.rs
-  - crates/coins-core/tests/validator.rs
-  - crates/coins-publisher/tests/mempool.rs
-  - crates/coins-publisher/tests/api.rs
-  - crates/coins-publisher/tests/e2e.rs
-  - crates/coins-publisher/examples/submit_many_txs.rs
-  - crates/coins-publisher/examples/e2e_test.rs
-  - crates/coins-publisher/examples/submit_txs.rs
-- **Learnings for future iterations:**
-  - When Account struct changes from `balance: u64` to `balances: BTreeMap<u16, u64>`, ALL test files and examples need updating - not just the main source code
-  - Test files span multiple crates: coins-types/tests/, coins-core/tests/, coins-publisher/tests/, and coins-publisher/examples/
-  - Mock JSON responses in wiremock tests must also be updated to match the new serialization format (balance -> balances map)
-  - Use `account.native_balance()` for reading native balance, `account.balances.insert(NATIVE_TOKEN_ID, value)` for writing
-  - Prefer using constants (TX_SIZE, COMPACT_TX_SIZE) in test assertions rather than hardcoded numbers - this makes tests resilient to future size changes
-  - The `#[ignore]` e2e tests require a running publisher and don't run in CI
+  - SecretKey bytes use `Fr::from_le_bytes_mod_order()` for import and `sk.0.into_bigint().to_bytes_le()` for export
+  - WASM crates need `getrandom = { version = "0.2", features = ["js"] }` for browser random generation
+  - `console_error_panic_hook` provides better error messages in browser console
+  - The lib.rs uses `#[wasm_bindgen(constructor)]` for the new() method and `#[wasm_bindgen(start)]` for init
+  - crate-type must include both 'cdylib' (for WASM) and 'rlib' (for Rust library tests)
 ---
 
