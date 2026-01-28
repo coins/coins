@@ -4,6 +4,7 @@
 //! crates can already depend on them while the detailed serialization logic
 //! is filled in later phases.
 
+use std::collections::BTreeMap;
 use coins_crypto::{G1, G2, G1_SIZE, G2_SIZE};
 use serde::{Serialize, Deserialize};
 use bincode::serde::{encode_to_vec as bincode_serialize, decode_from_slice as bincode_deserialize};
@@ -35,8 +36,20 @@ pub struct AccountId(pub u32);
 pub struct Account {
     pub id: AccountId,
     pub pk: G1,
-    pub balance: u64,
+    pub balances: BTreeMap<u16, u64>,
     pub nonce: u32,
+}
+
+impl Account {
+    /// Get balance for a specific token, returns 0 if not held
+    pub fn balance(&self, token_id: u16) -> u64 {
+        self.balances.get(&token_id).copied().unwrap_or(0)
+    }
+
+    /// Get native token balance (convenience method for token_id = 0)
+    pub fn native_balance(&self) -> u64 {
+        self.balance(NATIVE_TOKEN_ID)
+    }
 }
 
 /// Wire-format transaction (43 bytes).
