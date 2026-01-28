@@ -82,3 +82,21 @@
   - pkg/ directory has .gitignore with "*" - build artifacts are not committed
 ---
 
+## 2026-01-28 - US-004
+- Implemented Axum server for wallet with static file serving
+- Files changed:
+  - Rewrote crates/coins-wallet/src/main.rs with full Axum server implementation
+  - Created crates/coins-wallet/static/index.html placeholder file
+- **Implemented features:**
+  - Axum server listening on 127.0.0.1:8085 (configurable via WALLET_PORT env)
+  - GET /health endpoint returning 'OK'
+  - Static files served from crates/coins-wallet/static/ at root path (fallback_service)
+  - WASM files served from crates/coins-wallet/wasm/pkg/ at /wasm path
+  - INDEXER_URL and PUBLISHER_URL environment variables read into Config struct
+  - Tracing/logging initialized with debug output
+- **Learnings for future iterations:**
+  - Use `fallback_service` for root static file serving, `nest_service` for nested paths
+  - Config struct pattern works well for environment variable handling with defaults
+  - Server must be run from repo root for relative paths to static directories to work
+---
+
