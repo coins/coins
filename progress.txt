@@ -135,3 +135,45 @@ The publisher was accepting all transactions as long as the sender account exist
 
 ---
 
+## 2026-01-29 - US-003 (Implementation Complete)
+
+### Update Regtest Tests to Verify Non-Zero Token ID Transactions
+
+**Implementation:**
+Added comprehensive end-to-end test for token_id=1 transactions in the regtest test suite to verify non-zero token IDs work correctly and don't get stuck in broadcasting.
+
+**Changes Made:**
+
+1. **Genesis Token Initialization** (`crates/coins-indexer/src/main.rs`)
+   - Modified Genesis account initialization to include token_id=1 balance (10000)
+   - This enables testing of non-native token transactions without requiring minting infrastructure
+   - Updated log message to reflect dual-token initialization
+
+2. **Test Suite Enhancement** (`scripts/test-wallet-regtest.sh`)
+   - Added `get_account_token_balance()` helper function for querying specific token balances
+   - Replaced Test 4 skip with comprehensive two-step test:
+     - Step 1: Fund test wallet with 1000 token_id=1 from Genesis
+     - Step 2: Send 100 token_id=1 from test wallet to Bob
+   - Test verifies transaction broadcasts successfully (nonce increments)
+   - Test verifies balances update correctly for non-native tokens
+
+**Test Results:**
+- ✅ Test 4 passes: token_id=1 transaction broadcast successfully, nonce incremented from 2 to 3
+- ✅ All 6 tests pass
+- ✅ cargo check passes
+- ✅ End-to-end validation: Genesis → Test Wallet → Bob with token_id=1
+
+**Files Changed:**
+- `crates/coins-indexer/src/main.rs` - Genesis token_id=1 initialization
+- `scripts/test-wallet-regtest.sh` - Test 4 implementation
+
+**Learnings for future iterations:**
+- For testing non-native tokens without minting, initialize Genesis with multiple token types
+- Two-step tests (fund → spend) provide comprehensive validation of token flow
+- Nonce increment verification is the key indicator that transactions aren't stuck
+- Token balance queries require token_id parameter: `.balances["${token_id}"]`
+- Regtest tests execute quickly (~4 minutes) and catch issues before mutinynet testing
+- Genesis account only initializes once - database must be deleted to re-initialize with new balances
+
+---
+
