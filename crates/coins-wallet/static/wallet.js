@@ -2,6 +2,7 @@
 // Uses Web Crypto API for AES-GCM encryption with PBKDF2 key derivation
 
 const STORAGE_KEY = 'coins_wallet_key';
+const SESSION_KEY = 'coins_wallet_session_key';
 const PBKDF2_ITERATIONS = 100000;
 const SALT_SIZE = 16;
 const IV_SIZE = 12;
@@ -148,6 +149,10 @@ class WalletApp {
         // Keep the key in memory
         currentKey = walletKey;
 
+        // Store decrypted key in sessionStorage for persistence across page refreshes
+        const secretKeyHex = Array.from(secretKeyBytes).map(b => b.toString(16).padStart(2, '0')).join('');
+        sessionStorage.setItem(SESSION_KEY, secretKeyHex);
+
         console.log('Wallet created successfully');
         console.log('Public key:', walletKey.public_key_hex());
 
@@ -194,6 +199,9 @@ class WalletApp {
         // Keep the key in memory
         currentKey = walletKey;
 
+        // Store decrypted key in sessionStorage for persistence across page refreshes
+        sessionStorage.setItem(SESSION_KEY, secretKeyHex);
+
         console.log('Wallet imported successfully');
         console.log('Public key:', walletKey.public_key_hex());
 
@@ -222,6 +230,10 @@ class WalletApp {
             // Keep the key in memory
             currentKey = walletKey;
 
+            // Store decrypted key in sessionStorage for persistence across page refreshes
+            const secretKeyHex = Array.from(decryptedBytes).map(b => b.toString(16).padStart(2, '0')).join('');
+            sessionStorage.setItem(SESSION_KEY, secretKeyHex);
+
             console.log('Wallet unlocked successfully');
             console.log('Public key:', walletKey.public_key_hex());
 
@@ -233,10 +245,11 @@ class WalletApp {
     }
 
     /**
-     * Lock the wallet (clear key from memory)
+     * Lock the wallet (clear key from memory and sessionStorage)
      */
     lockWallet() {
         currentKey = null;
+        sessionStorage.removeItem(SESSION_KEY);
         console.log('Wallet locked');
     }
 
@@ -262,6 +275,50 @@ class WalletApp {
     getPublicKey() {
         if (!currentKey) return null;
         return currentKey.public_key_hex();
+    }
+
+    /**
+     * Try to restore wallet session from sessionStorage
+     * @returns {Promise<boolean>} True if session was restored, false otherwise
+     */
+    async restoreSession() {
+        if (!this.initialized) {
+            await this.init();
+        }
+
+        // Check if session key exists
+        const sessionKeyHex = sessionStorage.getItem(SESSION_KEY);
+        if (!sessionKeyHex) {
+            return false;
+        }
+
+        try {
+            // Validate format
+            if (!/^[a-fA-F0-9]{64}$/.test(sessionKeyHex)) {
+                console.warn('Invalid session key format, clearing');
+                sessionStorage.removeItem(SESSION_KEY);
+                return false;
+            }
+
+            // Convert hex to bytes
+            const secretKeyBytes = new Uint8Array(32);
+            for (let i = 0; i < 32; i++) {
+                secretKeyBytes[i] = parseInt(sessionKeyHex.substr(i * 2, 2), 16);
+            }
+
+            // Restore the wallet key
+            const walletKey = wasmModule.WalletKey.from_bytes(secretKeyBytes);
+            currentKey = walletKey;
+
+            console.log('Session restored successfully');
+            console.log('Public key:', walletKey.public_key_hex());
+
+            return true;
+        } catch (error) {
+            console.error('Failed to restore session:', error);
+            sessionStorage.removeItem(SESSION_KEY);
+            return false;
+        }
     }
 
     /**
@@ -691,13 +748,27 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Continue anyway - error will be shown when user tries to create/unlock
     }
 
-    // Check if wallet exists in localStorage
-    const hasWallet = walletApp.hasWallet();
+    // Try to restore session from sessionStorage
+    const sessionRestored = await walletApp.restoreSession();
 
-    if (hasWallet) {
-        showScreen('unlock-screen');
+    if (sessionRestored) {
+        // Session restored - show wallet screen directly
+        console.log('Session restored, showing wallet screen');
+        const publicKey = walletApp.getPublicKey();
+        updateWalletDisplay(publicKey);
+        showScreen('wallet-screen');
+        // Auto-refresh balance and transactions
+        await refreshBalance();
+        await refreshTransactions();
     } else {
-        showScreen('create-screen');
+        // No session - check if wallet exists in localStorage
+        const hasWallet = walletApp.hasWallet();
+
+        if (hasWallet) {
+            showScreen('unlock-screen');
+        } else {
+            showScreen('create-screen');
+        }
     }
 
     // Navigation links
