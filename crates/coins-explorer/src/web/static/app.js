@@ -1169,7 +1169,9 @@ class ExplorerApp {
                         ...receivedPending.map(tx => this.formatPendingTx(tx, 'incoming', pk))
                     ];
 
-                    // Deduplicate by sender_pk + nonce (same tx might appear in both sent and received if self-transfer)
+                    // Deduplicate pending transactions by unique key (sender_pk + nonce + direction)
+                    // Self-send transactions will appear as two entries: one outgoing and one incoming
+                    // because getTxKey includes direction, making their keys different
                     const seenKeys = new Set();
                     pendingTxs = pendingTxs.filter(tx => {
                         const key = this.getTxKey(tx);
