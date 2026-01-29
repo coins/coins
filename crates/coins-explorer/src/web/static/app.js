@@ -214,22 +214,26 @@ class ExplorerApp {
         return this.bytesToHex(pk);
     }
 
-    // Generate unique transaction key from sender_pk + nonce
+    // Generate unique transaction key from sender_pk + nonce + direction
     // This is consistent across the tx lifecycle (publishing -> broadcasting -> indexed)
+    // Direction is included to ensure self-send transactions appear as two separate entries
+    // (one outgoing, one incoming) rather than being deduplicated incorrectly
     getTxKey(tx) {
         const senderPk = tx.sender_pk ? this.ensureHex(tx.sender_pk) : null;
         const nonce = tx.nonce;
+        const direction = tx.direction || 'unknown';
 
         if (!senderPk || nonce === undefined || nonce === null) {
             console.error('getTxKey: invalid transaction - missing sender_pk or nonce', {
                 sender_pk: senderPk,
                 nonce: nonce,
+                direction: direction,
                 tx: tx
             });
             // Return a unique but identifiable key for debugging
             return `tx-invalid-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         }
-        return `tx-${senderPk}-${nonce}`;
+        return `tx-${senderPk}-${nonce}-${direction}`;
     }
 
     // Generate token badge HTML
