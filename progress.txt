@@ -74,3 +74,34 @@
   
 ---
 
+## 2026-01-29 - US-003
+- **What was implemented:**
+  - Created comprehensive end-to-end test suite for wallet on regtest (scripts/test-wallet-regtest.sh)
+  - Fixed critical serialization bug in coins-client (was using standard() instead of bin_config())
+  - All 6 tests pass: wallet creation, token reception, nonce incrementation (0→1, 1→2), balance verification
+  - Test script includes proper environment checking, wallet server lifecycle management, and cleanup
+  
+- **Files changed:**
+  - scripts/test-wallet-regtest.sh: New comprehensive test suite with 5 test cases + cargo check
+  - crates/coins-client/src/main.rs: Fixed serialization to use bin_config() instead of bincode::config::standard()
+
+- **Learnings for future iterations:**
+  - **CRITICAL**: The bin_config() bug from US-001 existed in THREE places: publisher (fixed in US-001), wallet WASM (fixed in US-001), and coins-client (fixed now)
+  - Always grep for ALL usages of bincode when fixing serialization bugs - don't assume fixing one location is enough
+  - coins-client was completely broken until this fix - all transactions returned 400 Bad Request
+  - Publisher API returns 400 "sender account not found" if sender_id is invalid or account doesn't exist
+  - Genesis account (id=0) is created at chain genesis and has initial balance from config
+  - Test scripts should use Genesis account for initial funding since it's guaranteed to exist
+  - Programmatic testing with coins-client is simpler than browser automation for basic transaction flows
+  - Test pattern: fund new wallet → verify balance → send tx → verify nonce increment → verify balance update
+  - Fees are currently set to 0 in coins-client (line 192: `fee: 0`)
+  - Wallet server runs on port 8085, publisher on 8080, indexer on 8084 (regtest)
+  - Transaction confirmation flow: submit → wait 35s for sub-block → mine Bitcoin block → wait 15s for indexer
+  - Non-native tokens (token_id != 0) require special minting infrastructure not yet implemented
+
+- **Update to Codebase Patterns:**
+  - Added: Integration test scripts are wallet-specific: test-wallet-regtest.sh tests end-to-end wallet flows
+  - coins-client requires nonce file (.nonce) alongside keyfile for local nonce tracking
+  
+---
+
