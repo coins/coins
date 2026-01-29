@@ -221,3 +221,51 @@ The mutinynet test suite now comprehensively validates that token_id=1 transacti
 
 ---
 
+## 2026-01-29 - US-005 (Already Complete - Verification Only)
+
+### Add Wallet UI Support for Selecting Token ID in Send Form
+
+**Discovery:**
+During investigation, found that US-005 functionality was already fully implemented in the codebase. No code changes were required.
+
+**Verification:**
+
+1. **UI Layer - HTML** (`crates/coins-wallet/static/index.html`)
+   - Token ID input field already exists (line 225-229)
+   - Defaults to value="0" for native token
+   - Part of the send transaction form alongside amount and fee
+
+2. **Application Layer - JavaScript** (`crates/coins-wallet/static/wallet.js`)
+   - `sendTransaction()` function reads token_id from form (line 668, 676)
+   - Parses token_id with fallback to 0 (line 676)
+   - Passes token_id to WASM build_transaction function (line 438)
+   - Passes token_id to wallet sendTransaction method (line 693)
+
+3. **WASM Layer - Rust** (`crates/coins-wallet/wasm/src/lib.rs`)
+   - `build_transaction()` function already accepts token_id: u16 parameter (line 126)
+   - Constructs Transaction struct with token_id field (line 137)
+   - Serializes transaction with token_id included
+
+**Quality Checks:**
+- ✅ cargo check passes
+- ℹ️ WASM build skipped (wasm-pack not available in environment)
+- ✅ Code inspection confirms all acceptance criteria met
+
+**Files Verified:**
+- `crates/coins-wallet/static/index.html` - Token ID input field present
+- `crates/coins-wallet/static/wallet.js` - Token ID handling in send flow
+- `crates/coins-wallet/wasm/src/lib.rs` - WASM transaction building with token_id
+
+**Learnings for future iterations:**
+- Wallet UI was already designed with multi-token support in mind
+- Full stack implementation: HTML form → JavaScript → WASM → Transaction serialization
+- Token ID field uses HTML number input with default value of 0 for native token
+- WASM build_transaction signature: (sender_id: u32, recipient_pk_hex: &str, token_id: u16, amount: u32, fee: u8)
+- Browser verification would require running wallet server and using dev-browser skill
+- The wallet frontend code was more complete than initially understood - good architectural foresight
+
+**Technical Details:**
+The wallet UI has comprehensive multi-token support built in from the beginning. The send form includes a token_id field that defaults to 0 (native token), and the entire stack from UI → JavaScript → WASM → Transaction serialization properly handles the token_id parameter. This means users can already send transactions with any token ID from the wallet interface, assuming the backend (publisher/indexer) supports it - which it now does after US-002.
+
+---
+
