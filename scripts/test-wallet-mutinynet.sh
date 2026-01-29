@@ -130,6 +130,12 @@ get_account_id() {
     curl -s "http://localhost:8082/account/${pk}" | jq -r '.id // null' 2>/dev/null || echo "null"
 }
 
+get_account_token_balance() {
+    local pk="$1"
+    local token_id="$2"
+    curl -s "http://localhost:8082/account/${pk}" | jq -r ".balances[\"${token_id}\"] // 0" 2>/dev/null || echo "0"
+}
+
 run_test() {
     local test_name="$1"
     local test_cmd="$2"
@@ -278,12 +284,111 @@ TEST_COUNT=$((TEST_COUNT + 1))
 echo ""
 
 # Test 4: Send transaction with token_id=1 (non-native token)
-echo -e "${YELLOW}[Test 4] Send transaction with token_id=1${NC}"
-echo -e "  ${YELLOW}⚠ SKIP - Non-native tokens require special minting (not in scope)${NC}"
-echo -e "  ${BLUE}Note: This would require minting token_id=1 first${NC}"
-# For now, we skip this test as it requires token minting infrastructure
+echo -e "${YELLOW}[Test 4] Send transaction with token_id=1 and verify it broadcasts successfully${NC}"
+
+# Get Genesis public key from config
+GENESIS_PK=$(grep 'genesis_pk' config/indexer-mutinynet.toml | cut -d'"' -f2)
+echo -e "  Genesis PK: ${GENESIS_PK}"
+
+# Get Alice's current token_id=1 balance
+ALICE_TOKEN1_BEFORE=$(get_account_token_balance "$ALICE_PK" "1")
+echo -e "  Alice token_id=1 balance before: ${ALICE_TOKEN1_BEFORE}"
+
+# Step 1: Fund Alice with token_id=1 from Genesis (if not already funded)
+if [ "$ALICE_TOKEN1_BEFORE" -lt 500 ]; then
+    echo -e "  ${BLUE}→ Funding Alice with 1000 token_id=1 from Genesis...${NC}"
+
+    # Get Genesis secret key
+    GENESIS_SK_FILE=".data/mutinynet/keys/genesis_sk.hex"
+    if [ ! -f "$GENESIS_SK_FILE" ]; then
+        echo -e "${RED}  ✗ FAIL - Genesis secret key not found${NC}"
+        echo -e "${YELLOW}  Need Genesis key to fund Alice with token_id=1${NC}"
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+        TEST_COUNT=$((TEST_COUNT + 1))
+        echo ""
+    else
+        # Send token_id=1 from Genesis to Alice
+        ./target/release/coins-client --keyfile "$GENESIS_SK_FILE" --publisher-url http://localhost:8082 \
+            send --recipient-pk "$ALICE_PK" --amount 1000 --token-id 1 2>&1 | grep -E "success|submitted" || echo -e "    Transaction sent"
+
+        # Wait for Bitcoin confirmation on mutinynet
+        echo -e "  ${BLUE}→ Waiting 90 seconds for Bitcoin confirmation...${NC}"
+        sleep 90
+
+        # Check if Alice received token_id=1
+        ALICE_TOKEN1_AFTER_FUND=$(get_account_token_balance "$ALICE_PK" "1")
+        echo -e "  Alice token_id=1 balance after funding: ${ALICE_TOKEN1_AFTER_FUND}"
+
+        if [ "$ALICE_TOKEN1_AFTER_FUND" -ge 1000 ]; then
+            echo -e "${GREEN}  ✓ Alice funded with token_id=1${NC}"
+        else
+            echo -e "${YELLOW}  ⚠ Waiting additional 60 seconds for confirmation...${NC}"
+            sleep 60
+            ALICE_TOKEN1_AFTER_FUND=$(get_account_token_balance "$ALICE_PK" "1")
+            echo -e "  Alice token_id=1 balance after retry: ${ALICE_TOKEN1_AFTER_FUND}"
+
+            if [ "$ALICE_TOKEN1_AFTER_FUND" -lt 500 ]; then
+                echo -e "${RED}  ✗ FAIL - Failed to fund Alice with token_id=1${NC}"
+                FAIL_COUNT=$((FAIL_COUNT + 1))
+                TEST_COUNT=$((TEST_COUNT + 1))
+                echo ""
+            fi
+        fi
+    fi
+fi
+
+# Step 2: Send token_id=1 from Alice to Bob and verify nonce increments
+ALICE_NONCE_BEFORE=$(get_account_nonce "$ALICE_PK")
+BOB_TOKEN1_BEFORE=$(get_account_token_balance "$BOB_PK" "1")
+
+echo -e "  ${BLUE}→ Sending 100 token_id=1 from Alice to Bob...${NC}"
+echo -e "  Alice nonce before: ${ALICE_NONCE_BEFORE}"
+echo -e "  Bob token_id=1 balance before: ${BOB_TOKEN1_BEFORE}"
+
+# Send token_id=1 transaction
+./target/release/coins-client --keyfile "$ALICE_SK_FILE" --publisher-url http://localhost:8082 \
+    send --recipient-pk "$BOB_PK" --amount 100 --token-id 1 2>&1 | grep -E "success|submitted" || echo -e "    Transaction sent"
+
+# Wait for Bitcoin confirmation
+echo -e "  ${BLUE}→ Waiting 90 seconds for Bitcoin confirmation...${NC}"
+sleep 90
+
+# Verify nonce incremented (transaction wasn't stuck)
+ALICE_NONCE_AFTER=$(get_account_nonce "$ALICE_PK")
+BOB_TOKEN1_AFTER=$(get_account_token_balance "$BOB_PK" "1")
+
+echo -e "  Alice nonce after: ${ALICE_NONCE_AFTER}"
+echo -e "  Bob token_id=1 balance after: ${BOB_TOKEN1_AFTER}"
+
+# Check results
+if [ "$ALICE_NONCE_AFTER" -gt "$ALICE_NONCE_BEFORE" ]; then
+    echo -e "${GREEN}  ✓ PASS - Transaction broadcast successfully (nonce ${ALICE_NONCE_BEFORE}→${ALICE_NONCE_AFTER})${NC}"
+
+    # Also verify Bob received the tokens (optional, but good verification)
+    EXPECTED_BOB_BALANCE=$((BOB_TOKEN1_BEFORE + 100))
+    if [ "$BOB_TOKEN1_AFTER" -ge "$EXPECTED_BOB_BALANCE" ]; then
+        echo -e "${GREEN}  ✓ Bob received token_id=1 (balance: ${BOB_TOKEN1_BEFORE}→${BOB_TOKEN1_AFTER})${NC}"
+    fi
+
+    PASS_COUNT=$((PASS_COUNT + 1))
+else
+    echo -e "${YELLOW}  ⚠ Waiting additional 60 seconds for Bitcoin confirmation...${NC}"
+    sleep 60
+    ALICE_NONCE_AFTER=$(get_account_nonce "$ALICE_PK")
+    BOB_TOKEN1_AFTER=$(get_account_token_balance "$BOB_PK" "1")
+    echo -e "  Alice nonce after retry: ${ALICE_NONCE_AFTER}"
+    echo -e "  Bob token_id=1 balance after retry: ${BOB_TOKEN1_AFTER}"
+
+    if [ "$ALICE_NONCE_AFTER" -gt "$ALICE_NONCE_BEFORE" ]; then
+        echo -e "${GREEN}  ✓ PASS - Transaction broadcast successfully (nonce ${ALICE_NONCE_BEFORE}→${ALICE_NONCE_AFTER})${NC}"
+        PASS_COUNT=$((PASS_COUNT + 1))
+    else
+        echo -e "${RED}  ✗ FAIL - Transaction stuck (nonce did not increment: ${ALICE_NONCE_BEFORE}→${ALICE_NONCE_AFTER})${NC}"
+        echo -e "${YELLOW}  Check /recently-broadcast endpoint and logs${NC}"
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+    fi
+fi
 TEST_COUNT=$((TEST_COUNT + 1))
-PASS_COUNT=$((PASS_COUNT + 1))  # Count as pass since it's known limitation
 
 echo ""
 
