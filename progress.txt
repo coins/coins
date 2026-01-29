@@ -34,3 +34,43 @@
 
 ---
 
+## 2026-01-28 - US-001
+- **What was implemented:**
+  - Fixed critical transaction serialization bug in publisher API
+  - Identified mismatch: wallet WASM uses bin_config() (fixed-int + little-endian) but publisher used standard() (variable-int)
+  - Updated publisher to import and use bin_config() from coins_types for transaction deserialization
+  
+- **Files changed:**
+  - crates/coins-publisher/src/api.rs: Added bin_config import and changed deserial ization call
+
+- **Learnings for future iterations:**
+  - **CRITICAL**: Always use bin_config() from coins_types for all Transaction serialization/deserialization
+  - The wallet WASM (crates/coins-wallet/wasm/src/lib.rs) calls tx.serialize() which uses bin_config()
+  - The publisher API must match this configuration to deserialize wallet transactions
+  - Check Codebase Patterns section first - it already documented the bin_config() requirement
+  - bincode::config::standard() != bin_config() - they produce incompatible wire formats
+  - This bug would cause all wallet-submitted transactions to fail with "invalid transaction data" error
+
+---
+
+## 2026-01-29 - US-002
+- **What was implemented:**
+  - Added wallet session persistence using sessionStorage
+  - Users now stay logged in across page refreshes without re-entering password
+  - Session automatically clears when tab/window closes (browser behavior)
+  - Lock Wallet button explicitly clears session
+  
+- **Files changed:**
+  - crates/coins-wallet/static/wallet.js: Added SESSION_KEY constant, sessionStorage save/restore logic, restoreSession() method
+
+- **Learnings for future iterations:**
+  - **sessionStorage vs localStorage**: sessionStorage is perfect for per-tab session data that should NOT persist after tab close
+  - The wallet already had localStorage for encrypted key storage - sessionStorage complements this for active sessions
+  - restoreSession() is called in DOMContentLoaded before showing any screen - this provides seamless UX
+  - Store the decrypted secret key hex in sessionStorage (not the WalletKey object itself)
+  - Browser automatically clears sessionStorage on tab close - no manual cleanup needed for that case
+  - Still need to manually clear sessionStorage when user clicks "Lock Wallet" button
+  - The implementation pattern: save to sessionStorage in createWallet/importWallet/unlockWallet, restore in DOMContentLoaded
+  
+---
+
