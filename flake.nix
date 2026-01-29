@@ -163,6 +163,42 @@
               ./target/release/coins-client --keyfile "$sender_keyfile" --publisher-url "$publisher_url" send --recipient-pk "$recipient_pk" --amount "$amount" --token-id "$token_id"
             }
 
+            # Mine Bitcoin blocks (regtest only)
+            # Usage: mine [count]
+            # Examples: mine, mine 5
+            mine() {
+              local count=''${1:-1}
+              local rpc_user="user"
+              local rpc_pass="password"
+              local rpc_port="18443"
+
+              # Get publisher address from API
+              local fee_addr
+              fee_addr=$(curl -s http://localhost:8080/address 2>/dev/null | jq -r '.address' 2>/dev/null)
+
+              if [ -z "$fee_addr" ] || [ "$fee_addr" == "null" ]; then
+                echo "Error: Could not get publisher address. Is the publisher running?"
+                echo "  Start with: setup-regtest"
+                return 1
+              fi
+
+              echo "Mining $count block(s) to $fee_addr..."
+              bitcoin-cli -regtest -rpcuser="$rpc_user" -rpcpassword="$rpc_pass" -rpcport="$rpc_port" \
+                generatetoaddress "$count" "$fee_addr" > /dev/null
+
+              if [ $? -eq 0 ]; then
+                local height
+                height=$(bitcoin-cli -regtest -rpcuser="$rpc_user" -rpcpassword="$rpc_pass" -rpcport="$rpc_port" getblockcount)
+                echo "✓ Mined $count block(s). Current height: $height"
+                echo "  Waiting 3s for indexer..."
+                sleep 3
+                echo "✓ Done"
+              else
+                echo "Error: Failed to mine blocks. Is bitcoind running?"
+                return 1
+              fi
+            }
+
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             echo "  Development Environment Ready"
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -190,6 +226,11 @@
             echo "    from/to: genesis, alice, bob, or pubkey (64 hex chars)"
             echo "    Examples: send regtest alice bob 100"
             echo "              send mutinynet genesis alice 1000 1"
+            echo ""
+            echo "Mining (regtest only):"
+            echo "  mine [count]                         - Mine Bitcoin blocks"
+            echo "    Examples: mine        # Mine 1 block"
+            echo "              mine 5      # Mine 5 blocks"
             echo ""
           '';
         };
