@@ -131,6 +131,12 @@ get_account_balance() {
     curl -s "http://localhost:8080/account/${pk}" | jq -r '.balances["0"] // 0' 2>/dev/null || echo "0"
 }
 
+get_account_token_balance() {
+    local pk="$1"
+    local token_id="$2"
+    curl -s "http://localhost:8080/account/${pk}" | jq -r ".balances[\"${token_id}\"] // 0" 2>/dev/null || echo "0"
+}
+
 run_test() {
     local test_name="$1"
     local test_cmd="$2"
@@ -306,11 +312,74 @@ echo ""
 
 # Test 4: Send transaction with token_id=1 (non-native token)
 echo -e "${YELLOW}[Test 4] Send transaction with token_id=1${NC}"
-echo -e "  ${YELLOW}⚠ SKIP - Non-native tokens require special minting (not in scope)${NC}"
-echo -e "  ${BLUE}Note: This would require minting token_id=1 first${NC}"
-# For now, we skip this test as it requires token minting infrastructure
+
+# Step 1: Fund test wallet with token_id=1 tokens from Genesis
+echo -e "  ${BLUE}→ Step 1: Funding test wallet with 1000 token_id=1 from Genesis...${NC}"
+GENESIS_NONCE_BEFORE=$(get_account_nonce "$GENESIS_PK")
+echo -e "  Genesis nonce before: ${GENESIS_NONCE_BEFORE}"
+
+./target/release/coins-client --keyfile "$GENESIS_SK_FILE" --publisher-url http://localhost:8080 \
+    send --recipient-pk "$NEW_WALLET_PK" --amount 1000 --token-id 1 2>&1 | grep -E "success|submitted" || echo -e "    Transaction sent"
+
+# Wait for sub-block mining
+echo -e "  ${BLUE}→ Waiting 35 seconds for sub-block mining...${NC}"
+sleep 35
+
+# Mine a Bitcoin block
+bitcoin-cli -regtest -rpcuser=user -rpcpassword=password -rpcport=18443 \
+    generatetoaddress 1 bcrt1qxl767gvfrpcf4lclag3w5707xdk0j7hxnyj02g &>/dev/null
+
+# Wait for indexer discovery
+echo -e "  ${BLUE}→ Waiting 15 seconds for indexer discovery...${NC}"
+sleep 15
+
+# Verify Genesis nonce incremented
+GENESIS_NONCE_AFTER=$(get_account_nonce "$GENESIS_PK")
+echo -e "  Genesis nonce after: ${GENESIS_NONCE_AFTER}"
+
+# Verify test wallet received token_id=1 tokens
+NEW_WALLET_TOKEN1_BALANCE=$(get_account_token_balance "$NEW_WALLET_PK" 1)
+echo -e "  Test wallet token_id=1 balance: ${NEW_WALLET_TOKEN1_BALANCE}"
+
+if [ "$NEW_WALLET_TOKEN1_BALANCE" -eq 1000 ]; then
+    echo -e "${GREEN}  ✓ Test wallet funded with 1000 token_id=1${NC}"
+else
+    echo -e "${RED}  ✗ Expected 1000 token_id=1, got ${NEW_WALLET_TOKEN1_BALANCE}${NC}"
+fi
+
+# Step 2: Send token_id=1 from test wallet to Bob
+echo -e "  ${BLUE}→ Step 2: Sending 100 token_id=1 from test wallet to Bob...${NC}"
+NEW_WALLET_NONCE_BEFORE=$(get_account_nonce "$NEW_WALLET_PK")
+echo -e "  Test wallet nonce before: ${NEW_WALLET_NONCE_BEFORE}"
+
+./target/release/coins-client --keyfile .data/regtest/test-keys/test_wallet_sk.hex --publisher-url http://localhost:8080 \
+    send --recipient-pk "$BOB_PK" --amount 100 --token-id 1 2>&1 | grep -E "success|submitted" || echo -e "    Transaction sent"
+
+# Wait for sub-block mining
+echo -e "  ${BLUE}→ Waiting 35 seconds for sub-block mining...${NC}"
+sleep 35
+
+# Mine a Bitcoin block
+bitcoin-cli -regtest -rpcuser=user -rpcpassword=password -rpcport=18443 \
+    generatetoaddress 1 bcrt1qxl767gvfrpcf4lclag3w5707xdk0j7hxnyj02g &>/dev/null
+
+# Wait for indexer discovery
+echo -e "  ${BLUE}→ Waiting 15 seconds for indexer discovery...${NC}"
+sleep 15
+
+# Verify test wallet nonce incremented
+NEW_WALLET_NONCE_AFTER=$(get_account_nonce "$NEW_WALLET_PK")
+echo -e "  Test wallet nonce after: ${NEW_WALLET_NONCE_AFTER}"
+
+# Verify the transaction was not stuck (nonce should have incremented)
+if [ "$NEW_WALLET_NONCE_AFTER" -gt "$NEW_WALLET_NONCE_BEFORE" ]; then
+    echo -e "${GREEN}  ✓ PASS - token_id=1 transaction broadcast successfully, nonce incremented from ${NEW_WALLET_NONCE_BEFORE} to ${NEW_WALLET_NONCE_AFTER}${NC}"
+    PASS_COUNT=$((PASS_COUNT + 1))
+else
+    echo -e "${RED}  ✗ FAIL - token_id=1 transaction stuck, nonce did not increment (${NEW_WALLET_NONCE_BEFORE}→${NEW_WALLET_NONCE_AFTER})${NC}"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+fi
 TEST_COUNT=$((TEST_COUNT + 1))
-PASS_COUNT=$((PASS_COUNT + 1))  # Count as pass since it's known limitation
 
 echo ""
 
