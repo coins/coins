@@ -165,50 +165,52 @@ async fn get_account_transactions(
         // Process transactions with their stored nonces
         for (tx_idx, tx) in chain_block.sub_block.txs.iter().enumerate() {
             // Check if this tx involves the current account
-            let direction = if &tx.recipient_pk == &pk {
-                Some(TransactionDirection::Incoming)
-            } else if tx.sender_id == account_id {
-                Some(TransactionDirection::Outgoing)
+            let is_incoming = &tx.recipient_pk == &pk;
+            let is_outgoing = tx.sender_id == account_id;
+
+            // Skip if transaction doesn't involve this account at all
+            if !is_incoming && !is_outgoing {
+                continue;
+            }
+
+            // Get nonce from stored data (falls back to 0 for old entries)
+            let nonce = chain_block.nonces.get(tx_idx).copied().unwrap_or(0);
+
+            // If btc_height is 0, we don't have the actual Bitcoin block height yet
+            let (confirmations, finalized, confirmations_remaining) = if chain_block.btc_height == 0 {
+                (0, false, coins_indexer::FINALITY_DEPTH)
             } else {
-                None
+                let confs = if current_btc_height >= chain_block.btc_height {
+                    current_btc_height.saturating_sub(chain_block.btc_height) + 1
+                } else {
+                    0
+                };
+                let final_status = confs >= coins_indexer::FINALITY_DEPTH;
+                let remaining = if final_status {
+                    0
+                } else {
+                    coins_indexer::FINALITY_DEPTH.saturating_sub(confs)
+                };
+                (confs, final_status, remaining)
             };
 
-            // Only add to history if it involves current account
-            if let Some(dir) = direction {
-                // Get nonce from stored data (falls back to 0 for old entries)
-                let nonce = chain_block.nonces.get(tx_idx).copied().unwrap_or(0);
+            // Look up sender's public key from sender_id
+            let sender_pk = match state.state.get_account(coins_types::AccountId(tx.sender_id)) {
+                Ok(Some(sender_account)) => sender_account.pk,
+                Ok(None) => {
+                    tracing::warn!(sender_id = tx.sender_id, "Sender account not found");
+                    continue;
+                }
+                Err(e) => {
+                    tracing::error!(sender_id = tx.sender_id, error = ?e, "Failed to look up sender account");
+                    continue;
+                }
+            };
 
-                // If btc_height is 0, we don't have the actual Bitcoin block height yet
-                let (confirmations, finalized, confirmations_remaining) = if chain_block.btc_height == 0 {
-                    (0, false, coins_indexer::FINALITY_DEPTH)
-                } else {
-                    let confs = if current_btc_height >= chain_block.btc_height {
-                        current_btc_height.saturating_sub(chain_block.btc_height) + 1
-                    } else {
-                        0
-                    };
-                    let final_status = confs >= coins_indexer::FINALITY_DEPTH;
-                    let remaining = if final_status {
-                        0
-                    } else {
-                        coins_indexer::FINALITY_DEPTH.saturating_sub(confs)
-                    };
-                    (confs, final_status, remaining)
-                };
-
-                // Look up sender's public key from sender_id
-                let sender_pk = match state.state.get_account(coins_types::AccountId(tx.sender_id)) {
-                    Ok(Some(sender_account)) => sender_account.pk,
-                    Ok(None) => {
-                        tracing::warn!(sender_id = tx.sender_id, "Sender account not found");
-                        continue;
-                    }
-                    Err(e) => {
-                        tracing::error!(sender_id = tx.sender_id, error = ?e, "Failed to look up sender account");
-                        continue;
-                    }
-                };
-
+            // For self-sends, add both incoming and outgoing entries
+            // For regular transactions, add only one entry with the appropriate direction
+            if is_incoming && is_outgoing {
+                // Self-send: add as outgoing first
                 history.push(TransactionWithStatus {
                     tx: tx.clone(),
                     nonce,
@@ -217,7 +219,44 @@ async fn get_account_transactions(
                     confirmations,
                     finalized,
                     confirmations_remaining,
-                    direction: dir,
+                    direction: TransactionDirection::Outgoing,
+                    sender_pk,
+                });
+                // Then add as incoming
+                history.push(TransactionWithStatus {
+                    tx: tx.clone(),
+                    nonce,
+                    btc_height: chain_block.btc_height,
+                    btc_txid: chain_block.btc_txid.to_string(),
+                    confirmations,
+                    finalized,
+                    confirmations_remaining,
+                    direction: TransactionDirection::Incoming,
+                    sender_pk,
+                });
+            } else if is_outgoing {
+                history.push(TransactionWithStatus {
+                    tx: tx.clone(),
+                    nonce,
+                    btc_height: chain_block.btc_height,
+                    btc_txid: chain_block.btc_txid.to_string(),
+                    confirmations,
+                    finalized,
+                    confirmations_remaining,
+                    direction: TransactionDirection::Outgoing,
+                    sender_pk,
+                });
+            } else {
+                // is_incoming (but not outgoing)
+                history.push(TransactionWithStatus {
+                    tx: tx.clone(),
+                    nonce,
+                    btc_height: chain_block.btc_height,
+                    btc_txid: chain_block.btc_txid.to_string(),
+                    confirmations,
+                    finalized,
+                    confirmations_remaining,
+                    direction: TransactionDirection::Incoming,
                     sender_pk,
                 });
             }
