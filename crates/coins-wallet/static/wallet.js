@@ -592,7 +592,7 @@ function updateTransactionHistory(transactions) {
     // Build transaction list HTML
     let html = '';
     for (const tx of transactions) {
-        const isOutgoing = tx.direction === 'Outgoing';
+        const isOutgoing = tx.direction === 'outgoing';
         const directionClass = isOutgoing ? 'has-text-danger' : 'has-text-success';
         const directionIcon = isOutgoing ? '-' : '+';
         const directionLabel = isOutgoing ? 'Sent' : 'Received';
