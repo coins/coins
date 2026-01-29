@@ -5,7 +5,7 @@ use ark_bn254::{Fr, G1Projective};
 use ark_ff::{PrimeField, BigInteger};
 use std::fs;
 use std::path::PathBuf;
-use coins_types::{Account, Transaction, NATIVE_TOKEN_ID};
+use coins_types::{Account, Transaction, NATIVE_TOKEN_ID, bin_config};
 use bincode::serde::encode_to_vec;
 use ark_ec::Group;
 use std::ops::Mul;
@@ -192,7 +192,7 @@ async fn main() -> anyhow::Result<()> {
                 fee: 0, // Assuming no fee for now
             };
 
-            let tx_bytes = encode_to_vec(&tx, bincode::config::standard())?;
+            let tx_bytes = encode_to_vec(&tx, bin_config())?;
 
             // Sign with locally tracked nonce for replay protection
             let msg = tx.message_to_sign(nonce);
