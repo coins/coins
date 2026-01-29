@@ -76,66 +76,71 @@
             alias wallet-mutinynet='INDEXER_URL=http://localhost:8083 PUBLISHER_URL=http://localhost:8082 cargo run --release -p coins-wallet'
 
             # Send tokens from Alice to Bob
-            # Usage: send <network> [amount]
-            # Examples: send regtest 100, send mutinynet 500
+            # Usage: send <network> [amount] [token_id]
+            # Examples: send regtest 100, send mutinynet 500 1
             send() {
               local network="$1"
               local amount=''${2:-100}
+              local token_id=''${3:-0}
 
               case "$network" in
                 regtest)
                   local BOB_PK=$(./target/release/examples/get_pk .data/regtest/test-keys/bob_sk.hex)
-                  ./target/release/coins-client --keyfile .data/regtest/test-keys/alice_sk.hex --publisher-url "http://localhost:8080" send --recipient-pk "$BOB_PK" --amount "$amount"
+                  ./target/release/coins-client --keyfile .data/regtest/test-keys/alice_sk.hex --publisher-url "http://localhost:8080" send --recipient-pk "$BOB_PK" --amount "$amount" --token-id "$token_id"
                   ;;
                 mutinynet)
                   local BOB_PK=$(./target/release/examples/get_pk .data/mutinynet/keys/bob_sk.hex)
-                  ./target/release/coins-client --keyfile .data/mutinynet/keys/alice_sk.hex --publisher-url "http://localhost:8082" send --recipient-pk "$BOB_PK" --amount "$amount"
+                  ./target/release/coins-client --keyfile .data/mutinynet/keys/alice_sk.hex --publisher-url "http://localhost:8082" send --recipient-pk "$BOB_PK" --amount "$amount" --token-id "$token_id"
                   ;;
                 *)
-                  echo "Usage: send <network> [amount]"
+                  echo "Usage: send <network> [amount] [token_id]"
                   echo "  network: regtest | mutinynet"
                   echo "  amount: tokens to send (default: 100)"
+                  echo "  token_id: token ID to send (default: 0 for native)"
                   echo ""
                   echo "Examples:"
-                  echo "  send regtest 100"
-                  echo "  send mutinynet 500"
+                  echo "  send regtest 100      # Send 100 native tokens"
+                  echo "  send mutinynet 500 1  # Send 500 of token_id=1"
                   return 1
                   ;;
               esac
             }
 
             # Send tokens from Alice to a specific public key
-            # Usage: send-to <network> <pubkey> [amount]
-            # Examples: send-to regtest abc123... 100
+            # Usage: send-to <network> <pubkey> [amount] [token_id]
+            # Examples: send-to regtest abc123... 100 0
             send-to() {
               local network="$1"
               local pubkey="$2"
               local amount=''${3:-100}
+              local token_id=''${4:-0}
 
               if [ -z "$pubkey" ]; then
-                echo "Usage: send-to <network> <pubkey> [amount]"
+                echo "Usage: send-to <network> <pubkey> [amount] [token_id]"
                 echo "  network: regtest | mutinynet"
                 echo "  pubkey: recipient public key (64 hex chars)"
                 echo "  amount: tokens to send (default: 100)"
+                echo "  token_id: token ID to send (default: 0 for native)"
                 echo ""
                 echo "Examples:"
-                echo "  send-to regtest abc123def456... 100"
-                echo "  send-to mutinynet abc123def456... 500"
+                echo "  send-to regtest abc123def456... 100      # Send 100 native tokens"
+                echo "  send-to mutinynet abc123def456... 500 1  # Send 500 of token_id=1"
                 return 1
               fi
 
               case "$network" in
                 regtest)
-                  ./target/release/coins-client --keyfile .data/regtest/test-keys/alice_sk.hex --publisher-url "http://localhost:8080" send --recipient-pk "$pubkey" --amount "$amount"
+                  ./target/release/coins-client --keyfile .data/regtest/test-keys/alice_sk.hex --publisher-url "http://localhost:8080" send --recipient-pk "$pubkey" --amount "$amount" --token-id "$token_id"
                   ;;
                 mutinynet)
-                  ./target/release/coins-client --keyfile .data/mutinynet/keys/alice_sk.hex --publisher-url "http://localhost:8082" send --recipient-pk "$pubkey" --amount "$amount"
+                  ./target/release/coins-client --keyfile .data/mutinynet/keys/alice_sk.hex --publisher-url "http://localhost:8082" send --recipient-pk "$pubkey" --amount "$amount" --token-id "$token_id"
                   ;;
                 *)
-                  echo "Usage: send-to <network> <pubkey> [amount]"
+                  echo "Usage: send-to <network> <pubkey> [amount] [token_id]"
                   echo "  network: regtest | mutinynet"
                   echo "  pubkey: recipient public key (64 hex chars)"
                   echo "  amount: tokens to send (default: 100)"
+                  echo "  token_id: token ID to send (default: 0 for native)"
                   return 1
                   ;;
               esac
@@ -164,8 +169,9 @@
             echo "  wallet-mutinynet         - Start wallet for mutinynet"
             echo ""
             echo "Transactions:"
-            echo "  send <network> [amount]       - Send tokens Alice->Bob"
-            echo "  send-to <network> <pk> [amt]  - Send from Alice to specific pubkey"
+            echo "  send <network> [amount] [token_id]   - Send tokens Alice->Bob"
+            echo "  send-to <network> <pk> [amt] [tkn]   - Send from Alice to specific pubkey"
+            echo "                                         (token_id defaults to 0 = native)"
             echo ""
           '';
         };
