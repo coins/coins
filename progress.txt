@@ -105,3 +105,27 @@
   
 ---
 
+## 2026-01-29 - US-004
+- **What was implemented:**
+  - Created comprehensive end-to-end test suite for wallet on mutinynet (scripts/test-wallet-mutinynet.sh)
+  - Script tests wallet functionality against live mutinynet testnet with real Bitcoin confirmations
+  - Implements 5 test cases: wallet import, balance verification, nonce incrementation (2 txs), indexer consistency
+  - Uses Alice's pre-funded test account from setup-mutinynet.sh for realistic testing
+  - Wallet server runs on port 8086 to avoid conflicts with mutinynet services (8082/8083)
+  
+- **Files changed:**
+  - scripts/test-wallet-mutinynet.sh: New comprehensive test suite with 6 tests including cargo check
+
+- **Learnings for future iterations:**
+  - **Mutinynet timing**: Real Bitcoin confirmations take ~1-2 minutes, tests need longer wait times (60s per tx vs 35s+15s on regtest)
+  - **Port allocation**: Mutinynet uses 8082 (publisher) and 8083 (indexer), so wallet server should use 8086 to avoid conflicts
+  - **Test account strategy**: Better to reuse pre-funded accounts (Alice) than create new ones for each test on mutinynet
+  - **Retry logic**: Tests should implement retry logic for nonce/balance checks since Bitcoin confirmations are variable
+  - **Environment assumptions**: Unlike regtest tests that start environment, mutinynet tests assume environment is already running (setup-mutinynet.sh)
+  - **Token minting**: Non-native token tests (token_id != 0) gracefully skip since minting infrastructure not in scope
+  - **Indexer verification**: Test 5 verifies indexer data matches publisher data, important for transaction history UI
+  - **Helper functions**: get_account_id(), get_account_nonce(), get_account_balance() make tests more readable
+  - **Pattern consistency**: Followed same structure as test-wallet-regtest.sh for maintainability
+  
+---
+
