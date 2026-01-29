@@ -38,17 +38,24 @@ async fn test_get_address() {
 
 #[tokio::test]
 async fn test_submit_tx_valid() {
+    use coins_types::{Account, AccountId};
+    use std::collections::BTreeMap;
+
     let mock_server = MockServer::start().await;
 
-    // Mock the indexer account lookup
+    // Mock the indexer account lookup - create a proper Account object
+    let mut balances = BTreeMap::new();
+    balances.insert(NATIVE_TOKEN_ID, 1000u64);
+    let mock_account = Account {
+        id: AccountId(1),
+        pk: G1([0u8; 32]),
+        balances,
+        nonce: 0,
+    };
+
     Mock::given(method("GET"))
         .and(path("/accounts/by-id/1"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "id": 1,
-            "pk": "0000000000000000000000000000000000000000000000000000000000000000",
-            "balances": {"0": 1000},
-            "nonce": 0
-        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&mock_account))
         .mount(&mock_server)
         .await;
 
@@ -100,17 +107,24 @@ async fn test_submit_tx_valid() {
 
 #[tokio::test]
 async fn test_submit_tx_duplicate_rejected() {
+    use coins_types::{Account, AccountId};
+    use std::collections::BTreeMap;
+
     let mock_server = MockServer::start().await;
 
-    // Mock the indexer account lookup
+    // Mock the indexer account lookup - create a proper Account object
+    let mut balances = BTreeMap::new();
+    balances.insert(NATIVE_TOKEN_ID, 1000u64);
+    let mock_account = Account {
+        id: AccountId(1),
+        pk: G1([0u8; 32]),
+        balances,
+        nonce: 0,
+    };
+
     Mock::given(method("GET"))
         .and(path("/accounts/by-id/1"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "id": 1,
-            "pk": "0000000000000000000000000000000000000000000000000000000000000000",
-            "balances": {"0": 1000},
-            "nonce": 0
-        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&mock_account))
         .expect(2) // Will be called twice
         .mount(&mock_server)
         .await;
@@ -214,17 +228,24 @@ async fn test_get_mempool_empty() {
 
 #[tokio::test]
 async fn test_get_mempool_with_txs() {
+    use coins_types::{Account, AccountId};
+    use std::collections::BTreeMap;
+
     let mock_server = MockServer::start().await;
 
-    // Mock the indexer account lookup for sender_id=42
+    // Mock the indexer account lookup for sender_id=42 - create proper Account object
+    let mut balances = BTreeMap::new();
+    balances.insert(NATIVE_TOKEN_ID, 1000u64);
+    let mock_account = Account {
+        id: AccountId(42),
+        pk: G1([0u8; 32]),
+        balances,
+        nonce: 0,
+    };
+
     Mock::given(method("GET"))
         .and(path("/accounts/by-id/42"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "id": 42,
-            "pk": "0000000000000000000000000000000000000000000000000000000000000000",
-            "balances": {"0": 1000},
-            "nonce": 0
-        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&mock_account))
         .mount(&mock_server)
         .await;
 
@@ -258,17 +279,24 @@ async fn test_get_mempool_with_txs() {
 
 #[tokio::test]
 async fn test_get_mempool_filtered_by_sender() {
+    use coins_types::{Account, AccountId};
+    use std::collections::BTreeMap;
+
     let mock_server = MockServer::start().await;
 
-    // Mock the indexer account lookups for sender_id=1 (will be returned)
+    // Mock the indexer account lookups for sender_id=1 (will be returned) - create proper Account object
+    let mut balances = BTreeMap::new();
+    balances.insert(NATIVE_TOKEN_ID, 1000u64);
+    let mock_account = Account {
+        id: AccountId(1),
+        pk: G1([0u8; 32]),
+        balances,
+        nonce: 0,
+    };
+
     Mock::given(method("GET"))
         .and(path("/accounts/by-id/1"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "id": 1,
-            "pk": "0000000000000000000000000000000000000000000000000000000000000000",
-            "balances": {"0": 1000},
-            "nonce": 0
-        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&mock_account))
         .mount(&mock_server)
         .await;
 

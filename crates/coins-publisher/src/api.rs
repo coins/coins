@@ -5,7 +5,7 @@ use std::time::Instant;
 use axum::response::IntoResponse;
 use axum::http::StatusCode;
 use bitcoin::Txid;
-use coins_types::{Transaction, bin_config};
+use coins_types::{Transaction, bin_config, NATIVE_TOKEN_ID};
 use coins_crypto::{G1, G2, G2_SIZE};
 use coins_indexer::IndexerClient;
 
@@ -60,22 +60,81 @@ async fn submit_tx(State(state): State<AppState>, Json(body): Json<TxSubmission>
     };
     let signature = G2(sig_arr);
 
-    // Get sender's base nonce from indexer
-    let base_nonce = match state.indexer.get_account_by_id(tx.sender_id).await {
-        Ok(Some(acc)) => acc.nonce,
+    // Get sender account from indexer
+    let sender_acc = match state.indexer.get_account_by_id(tx.sender_id).await {
+        Ok(Some(acc)) => acc,
         Ok(None) => return (StatusCode::BAD_REQUEST, "sender account not found").into_response(),
         Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "indexer error").into_response(),
     };
 
+    // Validate balances BEFORE accepting transaction
+    // For native token: check native_balance >= amount + fee
+    // For non-native token: check token_balance >= amount AND native_balance >= fee
+
+    // First, check for duplicate and calculate pending amounts (release lock quickly)
+    let (has_duplicate, pending_native, pending_tokens, pending_from_sender) = {
+        let mempool = match state.mempool.lock() {
+            Ok(mp) => mp,
+            Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "mempool lock failed").into_response(),
+        };
+
+        // Check for duplicate signature (replay protection)
+        let has_duplicate = mempool.iter().any(|(_, existing_sig, _)| existing_sig.0 == signature.0);
+
+        // Calculate total pending amounts for this sender
+        let mut pending_native = 0u64;
+        let mut pending_tokens: std::collections::HashMap<u16, u64> = std::collections::HashMap::new();
+
+        for (pending_tx, _, _) in mempool.iter().filter(|(t, _, _)| t.sender_id == tx.sender_id) {
+            if pending_tx.token_id == NATIVE_TOKEN_ID {
+                pending_native += pending_tx.amount as u64 + pending_tx.fee as u64;
+            } else {
+                *pending_tokens.entry(pending_tx.token_id).or_insert(0) += pending_tx.amount as u64;
+                pending_native += pending_tx.fee as u64;
+            }
+        }
+
+        let pending_from_sender = mempool.iter().filter(|(t, _, _)| t.sender_id == tx.sender_id).count() as u32;
+
+        (has_duplicate, pending_native, pending_tokens, pending_from_sender)
+    };
+
+    // Now check results outside the lock
+    if has_duplicate {
+        return (StatusCode::CONFLICT, "duplicate transaction").into_response();
+    }
+
+    // Check if sender has sufficient balance after pending transactions
+    if tx.token_id == NATIVE_TOKEN_ID {
+        let required = tx.amount as u64 + tx.fee as u64;
+        if sender_acc.native_balance() < pending_native + required {
+            return (StatusCode::BAD_REQUEST,
+                format!("insufficient balance: have {}, need {} (including {} pending)",
+                    sender_acc.native_balance(), pending_native + required, pending_native)
+            ).into_response();
+        }
+    } else {
+        // Check token balance
+        let pending_token_amount = pending_tokens.get(&tx.token_id).copied().unwrap_or(0);
+        if sender_acc.balance(tx.token_id) < pending_token_amount + tx.amount as u64 {
+            return (StatusCode::BAD_REQUEST,
+                format!("insufficient token balance: have {}, need {} (including {} pending)",
+                    sender_acc.balance(tx.token_id), pending_token_amount + tx.amount as u64, pending_token_amount)
+            ).into_response();
+        }
+        // Check native balance for fee
+        if sender_acc.native_balance() < pending_native + tx.fee as u64 {
+            return (StatusCode::BAD_REQUEST,
+                format!("insufficient native balance for fee: have {}, need {} (including {} pending)",
+                    sender_acc.native_balance(), pending_native + tx.fee as u64, pending_native)
+            ).into_response();
+        }
+    }
+
+    // Balance validation passed - add to mempool
     match state.mempool.lock() {
         Ok(mut mempool) => {
-            // Check for duplicate signature (replay protection)
-            if mempool.iter().any(|(_, existing_sig, _)| existing_sig.0 == signature.0) {
-                return (StatusCode::CONFLICT, "duplicate transaction").into_response();
-            }
-            // Compute nonce: base + count of pending txs from same sender
-            let pending_from_sender = mempool.iter().filter(|(t, _, _)| t.sender_id == tx.sender_id).count() as u32;
-            let nonce = base_nonce + pending_from_sender;
+            let nonce = sender_acc.nonce + pending_from_sender;
             mempool.push((tx, signature, nonce));
             (StatusCode::OK, "accepted").into_response()
         }
