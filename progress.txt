@@ -48,3 +48,34 @@
   - Self-send transactions from the indexer API come as two separate entries with different directions
 ---
 
+## 2026-01-29 - US-002
+- Implemented: Updated comment in loadAccountTransactions() to correctly document deduplication behavior
+- Files changed: `crates/coins-explorer/src/web/static/app.js`
+- **Learnings for future iterations:**
+  - After US-001, the seenKeys deduplication in loadAccountTransactions() naturally allows self-send transactions to appear twice
+  - The deduplication filter uses getTxKey which includes direction, so self-sends have different keys (outgoing vs incoming)
+  - The pending transactions API (/pending-transactions) returns both sender_pk and recipient_pk for all transactions
+  - The /pending-transactions endpoint supports filtering by sender_id OR recipient_pk query params
+---
+
+## 2026-01-29 - US-003
+- Verified: Self-send transactions display correctly in the explorer UI
+- Verification performed using dev-browser skill on http://localhost:3000
+- **Verification steps:**
+  1. Started explorer server on port 3000 with `./target/release/coins-explorer --config config/explorer-regtest.toml`
+  2. Created a self-send transaction: alice (account #1) sent 100 sats to herself using `coins-client send`
+  3. Mined a block to confirm the transaction
+  4. Navigated to alice's account page in the explorer
+  5. Confirmed that the self-send shows as TWO entries:
+     - Sent (red) -100 sats to 91cfab81e8d33f30...5ad26e9f
+     - Received (green) +100 sats from 91cfab81e8d33f30...5ad26e9f
+  6. Transaction summary correctly shows "4 transactions (2 received, 2 sent)"
+- **Learnings for future iterations:**
+  - Explorer runs on port 3000 (different from indexer on 8084)
+  - Start explorer with: `./target/release/coins-explorer --config config/explorer-regtest.toml`
+  - To create regtest wallets for mining: `bitcoin-cli -regtest -rpcwallet=miner getnewaddress`
+  - Mine blocks with: `bitcoin-cli -regtest generatetoaddress 1 <address>`
+  - Account pages use hash routing: `#account/<public_key_hex>`
+  - The indexer API at `/accounts/:pk/transactions` already returns self-sends as two entries (implementation in routes.rs:210-236)
+---
+
