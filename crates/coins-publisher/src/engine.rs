@@ -156,7 +156,8 @@ impl Engine {
         if let Some(status) = status_opt {
             if status.spent {
                 self.anchor_idx += 1;
-                let txs = self.sc.reconstruct_txs();
+                let txs = self.sc.reconstruct_txs()
+                    .map_err(|e| anyhow::anyhow!("Failed to reconstruct txs: {}", e))?;
                 if self.anchor_idx >= txs.len() {
                     anyhow::bail!("subchain exhausted");
                 }
@@ -223,7 +224,8 @@ impl Engine {
 
         let fee_utxo = self.fee_utxos[0].clone();
 
-        let txs = self.sc.reconstruct_txs();
+        let txs = self.sc.reconstruct_txs()
+            .map_err(|e| anyhow::anyhow!("Failed to reconstruct txs: {}", e))?;
 
         // Ensure all anchor transactions up to the current index are on-chain.
         // We broadcast them best-effort; if they are already in the chain/mempool
@@ -485,7 +487,8 @@ impl Engine {
     }
 
     pub async fn ibd(&mut self) -> Result<()> {
-        let txs = self.sc.reconstruct_txs();
+        let txs = self.sc.reconstruct_txs()
+            .map_err(|e| anyhow::anyhow!("Failed to reconstruct txs: {}", e))?;
         if txs.is_empty() {
             tracing::info!("IBD: Subchain is empty, starting from genesis");
             return Ok(());
@@ -534,7 +537,8 @@ impl Engine {
 
         tracing::info!("Starting Indexer IBD...");
 
-        let txs = self.sc.reconstruct_txs();
+        let txs = self.sc.reconstruct_txs()
+            .map_err(|e| anyhow::anyhow!("Failed to reconstruct txs: {}", e))?;
         let mut indexed_count = 0;
 
         // For each anchor transaction, check if its anchor was spent
@@ -604,7 +608,7 @@ impl Engine {
                         .map_err(|e| anyhow::anyhow!("Decompression failed: {}", e))?;
 
                     // Parse sub-block
-                    if let Some(sub_block) = SubBlock::deserialize(&blob, &self.state_adapter) {
+                    if let Some(_sub_block) = SubBlock::deserialize(&blob, &self.state_adapter) {
                         // Submit to indexer for validation and indexing
                         // The indexer will validate and apply state changes
                         indexed_count += 1;

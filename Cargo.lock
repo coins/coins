@@ -477,15 +477,6 @@ checksum = "d965446196e3b7decd44aa7ee49e31d630118f90ef12f97900f262eb915c951d"
 
 [[package]]
 name = "bincode"
-version = "1.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1f45e9417d87227c7a56d22e471c6206462cba514c7590c09aff4cf6d1ddcad"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "bincode"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "36eaf5d7b090263e8150820482d5d93cd964a81e4019913c972f4edcc6edb740"
@@ -732,7 +723,7 @@ dependencies = [
  "ark-bn254 0.4.0",
  "ark-ec 0.4.2",
  "ark-ff 0.4.2",
- "bincode 2.0.1",
+ "bincode",
  "clap",
  "coins-crypto",
  "coins-types",
@@ -751,7 +742,7 @@ version = "0.1.0"
 dependencies = [
  "ark-bn254 0.4.0",
  "ark-ff 0.4.2",
- "bincode 2.0.1",
+ "bincode",
  "coins-crypto",
  "coins-types",
  "hex",
@@ -787,7 +778,7 @@ dependencies = [
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
  "axum",
- "bincode 1.3.3",
+ "bincode",
  "bitcoin",
  "bitcoincore-rpc",
  "clap",
@@ -817,7 +808,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
- "bincode 2.0.1",
+ "bincode",
  "bitcoin",
  "coins-bitcoin-rpc",
  "coins-core",
@@ -848,7 +839,7 @@ dependencies = [
  "ark-ff 0.4.2",
  "ark-serialize 0.4.2",
  "axum",
- "bincode 2.0.1",
+ "bincode",
  "bitcoin",
  "clap",
  "coins-bitcoin-rpc",
@@ -878,7 +869,7 @@ name = "coins-subchain"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "bincode 2.0.1",
+ "bincode",
  "bitcoin",
  "clap",
  "coins-types",
@@ -894,7 +885,7 @@ dependencies = [
 name = "coins-types"
 version = "0.1.0"
 dependencies = [
- "bincode 2.0.1",
+ "bincode",
  "coins-crypto",
  "serde",
 ]
@@ -925,7 +916,7 @@ dependencies = [
  "ark-bn254 0.4.0",
  "ark-ff 0.4.2",
  "ark-serialize 0.4.2",
- "bincode 2.0.1",
+ "bincode",
  "coins-crypto",
  "coins-types",
  "console_error_panic_hook",

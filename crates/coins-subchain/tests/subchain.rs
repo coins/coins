@@ -11,6 +11,6 @@ fn generate_chain_len() {
     let sc2 = Subchain::decode(&blob).expect("decode");
     assert_eq!(sc2.sigs.len(), 5);
 
-    let txs = sc2.reconstruct_txs();
+    let txs = sc2.reconstruct_txs().expect("reconstruct should succeed");
     assert_eq!(txs.len(), 5);
 } 

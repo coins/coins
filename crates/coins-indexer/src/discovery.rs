@@ -7,35 +7,26 @@ use bitcoin::{OutPoint, Transaction, Txid};
 use coins_core::{State, validate_subblock, ValidationError};
 use coins_crypto::G1;
 use coins_subchain::{parse_blob_from_tx, decompress, Subchain};
-use coins_types::{SubBlock, SubBlockState, AccountId};
+use coins_types::{SubBlock, SubBlockState};
 use crate::Indexer;
 use coins_bitcoin_rpc::RpcBackend;
 
-/// State adapter for SubBlock deserialization
-struct IndexerStateAdapter {
-    state: Arc<State>,
-}
+/// State adapter for SubBlock deserialization - delegates to State's SubBlockState impl
+struct IndexerStateAdapter(Arc<State>);
 
 impl IndexerStateAdapter {
     fn new(state: Arc<State>) -> Self {
-        Self { state }
+        Self(state)
     }
 }
 
 impl SubBlockState for IndexerStateAdapter {
     fn get_account_id_by_pk(&self, pk: &G1) -> Result<Option<u32>, ()> {
-        match self.state.get_by_pk(pk) {
-            Ok(Some(account)) => Ok(Some(account.id.0)),
-            Ok(None) => Ok(None),
-            Err(_) => Err(()),
-        }
+        SubBlockState::get_account_id_by_pk(self.0.as_ref(), pk)
     }
 
     fn get_pk_by_account_id(&self, id: u32) -> Option<G1> {
-        match self.state.get_account(AccountId(id)) {
-            Ok(Some(account)) => Some(account.pk),
-            _ => None,
-        }
+        SubBlockState::get_pk_by_account_id(self.0.as_ref(), id)
     }
 }
 
@@ -70,7 +61,8 @@ pub async fn discover_blocks_loop(
         tokio::time::sleep(Duration::from_secs(3)).await;
 
         // Get all anchor transactions
-        let anchor_txs = subchain.reconstruct_txs();
+        let anchor_txs = subchain.reconstruct_txs()
+            .map_err(|e| anyhow::anyhow!("Failed to reconstruct txs: {}", e))?;
 
         // Check each anchor from our last checkpoint
         for (idx, anchor_tx) in anchor_txs.iter().enumerate().skip(last_checked_anchor_idx) {
@@ -250,7 +242,8 @@ pub async fn scan_historical_anchors(
 
     // Check each anchor transaction
     // Anchors are always used sequentially, so we can stop at the first unbroadcast one
-    let anchor_txs = subchain.reconstruct_txs();
+    let anchor_txs = subchain.reconstruct_txs()
+        .map_err(|e| anyhow::anyhow!("Failed to reconstruct txs: {}", e))?;
     let mut indexed_count = 0;
     let mut skipped_count = 0;
 
@@ -358,7 +351,13 @@ pub async fn update_confirmation_statuses(
         };
 
         // Reconstruct anchor transactions from subchain to get their txids
-        let anchor_txs = subchain.reconstruct_txs();
+        let anchor_txs = match subchain.reconstruct_txs() {
+            Ok(txs) => txs,
+            Err(e) => {
+                tracing::error!(error = %e, "Failed to reconstruct txs");
+                continue;
+            }
+        };
 
         // Check each block for confirmation updates
         let mut updated_count = 0;

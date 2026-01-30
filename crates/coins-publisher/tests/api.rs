@@ -43,12 +43,16 @@ async fn test_submit_tx_valid() {
 
     let mock_server = MockServer::start().await;
 
+    // Create sender keypair - the mock account's pk must match the signing key
+    let sk = SecretKey::random();
+    let sender_pk = G1(sk.public_key());
+
     // Mock the indexer account lookup - create a proper Account object
     let mut balances = BTreeMap::new();
     balances.insert(NATIVE_TOKEN_ID, 1000u64);
     let mock_account = Account {
         id: AccountId(1),
-        pk: G1([0u8; 32]),
+        pk: sender_pk,
         balances,
         nonce: 0,
     };
@@ -63,7 +67,6 @@ async fn test_submit_tx_valid() {
     let app = router(state.clone());
 
     // Create a valid transaction
-    let sk = SecretKey::random();
     let recipient_pk = SecretKey::random().public_key();
     let tx = Transaction {
         sender_id: 1,
@@ -73,14 +76,13 @@ async fn test_submit_tx_valid() {
         fee: 1,
     };
 
-    // Sign the transaction
-    let tx_bytes = bincode::serde::encode_to_vec(&tx, bincode::config::standard()).unwrap();
-    let mut msg = tx_bytes.clone();
-    msg.extend_from_slice(&0u32.to_le_bytes()); // nonce = 0
+    // Sign the transaction with the correct message format
+    let msg = tx.message_to_sign(0); // nonce = 0
     let signature = sign(&sk, &msg);
 
+    let tx_bytes = tx.serialize();
     let body = serde_json::json!({
-        "tx": hex::encode(&tx_bytes),
+        "tx": hex::encode(tx_bytes),
         "signature": hex::encode(signature.0)
     });
 
@@ -112,12 +114,16 @@ async fn test_submit_tx_duplicate_rejected() {
 
     let mock_server = MockServer::start().await;
 
+    // Create sender keypair - the mock account's pk must match the signing key
+    let sk = SecretKey::random();
+    let sender_pk = G1(sk.public_key());
+
     // Mock the indexer account lookup - create a proper Account object
     let mut balances = BTreeMap::new();
     balances.insert(NATIVE_TOKEN_ID, 1000u64);
     let mock_account = Account {
         id: AccountId(1),
-        pk: G1([0u8; 32]),
+        pk: sender_pk,
         balances,
         nonce: 0,
     };
@@ -132,7 +138,6 @@ async fn test_submit_tx_duplicate_rejected() {
     let state = create_test_state(&mock_server.uri());
 
     // Create and sign a transaction
-    let sk = SecretKey::random();
     let recipient_pk = SecretKey::random().public_key();
     let tx = Transaction {
         sender_id: 1,
@@ -142,13 +147,12 @@ async fn test_submit_tx_duplicate_rejected() {
         fee: 1,
     };
 
-    let tx_bytes = bincode::serde::encode_to_vec(&tx, bincode::config::standard()).unwrap();
-    let mut msg = tx_bytes.clone();
-    msg.extend_from_slice(&0u32.to_le_bytes());
+    let msg = tx.message_to_sign(0); // nonce = 0
     let signature = sign(&sk, &msg);
 
+    let tx_bytes = tx.serialize();
     let body = serde_json::json!({
-        "tx": hex::encode(&tx_bytes),
+        "tx": hex::encode(tx_bytes),
         "signature": hex::encode(signature.0)
     });
 

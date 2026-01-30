@@ -26,6 +26,25 @@ pub mod taproot_annex;
 pub use publish::{PublishFormat, PublishMode, PublishResult, publish_subblock, parse_blob_from_tx};
 pub use compression::{compress, decompress};
 
+/// Error type for subchain operations
+#[derive(Debug, Clone)]
+pub enum SubchainError {
+    InvalidSignatureLength { expected: usize, got: usize },
+    InvalidSignature,
+}
+
+impl std::fmt::Display for SubchainError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidSignatureLength { expected, got } =>
+                write!(f, "Invalid signature length: expected {} bytes, got {}", expected, got),
+            Self::InvalidSignature => write!(f, "Invalid ECDSA signature"),
+        }
+    }
+}
+
+impl std::error::Error for SubchainError {}
+
 /// ECDSA compact signature size (r || s)
 const ECDSA_COMPACT_SIG_SIZE: usize = 64;
 
@@ -180,7 +199,7 @@ impl Subchain {
     }
 
     /// Reconstruct all anchor transactions from stored signatures.
-    pub fn reconstruct_txs(&self) -> Vec<Transaction> {
+    pub fn reconstruct_txs(&self) -> Result<Vec<Transaction>, SubchainError> {
         use bitcoin::secp256k1::ecdsa::Signature;
 
         let script_pubkey = Address::p2wpkh(&self.pubkey, self.network).script_pubkey();
@@ -192,12 +211,18 @@ impl Subchain {
 
             // Convert compact signature back to DER format for witness
             if sig_bytes.len() != ECDSA_COMPACT_SIG_SIZE {
-                panic!("Invalid signature length: expected {} bytes, got {}", ECDSA_COMPACT_SIG_SIZE, sig_bytes.len());
+                return Err(SubchainError::InvalidSignatureLength {
+                    expected: ECDSA_COMPACT_SIG_SIZE,
+                    got: sig_bytes.len(),
+                });
             }
             let sig_compact: [u8; ECDSA_COMPACT_SIG_SIZE] = sig_bytes.as_slice().try_into()
-                .expect("compact signature");
+                .map_err(|_| SubchainError::InvalidSignatureLength {
+                    expected: ECDSA_COMPACT_SIG_SIZE,
+                    got: sig_bytes.len(),
+                })?;
             let sig = Signature::from_compact(&sig_compact)
-                .expect("valid compact signature");
+                .map_err(|_| SubchainError::InvalidSignature)?;
             let mut sig_der = sig.serialize_der().to_vec();
             sig_der.push(EcdsaSighashType::All as u8);
 
@@ -207,7 +232,7 @@ impl Subchain {
             prev_out = OutPoint::new(txid, SUCCESSOR_OUTPUT_INDEX);
             txs.push(tx);
         }
-        txs
+        Ok(txs)
     }
 
     /// Set the genesis block height (block where the first anchor was broadcast).

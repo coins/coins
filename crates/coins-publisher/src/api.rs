@@ -6,7 +6,7 @@ use axum::response::IntoResponse;
 use axum::http::StatusCode;
 use bitcoin::Txid;
 use coins_types::{Transaction, bin_config, NATIVE_TOKEN_ID};
-use coins_crypto::{G1, G2, G2_SIZE};
+use coins_crypto::{G1, G2, G2_SIZE, verify};
 use coins_indexer::IndexerClient;
 
 #[derive(Clone)]
@@ -99,9 +99,16 @@ async fn submit_tx(State(state): State<AppState>, Json(body): Json<TxSubmission>
         (has_duplicate, pending_native, pending_tokens, pending_from_sender)
     };
 
-    // Now check results outside the lock
+    // Check for duplicates first (cheaper than signature verification)
     if has_duplicate {
         return (StatusCode::CONFLICT, "duplicate transaction").into_response();
+    }
+
+    // Verify signature before accepting into mempool
+    let expected_nonce = sender_acc.nonce + pending_from_sender;
+    let msg = tx.message_to_sign(expected_nonce);
+    if !verify(&sender_acc.pk, &msg, &signature) {
+        return (StatusCode::BAD_REQUEST, "invalid signature").into_response();
     }
 
     // Check if sender has sufficient balance after pending transactions

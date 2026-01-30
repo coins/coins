@@ -25,7 +25,7 @@ Coins is an embedded-consensus token system built on Bitcoin that uses:
 
 ### How It Works
 
-1. **Users** create 41-byte transactions and sign them with BLS signatures
+1. **Users** create 43-byte transactions and sign them with BLS signatures
 2. **Publisher** collects transactions, aggregates signatures into sub-blocks
 3. **Sub-blocks** are compressed and published to Bitcoin via OP_RETURN in anchor transactions
 4. **Validators** verify aggregate signatures and update account state
@@ -146,7 +146,7 @@ Submit a signed transaction to the mempool.
 **Body:**
 ```json
 {
-  "tx": "<41-byte-transaction-hex>",
+  "tx": "<43-byte-transaction-hex>",
   "sig": "<64-byte-signature-hex>"
 }
 ```
@@ -155,13 +155,14 @@ Submit a signed transaction to the mempool.
 
 Transactions use a **hybrid format** in sub-blocks to minimize on-chain footprint:
 
-### Canonical Format (41 bytes)
+### Canonical Format (43 bytes)
 Used when the recipient is **new** (no existing account):
 
 | Field | Size | Description |
 |-------|------|-------------|
 | sender_id | 4 bytes | Sender account ID |
 | recipient_pk | 32 bytes | Recipient public key (G1) |
+| token_id | 2 bytes | Token identifier (0 = native) |
 | amount | 4 bytes | Amount to transfer |
 | fee | 1 byte | Transaction fee |
 
@@ -177,13 +178,13 @@ Used when the recipient **already has an account**:
 
 The compact format saves 28 bytes per transaction by replacing the 32-byte public key with a 4-byte account ID. Sub-blocks automatically use compact format when possible, with a bitfield indicating which format each transaction uses.
 
-**Signing**: Transactions are always signed in canonical format. Message to sign: `tx_bytes || nonce` (45 bytes total). The nonce comes from the sender's current account state.
+**Signing**: Transactions are always signed in canonical format. Message to sign: `tx_bytes || nonce` (47 bytes total). The nonce comes from the sender's current account state.
 
 ### Signature Aggregation and Verification
 
-The compact format only affects transaction *serialization* - signatures are always computed and verified against the canonical 41-byte format.
+The compact format only affects transaction *serialization* - signatures are always computed and verified against the canonical 43-byte format.
 
-Clients submit a 41-byte canonical transaction along with its BLS signature to the publisher. The signature covers the transaction bytes concatenated with the sender's current nonce (45 bytes total). The publisher stores transactions and their individual signatures in a mempool until mining.
+Clients submit a 43-byte canonical transaction along with its BLS signature to the publisher. The signature covers the transaction bytes concatenated with the sender's current nonce (45 bytes total). The publisher stores transactions and their individual signatures in a mempool until mining.
 
 When mining a sub-block, the publisher aggregates all individual BLS signatures into a single 64-byte aggregate signature and serializes the transactions using compact format where possible. The sub-block (transactions + aggregate signature + publisher public key) is then published to Bitcoin.
 

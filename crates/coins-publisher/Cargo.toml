@@ -22,7 +22,7 @@ rand = "0.8"
 toml = "0.8"
 coins-crypto = { path = "../coins-crypto" }
 bincode = { version = "2.0.1", features = ["serde"] }
-ark-ec = "0.4.2"
+ark-ec = "0.4"
 ark-ff = "0.4"
 ark-bn254 = "0.4"
 ark-serialize = "0.4"
