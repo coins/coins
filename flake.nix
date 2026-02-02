@@ -57,8 +57,8 @@
             export PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=true
 
             # Setup commands
-            alias setup-regtest='./scripts/setup-regtest.sh'
-            alias setup-mutinynet='./scripts/setup-mutinynet.sh'
+            alias setup-regtest='./tests/regtest/setup-regtest.sh'
+            alias setup-mutinynet='./tests/mutinynet/setup-mutinynet.sh'
             alias resume-mutinynet='./scripts/resume-mutinynet.sh'
 
             # Stop commands
