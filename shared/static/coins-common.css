@@ -1,0 +1,1600 @@
+/* Coins Common Styles
+ * Shared CSS for Coins Wallet and Explorer
+ * Modern, minimalistic app-like design
+ */
+
+/* ========================================
+   CSS Custom Properties (Design Tokens)
+   ======================================== */
+:root {
+    /* Dark mode color palette */
+    --coins-primary: #e2e8f0;
+    --coins-primary-dark: #f8fafc;
+    --coins-primary-light: #94a3b8;
+    --coins-primary-gradient: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+
+    /* Accent colors - vibrant teal/cyan */
+    --coins-accent: #2dd4bf;
+    --coins-accent-dark: #14b8a6;
+    --coins-accent-light: #5eead4;
+    --coins-accent-gradient: linear-gradient(135deg, #14b8a6 0%, #06b6d4 100%);
+
+    /* Status colors */
+    --coins-success: #34d399;
+    --coins-success-light: rgba(52, 211, 153, 0.15);
+    --coins-warning: #fbbf24;
+    --coins-warning-light: rgba(251, 191, 36, 0.15);
+    --coins-danger: #f87171;
+    --coins-danger-light: rgba(248, 113, 113, 0.15);
+    --coins-info: #60a5fa;
+    --coins-info-light: rgba(96, 165, 250, 0.15);
+
+    /* Dark mode neutrals */
+    --coins-bg: #0f172a;
+    --coins-bg-secondary: #1e293b;
+    --coins-surface: #1e293b;
+    --coins-surface-elevated: #334155;
+    --coins-border: #334155;
+    --coins-border-light: #1e293b;
+    --coins-text: #f1f5f9;
+    --coins-text-secondary: #94a3b8;
+    --coins-text-muted: #64748b;
+
+    /* Shadows for dark mode */
+    --coins-shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+    --coins-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.4), 0 1px 2px -1px rgb(0 0 0 / 0.4);
+    --coins-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.4), 0 2px 4px -2px rgb(0 0 0 / 0.3);
+    --coins-shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.5), 0 4px 6px -4px rgb(0 0 0 / 0.4);
+    --coins-shadow-glow: 0 0 30px rgb(45 212 191 / 0.2);
+
+    /* Spacing */
+    --coins-radius-sm: 8px;
+    --coins-radius: 12px;
+    --coins-radius-lg: 16px;
+    --coins-radius-xl: 24px;
+
+    /* Transitions */
+    --coins-transition: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    --coins-transition-slow: 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ========================================
+   Base Styles
+   ======================================== */
+body {
+    background-color: var(--coins-bg);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    color: var(--coins-text);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+.section {
+    flex: 1;
+    padding: 2rem 1.5rem;
+}
+
+/* ========================================
+   App Header (Minimal)
+   ======================================== */
+.coins-navbar {
+    background: var(--coins-surface);
+    border-bottom: 1px solid var(--coins-border-light);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    backdrop-filter: blur(12px);
+    background: rgba(255, 255, 255, 0.9);
+}
+
+.coins-navbar .navbar-item {
+    color: var(--coins-text-secondary);
+    font-weight: 500;
+    transition: all var(--coins-transition);
+    font-size: 0.9rem;
+}
+
+.coins-navbar .navbar-item:hover {
+    background-color: var(--coins-bg-secondary);
+    color: var(--coins-text);
+}
+
+.coins-navbar .navbar-brand .navbar-item {
+    font-weight: 700;
+    font-size: 1rem;
+    letter-spacing: -0.025em;
+    color: var(--coins-text);
+}
+
+.coins-navbar .navbar-brand .navbar-item strong {
+    font-weight: 700;
+    color: var(--coins-text);
+}
+
+/* App-style header for wallet */
+.app-header {
+    padding: 1rem 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--coins-surface);
+    border-bottom: 1px solid var(--coins-border-light);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    backdrop-filter: blur(12px);
+    background: rgba(255, 255, 255, 0.95);
+}
+
+.app-header .app-title {
+    font-size: 1.125rem;
+    font-weight: 700;
+    color: var(--coins-text);
+    letter-spacing: -0.025em;
+}
+
+.app-header .app-status {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--coins-success);
+    animation: pulse 2s infinite;
+}
+
+.status-dot.disconnected {
+    background: var(--coins-danger);
+    animation: none;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* Floating status indicator */
+.status-indicator {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    z-index: 1000;
+    padding: 0.5rem;
+}
+
+/* Address display - click to copy */
+.address-display {
+    background: var(--coins-bg-secondary);
+    border-radius: var(--coins-radius);
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+    transition: all var(--coins-transition);
+}
+
+.address-display.clickable {
+    cursor: pointer;
+    border: 1px solid transparent;
+}
+
+.address-display.clickable:hover {
+    background: var(--coins-surface-elevated);
+    border-color: var(--coins-border);
+}
+
+.address-display.clickable:active {
+    transform: scale(0.995);
+}
+
+.address-display .address-label {
+    margin-bottom: 0.5rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.address-display .copy-hint {
+    font-size: 0.625rem;
+    color: var(--coins-text-muted);
+    text-transform: lowercase;
+    letter-spacing: normal;
+    transition: color var(--coins-transition);
+}
+
+.address-display.copied .copy-hint {
+    color: var(--coins-success);
+}
+
+.address-display .address-text {
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 0.75rem;
+    color: var(--coins-accent);
+    word-break: break-all;
+    line-height: 1.5;
+}
+
+/* Amount Row with Token Selector */
+.amount-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.token-selector {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    padding: 0.25rem;
+    max-height: 120px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--coins-border) transparent;
+}
+
+.token-selector::-webkit-scrollbar {
+    width: 4px;
+}
+
+.token-selector::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.token-selector::-webkit-scrollbar-thumb {
+    background: var(--coins-border);
+    border-radius: 2px;
+}
+
+.token-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.375rem 0.625rem;
+    font-size: 0.75rem;
+    color: var(--coins-text-muted);
+    background: var(--coins-surface);
+    border: 1.5px solid var(--coins-border);
+    border-radius: var(--coins-radius-lg);
+    cursor: pointer;
+    transition: all var(--coins-transition);
+    white-space: nowrap;
+}
+
+.token-btn .token-icon {
+    font-size: 0.875rem;
+    font-weight: 600;
+    width: 1.25rem;
+    text-align: center;
+}
+
+.token-btn .token-name {
+    font-weight: 500;
+    color: var(--coins-text-secondary);
+}
+
+.token-btn:hover {
+    border-color: var(--coins-text-muted);
+    color: var(--coins-text);
+}
+
+.token-btn:hover .token-name {
+    color: var(--coins-text);
+}
+
+.token-btn.active {
+    border-color: var(--coins-accent);
+    background: var(--coins-surface);
+}
+
+.token-btn.active .token-icon {
+    color: var(--coins-accent);
+}
+
+.token-btn.active .token-name {
+    color: var(--coins-accent);
+}
+
+/* Modern Amount Input */
+.amount-input-wrapper {
+    flex: 1;
+    text-align: center;
+    padding: 0.75rem 0;
+}
+
+.amount-input-large {
+    width: 100%;
+    text-align: center;
+    font-size: 2rem;
+    font-weight: 600;
+    color: var(--coins-text);
+    background: transparent;
+    border: none;
+    outline: none;
+    padding: 0.25rem;
+    letter-spacing: -0.02em;
+    caret-color: var(--coins-accent);
+    transition: transform 0.1s ease, color 0.1s ease;
+    cursor: ns-resize;
+}
+
+.amount-input-large::placeholder {
+    color: var(--coins-text-muted);
+}
+
+.amount-input-large:focus {
+    cursor: text;
+}
+
+.amount-input-large.scrolling {
+    color: var(--coins-accent);
+    transform: scale(1.05);
+}
+
+/* Quick select - subtle text links */
+.amount-quick-select {
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
+    margin-top: 0.25rem;
+}
+
+.quick-amount {
+    font-size: 0.6875rem;
+    color: var(--coins-text-muted);
+    cursor: pointer;
+    padding: 0.125rem 0.375rem;
+    transition: all var(--coins-transition);
+}
+
+.quick-amount:hover {
+    color: var(--coins-accent);
+}
+
+.quick-amount.active {
+    color: var(--coins-accent);
+}
+
+/* Wallet action links */
+.wallet-actions {
+    text-align: center;
+    padding: 1rem 0 2rem;
+}
+
+.action-link {
+    font-size: 0.875rem;
+    color: var(--coins-text-secondary);
+    cursor: pointer;
+    transition: color var(--coins-transition);
+}
+
+.action-link:hover {
+    color: var(--coins-text);
+}
+
+.action-link.has-text-danger {
+    color: var(--coins-danger);
+}
+
+.action-link.has-text-danger:hover {
+    color: var(--coins-danger);
+    opacity: 0.8;
+}
+
+.action-separator {
+    color: var(--coins-text-muted);
+    margin: 0 0.75rem;
+}
+
+/* ========================================
+   Cards and Boxes
+   ======================================== */
+.coins-card {
+    background: var(--coins-surface);
+    border-radius: var(--coins-radius-lg);
+    box-shadow: var(--coins-shadow);
+    border: 1px solid var(--coins-border);
+    padding: 1.5rem;
+    transition: all var(--coins-transition);
+}
+
+.coins-card:hover {
+    box-shadow: var(--coins-shadow-md);
+    border-color: var(--coins-border);
+}
+
+.coins-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.75rem;
+}
+
+/* Unified section heading style */
+.section-heading,
+.coins-card-title,
+.balance-hero .balance-label,
+.address-display .address-label {
+    font-size: 0.6875rem;
+    font-weight: 500;
+    color: var(--coins-text-muted);
+    margin: 0;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+/* Enhanced Bulma box styling */
+.box {
+    background: var(--coins-surface);
+    border-radius: var(--coins-radius-lg);
+    box-shadow: var(--coins-shadow);
+    border: 1px solid var(--coins-border);
+}
+
+/* ========================================
+   Balance Hero (Wallet App)
+   ======================================== */
+.balance-hero {
+    background: linear-gradient(135deg, var(--coins-surface-elevated) 0%, var(--coins-surface) 100%);
+    border: 1px solid var(--coins-border);
+    border-radius: var(--coins-radius-xl);
+    padding: 1rem 1.5rem;
+    color: var(--coins-text);
+    margin-bottom: 1rem;
+    position: relative;
+    overflow: hidden;
+}
+
+.balance-hero::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    right: -20%;
+    width: 300px;
+    height: 300px;
+    background: radial-gradient(circle, rgba(45, 212, 191, 0.1) 0%, transparent 70%);
+    pointer-events: none;
+}
+
+.balance-hero .balance-label {
+    margin-bottom: 0.5rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.balance-hero .balance-account {
+    font-size: 0.6875rem;
+    color: var(--coins-text-muted);
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+/* Horizontally scrollable token balances */
+.balance-scroll-container {
+    overflow: hidden;
+    cursor: grab;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: pan-x;
+    position: relative;
+    /* Extend to full width of balance-hero box - no padding */
+    margin-left: -1.5rem;
+    margin-right: -1.5rem;
+    /* Fixed height to prevent resizing during scroll */
+    height: 70px;
+}
+
+.balance-scroll-container.grabbing {
+    cursor: grabbing;
+}
+
+.balance-tokens {
+    display: flex;
+    gap: 2rem;
+    align-items: center;
+    height: 100%;
+    transition: transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    will-change: transform;
+}
+
+.balance-tokens.dragging {
+    transition: none;
+}
+
+.balance-token-item {
+    flex-shrink: 0;
+    min-width: 80px;
+    transition: transform 0.3s ease, opacity 0.3s ease;
+    transform-origin: left center;
+}
+
+.balance-token-item .balance-token-amount {
+    transition: font-size 0.3s ease, color 0.3s ease;
+}
+
+.balance-token-item .balance-token-name {
+    transition: font-size 0.3s ease, color 0.3s ease;
+}
+
+.balance-token-amount {
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    color: var(--coins-text);
+    line-height: 1.2;
+    font-size: 1.25rem;
+}
+
+.balance-token-name {
+    color: var(--coins-text-secondary);
+    font-weight: 500;
+    margin-top: 0.125rem;
+    font-size: 0.75rem;
+}
+
+.balance-token-item.loading .balance-token-amount {
+    color: var(--coins-text-muted);
+}
+
+.balance-token-item.loading .balance-token-name {
+    color: var(--coins-text-muted);
+}
+
+/* Legacy single balance display */
+.balance-hero .balance-amount {
+    font-size: 2.5rem;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    margin-bottom: 0.25rem;
+    color: var(--coins-accent);
+}
+
+.balance-hero .balance-subtext {
+    font-size: 0.875rem;
+    color: var(--coins-text-muted);
+}
+
+/* Account card in wallet */
+.account-card {
+    background: var(--coins-bg-secondary);
+    border-radius: var(--coins-radius);
+    padding: 1rem;
+    margin-bottom: 1rem;
+}
+
+.account-card .account-label {
+    font-size: 0.75rem;
+    color: var(--coins-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.5rem;
+}
+
+/* ========================================
+   Statistics Cards (Explorer)
+   ======================================== */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+.stat-card {
+    background: var(--coins-surface);
+    color: var(--coins-text);
+    padding: 1.25rem;
+    border-radius: var(--coins-radius-lg);
+    box-shadow: var(--coins-shadow);
+    border: 1px solid var(--coins-border);
+    transition: all var(--coins-transition);
+    position: relative;
+    overflow: hidden;
+}
+
+.stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--coins-shadow-md);
+    border-color: var(--coins-accent);
+}
+
+.stat-card .stat-value {
+    font-size: 1.75rem;
+    font-weight: 700;
+    margin-bottom: 0.25rem;
+    letter-spacing: -0.025em;
+    color: var(--coins-text);
+}
+
+.stat-card .stat-label {
+    font-size: 0.75rem;
+    color: var(--coins-text-muted);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+/* ========================================
+   Balance Card (Wallet)
+   ======================================== */
+.balance-card {
+    margin-bottom: 1.5rem;
+}
+
+.balance-display {
+    font-size: 1.5rem;
+    font-weight: 600;
+}
+
+.balance-display .amount {
+    color: var(--coins-success);
+}
+
+/* ========================================
+   Public Key Display
+   ======================================== */
+.public-key-display,
+.mono-display {
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    word-break: break-all;
+    background: var(--coins-bg-secondary);
+    padding: 0.875rem 1rem;
+    border-radius: var(--coins-radius);
+    font-size: 0.8125rem;
+    color: var(--coins-text);
+    border: 1px solid var(--coins-border-light);
+    line-height: 1.6;
+}
+
+code, .mono {
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 0.9em;
+}
+
+/* ========================================
+   Buttons
+   ======================================== */
+.button {
+    border-radius: var(--coins-radius);
+    font-weight: 600;
+    transition: all var(--coins-transition);
+    border: none;
+    padding: 0.625rem 1.25rem;
+    font-size: 0.9375rem;
+}
+
+.button.is-primary {
+    background: var(--coins-accent-gradient);
+    color: white;
+}
+
+.button.is-primary:hover {
+    filter: brightness(1.05);
+    transform: translateY(-1px);
+    box-shadow: var(--coins-shadow-md), var(--coins-shadow-glow);
+}
+
+.button.is-primary:active {
+    transform: translateY(0);
+}
+
+.button.is-light {
+    background: var(--coins-bg-secondary);
+    color: var(--coins-text);
+    border: 1px solid var(--coins-border);
+}
+
+.button.is-light:hover {
+    background: var(--coins-border);
+    border-color: var(--coins-border);
+}
+
+.button.is-success {
+    background: var(--coins-success);
+}
+
+.button.is-warning {
+    background: var(--coins-warning);
+    color: var(--coins-text);
+}
+
+.button.is-danger {
+    background: var(--coins-danger);
+}
+
+.button.is-danger.is-light {
+    background: var(--coins-danger-light);
+    color: var(--coins-danger);
+    border: none;
+}
+
+.button.is-link {
+    background: var(--coins-info);
+}
+
+/* Large action buttons for wallet */
+.button.is-action {
+    padding: 1rem 1.5rem;
+    font-size: 1rem;
+    border-radius: var(--coins-radius-lg);
+}
+
+/* ========================================
+   Form Inputs (Dark Mode)
+   ======================================== */
+.input, .textarea, .select select {
+    border-radius: var(--coins-radius);
+    border: 1.5px solid var(--coins-border);
+    transition: all var(--coins-transition);
+    font-size: 0.9375rem;
+    background: var(--coins-surface);
+    color: var(--coins-text);
+}
+
+.input:focus, .textarea:focus, .select select:focus {
+    border-color: var(--coins-accent);
+    box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.15);
+    outline: none;
+}
+
+.input::placeholder {
+    color: var(--coins-text-muted);
+}
+
+.label {
+    color: var(--coins-text);
+    font-weight: 600;
+    font-size: 0.875rem;
+}
+
+.help {
+    color: var(--coins-text-secondary);
+    font-size: 0.8125rem;
+}
+
+/* ========================================
+   Tables
+   ======================================== */
+.table {
+    background: var(--coins-surface);
+    border-radius: var(--coins-radius);
+    overflow: hidden;
+}
+
+.table th {
+    background: var(--coins-bg-secondary);
+    color: var(--coins-text);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
+    padding: 0.875rem 1rem;
+    border-bottom: 1px solid var(--coins-border);
+}
+
+.table td {
+    padding: 0.875rem 1rem;
+    border-bottom: 1px solid var(--coins-border-light);
+    vertical-align: middle;
+}
+
+.table tbody tr {
+    transition: background-color var(--coins-transition);
+}
+
+.table.is-hoverable tbody tr:hover {
+    background-color: var(--coins-bg);
+}
+
+.blocks-table {
+    background: var(--coins-surface);
+    border-radius: var(--coins-radius-lg);
+    overflow: hidden;
+    box-shadow: var(--coins-shadow);
+}
+
+.blocks-table th {
+    background: var(--coins-text);
+    color: white;
+}
+
+.blocks-table tbody tr {
+    cursor: pointer;
+}
+
+/* ========================================
+   Status Badges & Tags
+   ======================================== */
+.tag {
+    border-radius: var(--coins-radius-sm);
+    font-weight: 500;
+    font-size: 0.75rem;
+    padding: 0.375rem 0.625rem;
+}
+
+.status-finalized,
+.tag.is-success {
+    background-color: var(--coins-success-light);
+    color: var(--coins-success);
+}
+
+.status-pending,
+.tag.is-warning {
+    background-color: var(--coins-warning-light);
+    color: #b45309;
+}
+
+.tag.is-danger {
+    background-color: var(--coins-danger-light);
+    color: var(--coins-danger);
+}
+
+.tag.is-info {
+    background-color: var(--coins-info-light);
+    color: var(--coins-info);
+}
+
+.tag.is-link {
+    background-color: #ede9fe;
+    color: var(--coins-primary);
+}
+
+/* Transaction direction badges */
+.tx-sent {
+    color: var(--coins-danger);
+    font-weight: 600;
+}
+
+.tx-received {
+    color: var(--coins-success);
+    font-weight: 600;
+}
+
+/* ========================================
+   Transaction Items (Wallet)
+   ======================================== */
+.transaction-item {
+    padding: 1rem;
+    border-bottom: 1px solid var(--coins-border-light);
+    transition: background-color var(--coins-transition);
+}
+
+.transaction-item:last-child {
+    border-bottom: none;
+}
+
+.transaction-item:hover {
+    background-color: var(--coins-bg);
+}
+
+/* ========================================
+   Notifications
+   ======================================== */
+.notification {
+    border-radius: var(--coins-radius);
+    border: none;
+    padding: 1rem 1.25rem;
+}
+
+.notification.is-success {
+    background-color: var(--coins-success-light);
+    color: #065f46;
+}
+
+.notification.is-warning {
+    background-color: var(--coins-warning-light);
+    color: #92400e;
+}
+
+.notification.is-danger {
+    background-color: var(--coins-danger-light);
+    color: #991b1b;
+}
+
+.notification.is-info {
+    background-color: var(--coins-info-light);
+    color: #1e40af;
+}
+
+/* New block notification */
+.notification.is-new-block {
+    position: fixed;
+    top: 80px;
+    right: 20px;
+    z-index: 1000;
+    animation: slideIn 0.3s ease-out;
+    box-shadow: var(--coins-shadow-lg);
+    max-width: 320px;
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateX(400px);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+/* ========================================
+   Loading Spinner
+   ======================================== */
+.loading {
+    text-align: center;
+    padding: 3rem;
+}
+
+.loading::after {
+    content: "";
+    display: inline-block;
+    width: 48px;
+    height: 48px;
+    border: 3px solid var(--coins-border);
+    border-top: 3px solid var(--coins-primary);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* ========================================
+   Connection Status
+   ======================================== */
+#connection-status {
+    font-weight: 500;
+    font-size: 0.8125rem;
+    transition: all var(--coins-transition);
+}
+
+#connection-status.is-success {
+    background-color: rgba(16, 185, 129, 0.15);
+    color: var(--coins-success);
+}
+
+#connection-status.is-disconnected,
+#connection-status.is-danger {
+    background-color: rgba(239, 68, 68, 0.15);
+    color: var(--coins-danger);
+}
+
+/* ========================================
+   Tooltips
+   ======================================== */
+.status-tooltip {
+    position: relative;
+    display: inline-block;
+}
+
+.status-tooltip .tooltip-text {
+    visibility: hidden;
+    opacity: 0;
+    background-color: var(--coins-text);
+    color: white;
+    text-align: center;
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--coins-radius);
+    position: absolute;
+    z-index: 1000;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    font-size: 0.8125rem;
+    font-weight: 400;
+    transition: opacity 0.15s, visibility 0.15s;
+    box-shadow: var(--coins-shadow-lg);
+    pointer-events: none;
+}
+
+.status-tooltip .tooltip-text::after {
+    content: "";
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    margin-left: -5px;
+    border-width: 5px;
+    border-style: solid;
+    border-color: var(--coins-text) transparent transparent transparent;
+}
+
+.status-tooltip:hover .tooltip-text {
+    visibility: visible;
+    opacity: 1;
+}
+
+/* ========================================
+   Pagination
+   ======================================== */
+.pagination-wrapper {
+    margin-top: 2rem;
+    display: flex;
+    justify-content: center;
+}
+
+.pagination-link, .pagination-previous, .pagination-next {
+    border-radius: var(--coins-radius);
+    border: 1px solid var(--coins-border);
+    transition: all var(--coins-transition);
+}
+
+.pagination-link:hover, .pagination-previous:hover, .pagination-next:hover {
+    border-color: var(--coins-primary);
+    color: var(--coins-primary);
+}
+
+.pagination-link.is-current {
+    background: var(--coins-primary-gradient);
+    border-color: var(--coins-primary);
+}
+
+/* ========================================
+   Modal Enhancements
+   ======================================== */
+.modal-card {
+    border-radius: var(--coins-radius-xl);
+    overflow: hidden;
+    box-shadow: var(--coins-shadow-lg);
+}
+
+.modal-card-head {
+    background: var(--coins-primary-gradient);
+    border-bottom: none;
+}
+
+.modal-card-title {
+    color: white;
+    font-weight: 600;
+}
+
+.modal-card-head .delete {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.modal-card-head .delete:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+.modal-card-body {
+    padding: 1.5rem;
+}
+
+.modal-card-foot {
+    border-top: 1px solid var(--coins-border-light);
+    background: var(--coins-bg);
+}
+
+/* ========================================
+   Footer
+   ======================================== */
+.footer {
+    background: var(--coins-surface);
+    border-top: 1px solid var(--coins-border-light);
+    padding: 2rem 1.5rem;
+}
+
+.footer .content {
+    color: var(--coins-text-secondary);
+}
+
+.footer a {
+    color: var(--coins-primary);
+    transition: color var(--coins-transition);
+}
+
+.footer a:hover {
+    color: var(--coins-primary-dark);
+}
+
+/* ========================================
+   Breadcrumb
+   ======================================== */
+.breadcrumb {
+    margin-bottom: 1.5rem;
+}
+
+.breadcrumb a {
+    color: var(--coins-primary);
+    transition: color var(--coins-transition);
+}
+
+.breadcrumb a:hover {
+    color: var(--coins-primary-dark);
+}
+
+.breadcrumb li.is-active a {
+    color: var(--coins-text-secondary);
+}
+
+/* ========================================
+   Screen Management (Wallet)
+   ======================================== */
+.screen {
+    display: none;
+}
+
+.screen.active {
+    display: block;
+    animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Wallet container */
+.wallet-container {
+    max-width: 600px;
+    margin: 0 auto;
+    padding-top: 1rem;
+}
+
+/* ========================================
+   Block Detail Grid
+   ======================================== */
+.block-detail-grid {
+    display: grid;
+    grid-template-columns: 150px 1fr;
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+.block-detail-label {
+    font-weight: 600;
+    color: var(--coins-text);
+}
+
+.block-detail-value {
+    word-break: break-all;
+}
+
+/* ========================================
+   Truncated Text
+   ======================================== */
+.truncate {
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ========================================
+   Responsive Adjustments
+   ======================================== */
+@media screen and (max-width: 768px) {
+    .section {
+        padding: 1.5rem 1rem;
+    }
+
+    .stats-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+    }
+
+    .stat-card {
+        padding: 1.25rem;
+    }
+
+    .stat-card .stat-value {
+        font-size: 1.75rem;
+    }
+
+    .block-detail-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .truncate {
+        max-width: 150px;
+    }
+
+    .wallet-container {
+        padding: 0.5rem;
+    }
+
+    .public-key-display {
+        font-size: 0.75rem;
+    }
+}
+
+@media screen and (max-width: 480px) {
+    .stats-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ========================================
+   Title Styles
+   ======================================== */
+.title {
+    color: var(--coins-text);
+    font-weight: 700;
+    letter-spacing: -0.025em;
+}
+
+/* ========================================
+   Explorer Navigation (Minimal)
+   ======================================== */
+.explorer-nav {
+    display: flex;
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.explorer-nav .nav-item {
+    font-size: 0.9375rem;
+    font-weight: 500;
+    color: var(--coins-text-muted);
+    cursor: pointer;
+    transition: color var(--coins-transition);
+    padding-bottom: 0.25rem;
+    border-bottom: 2px solid transparent;
+}
+
+.explorer-nav .nav-item:hover {
+    color: var(--coins-text);
+}
+
+.explorer-nav .nav-item.active {
+    color: var(--coins-text);
+    border-bottom-color: var(--coins-accent);
+}
+
+/* ========================================
+   Clickable Stat Cards
+   ======================================== */
+.stat-card.clickable {
+    cursor: pointer;
+}
+
+.stat-card.clickable:hover {
+    transform: translateY(-2px);
+    border-color: var(--coins-accent);
+}
+
+/* ========================================
+   Block Card (Clickable)
+   ======================================== */
+.block-card {
+    background: var(--coins-surface);
+    border: 1px solid var(--coins-border);
+    border-radius: var(--coins-radius-lg);
+    padding: 1.25rem;
+    margin-bottom: 1rem;
+    transition: all var(--coins-transition);
+}
+
+.block-card.clickable {
+    cursor: pointer;
+}
+
+.block-card.clickable:hover {
+    border-color: var(--coins-accent);
+    box-shadow: var(--coins-shadow-md);
+}
+
+.block-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.block-card .block-height {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--coins-text);
+}
+
+.block-card .block-txcount {
+    font-size: 0.875rem;
+    color: var(--coins-text-muted);
+}
+
+.block-card .block-card-hash {
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 0.75rem;
+    color: var(--coins-accent);
+    word-break: break-all;
+}
+
+/* ========================================
+   Inline Search
+   ======================================== */
+.search-section {
+    max-width: 400px;
+}
+
+.search-input {
+    width: 100%;
+    padding: 0.875rem 1rem;
+    font-size: 0.9375rem;
+    border: 1px solid var(--coins-border);
+    border-radius: var(--coins-radius);
+    background: var(--coins-surface);
+    color: var(--coins-text);
+    transition: all var(--coins-transition);
+}
+
+.search-input:focus {
+    outline: none;
+    border-color: var(--coins-accent);
+    box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.15);
+}
+
+.search-input::placeholder {
+    color: var(--coins-text-muted);
+}
+
+/* ========================================
+   Dark Mode Overrides for Bulma
+   ======================================== */
+.box {
+    background: var(--coins-surface);
+    color: var(--coins-text);
+}
+
+.notification {
+    background: var(--coins-surface-elevated);
+    color: var(--coins-text);
+}
+
+.notification.is-info {
+    background: var(--coins-info-light);
+    color: var(--coins-info);
+}
+
+.notification.is-success {
+    background: var(--coins-success-light);
+    color: var(--coins-success);
+}
+
+.notification.is-warning {
+    background: var(--coins-warning-light);
+    color: var(--coins-warning);
+}
+
+.notification.is-danger {
+    background: var(--coins-danger-light);
+    color: var(--coins-danger);
+}
+
+.table {
+    background: var(--coins-surface);
+    color: var(--coins-text);
+}
+
+.table th {
+    color: var(--coins-text-secondary);
+    border-color: var(--coins-border);
+}
+
+.table td {
+    border-color: var(--coins-border);
+}
+
+.table.is-striped tbody tr:nth-child(even) {
+    background: var(--coins-bg-secondary);
+}
+
+.table.is-hoverable tbody tr:hover {
+    background: var(--coins-surface-elevated);
+}
+
+.tag {
+    background: var(--coins-surface-elevated);
+    color: var(--coins-text-secondary);
+}
+
+.tag.is-success {
+    background: var(--coins-success-light);
+    color: var(--coins-success);
+}
+
+.tag.is-warning {
+    background: var(--coins-warning-light);
+    color: var(--coins-warning);
+}
+
+.tag.is-danger {
+    background: var(--coins-danger-light);
+    color: var(--coins-danger);
+}
+
+.tag.is-info {
+    background: var(--coins-info-light);
+    color: var(--coins-info);
+}
+
+.tag.is-link {
+    background: var(--coins-accent);
+    color: var(--coins-bg);
+}
+
+a {
+    color: var(--coins-accent);
+}
+
+a:hover {
+    color: var(--coins-accent-light);
+}
+
+code {
+    background: var(--coins-surface-elevated);
+    color: var(--coins-accent);
+}
+
+.modal-card-body {
+    background: var(--coins-surface);
+    color: var(--coins-text);
+}
+
+.modal-card-foot {
+    background: var(--coins-bg-secondary);
+    border-color: var(--coins-border);
+}
+
+/* ========================================
+   Transaction Row (Clickable)
+   ======================================== */
+.tx-row {
+    padding: 0.75rem 0;
+    border-bottom: 1px solid var(--coins-border-light);
+    cursor: pointer;
+    transition: background var(--coins-transition);
+}
+
+.tx-row:hover {
+    background: var(--coins-bg-secondary);
+    margin: 0 -1rem;
+    padding: 0.75rem 1rem;
+}
+
+.tx-row:last-child {
+    border-bottom: none;
+}
+
+.subtitle {
+    color: var(--coins-text-secondary);
+}
+
+/* ========================================
+   Link Styles
+   ======================================== */
+a {
+    color: var(--coins-primary);
+    transition: color var(--coins-transition);
+}
+
+a:hover {
+    color: var(--coins-primary-dark);
+}
+
+/* ========================================
+   Horizontal Rule
+   ======================================== */
+hr {
+    background-color: var(--coins-border-light);
+    height: 1px;
+}
+
+/* ========================================
+   Transaction Detail Modal
+   ======================================== */
+.tx-detail-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 0;
+    border-bottom: 1px solid var(--coins-border-light);
+}
+
+.tx-detail-row:last-of-type {
+    border-bottom: none;
+}
+
+.tx-detail-label {
+    font-size: 0.875rem;
+    color: var(--coins-text-muted);
+    font-weight: 500;
+}
+
+.tx-detail-value {
+    font-size: 0.9375rem;
+    color: var(--coins-text);
+    font-weight: 600;
+}
+
+.tx-detail-value.is-success {
+    color: var(--coins-success);
+}
+
+.tx-detail-value.is-danger {
+    color: var(--coins-danger);
+}
+
+.tx-detail-divider {
+    margin: 1rem 0;
+}
+
+.tx-detail-address {
+    background: var(--coins-bg-secondary);
+    border-radius: var(--coins-radius);
+    padding: 0.875rem 1rem;
+    margin-top: 0.5rem;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: all var(--coins-transition);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.tx-detail-address:hover {
+    background: var(--coins-surface-elevated);
+    border-color: var(--coins-border);
+}
+
+.tx-detail-address:active {
+    transform: scale(0.995);
+}
+
+.tx-detail-address-text {
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 0.75rem;
+    color: var(--coins-accent);
+    word-break: break-all;
+    line-height: 1.5;
+    flex: 1;
+    margin-right: 0.5rem;
+}
+
+.tx-detail-address .copy-hint {
+    font-size: 0.625rem;
+    color: var(--coins-text-muted);
+    white-space: nowrap;
+    transition: color var(--coins-transition);
+}
+
+.tx-detail-address.copied .copy-hint {
+    color: var(--coins-success);
+}
+
+/* Clickable transaction items */
+.transaction-item.clickable {
+    cursor: pointer;
+}
+
+.transaction-item.clickable:hover {
+    background-color: var(--coins-surface-elevated);
+}
+
+.transaction-item.clickable:active {
+    transform: scale(0.995);
+}
+
+/* Button outline style for explorer link */
+.button.is-link.is-outlined {
+    background: transparent;
+    border: 1.5px solid var(--coins-accent);
+    color: var(--coins-accent);
+}
+
+.button.is-link.is-outlined:hover {
+    background: var(--coins-accent);
+    color: var(--coins-bg);
+}

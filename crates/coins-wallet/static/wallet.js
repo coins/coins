@@ -1,5 +1,6 @@
 // Coins Wallet - Browser-based wallet with WASM BLS signing
 // Uses Web Crypto API for AES-GCM encryption with PBKDF2 key derivation
+// Includes WebSocket support for real-time updates
 
 const STORAGE_KEY = 'coins_wallet_key';
 const SESSION_KEY = 'coins_wallet_session_key';
@@ -12,6 +13,97 @@ let wasmModule = null;
 
 // Current wallet key (in memory while unlocked)
 let currentKey = null;
+
+// WebSocket connection
+let ws = null;
+let wsReconnectTimeout = null;
+
+/**
+ * Initialize WebSocket connection for real-time updates
+ */
+function initWebSocket() {
+    if (ws && ws.readyState === WebSocket.OPEN) return;
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+    try {
+        ws = new WebSocket(wsUrl);
+
+        ws.onopen = () => {
+            console.log('WebSocket connected');
+            updateConnectionStatus(true);
+        };
+
+        ws.onmessage = (event) => {
+            try {
+                const msg = JSON.parse(event.data);
+                handleWSMessage(msg);
+            } catch (e) {
+                console.error('Failed to parse WebSocket message:', e);
+            }
+        };
+
+        ws.onclose = () => {
+            console.log('WebSocket disconnected');
+            updateConnectionStatus(false);
+            // Reconnect after 3 seconds
+            if (wsReconnectTimeout) clearTimeout(wsReconnectTimeout);
+            wsReconnectTimeout = setTimeout(() => initWebSocket(), 3000);
+        };
+
+        ws.onerror = (error) => {
+            console.error('WebSocket error:', error);
+            updateConnectionStatus(false);
+        };
+    } catch (e) {
+        console.error('Failed to create WebSocket:', e);
+        updateConnectionStatus(false);
+    }
+}
+
+/**
+ * Update connection status indicator
+ */
+function updateConnectionStatus(connected) {
+    const statusEl = document.getElementById('connection-status');
+    const dotEl = document.getElementById('connection-dot');
+    if (statusEl) {
+        statusEl.textContent = connected ? 'Connected' : 'Offline';
+    }
+    if (dotEl) {
+        if (connected) {
+            dotEl.classList.remove('disconnected');
+        } else {
+            dotEl.classList.add('disconnected');
+        }
+    }
+}
+
+/**
+ * Handle WebSocket messages
+ */
+function handleWSMessage(msg) {
+    console.log('WebSocket message:', msg);
+
+    // Only refresh if wallet is unlocked
+    if (!walletApp.isUnlocked()) return;
+
+    switch (msg.type) {
+        case 'balance_update':
+            // Refresh balance display
+            refreshBalance();
+            break;
+        case 'transaction_update':
+            // Refresh both balance and transactions
+            refreshBalance();
+            refreshTransactions();
+            break;
+        case 'connected':
+            console.log('WebSocket connection confirmed');
+            break;
+    }
+}
 
 /**
  * WalletApp class - manages wallet operations
@@ -518,44 +610,103 @@ function updateWalletDisplay(publicKey) {
 
 // Update balance display with account data
 function updateBalanceDisplay(account) {
+    const balanceTokensEl = document.getElementById('balance-tokens');
+    const balanceAccountEl = document.getElementById('balance-account');
     const balanceEl = document.getElementById('balance-display');
-    if (!balanceEl) return;
+    const tokenBalancesCard = document.getElementById('token-balances-card');
+
+    // Greek letters for token display
+    const greekLetters = ['α', 'β', 'γ', 'δ', 'ε', 'ζ', 'η', 'θ', 'ι', 'κ'];
+    const greekNames = ['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta', 'Eta', 'Theta', 'Iota', 'Kappa'];
 
     if (account === null) {
         // Account not found - new wallet
-        balanceEl.innerHTML = `
-            <div class="notification is-info is-light">
-                <p><strong>Account not found</strong></p>
-                <p class="is-size-7">This is a new wallet. Your account will be created when you receive your first transaction.</p>
-            </div>
-        `;
+        if (balanceTokensEl) {
+            balanceTokensEl.innerHTML = `
+                <div class="balance-token-item">
+                    <div class="balance-token-amount">0</div>
+                    <div class="balance-token-name">New wallet</div>
+                </div>
+            `;
+        }
+        if (balanceAccountEl) balanceAccountEl.textContent = '';
+        if (tokenBalancesCard) tokenBalancesCard.style.display = 'none';
+        // Reset carousel state for empty wallet
+        window.carouselState.tokenIds = ['0'];
+        window.carouselState.balances = { '0': 0 };
         return;
     }
 
-    // Display all token balances
+    // Get balances and filter out zero balances, sort by token_id
     const balances = account.balances || {};
-    const tokenIds = Object.keys(balances).sort((a, b) => parseInt(a) - parseInt(b));
+    const tokenIds = Object.keys(balances)
+        .filter(id => (balances[id] || 0) > 0)
+        .sort((a, b) => parseInt(a) - parseInt(b));
 
-    if (tokenIds.length === 0) {
-        balanceEl.innerHTML = '<p class="has-text-grey">No tokens</p>';
-        return;
+    // Store in carousel state for send form
+    window.carouselState.tokenIds = tokenIds;
+    window.carouselState.balances = balances;
+
+    // Find the token(s) with the largest balance
+    let largestBalance = 0;
+    tokenIds.forEach((id) => {
+        if ((balances[id] || 0) > largestBalance) {
+            largestBalance = balances[id];
+        }
+    });
+
+    // Find all indices with the largest balance
+    const largestIndices = [];
+    tokenIds.forEach((id, index) => {
+        if ((balances[id] || 0) === largestBalance) {
+            largestIndices.push(index);
+        }
+    });
+
+    // Among those with largest balance, pick the one closest to the middle
+    // where |left - right| is closest to 0
+    const middleIndex = (tokenIds.length - 1) / 2;
+    let largestBalanceIndex = largestIndices[0];
+    let closestToMiddle = Math.abs(largestIndices[0] - middleIndex);
+
+    for (const idx of largestIndices) {
+        const distFromMiddle = Math.abs(idx - middleIndex);
+        if (distFromMiddle < closestToMiddle) {
+            closestToMiddle = distFromMiddle;
+            largestBalanceIndex = idx;
+        }
     }
 
-    let html = '<table class="table is-fullwidth is-hoverable"><thead><tr><th>Token ID</th><th class="has-text-right">Balance</th></tr></thead><tbody>';
+    // Update account ID
+    if (balanceAccountEl) balanceAccountEl.textContent = `Account #${account.id}`;
 
-    for (const tokenId of tokenIds) {
-        const balance = balances[tokenId];
-        const isNative = tokenId === '0';
-        const label = isNative ? 'Native (0)' : tokenId;
-        html += `<tr><td>${label}</td><td class="has-text-right"><strong>${balance.toLocaleString()}</strong></td></tr>`;
+    // Build horizontally scrollable token balances
+    if (balanceTokensEl) {
+        let html = '';
+        for (const tokenId of tokenIds) {
+            const balance = balances[tokenId] || 0;
+            const idx = parseInt(tokenId);
+            const letter = greekLetters[idx] || `#${tokenId}`;
+            const name = greekNames[idx] || `Token ${tokenId}`;
+            html += `
+                <div class="balance-token-item" data-token-id="${tokenId}">
+                    <div class="balance-token-amount">${balance.toLocaleString()}</div>
+                    <div class="balance-token-name">${letter} ${name}</div>
+                </div>
+            `;
+        }
+        balanceTokensEl.innerHTML = html;
+
+        // Initialize carousel with the largest balance centered
+        setTimeout(() => {
+            if (typeof window.initBalanceCarousel === 'function') {
+                window.initBalanceCarousel(largestBalanceIndex);
+            }
+        }, 50);
     }
 
-    html += '</tbody></table>';
-
-    // Also show nonce for reference
-    html += `<p class="is-size-7 has-text-grey mt-2">Account ID: ${account.id} | Nonce: ${account.nonce}</p>`;
-
-    balanceEl.innerHTML = html;
+    // Hide the separate token balances card since we show them in the hero now
+    if (tokenBalancesCard) tokenBalancesCard.style.display = 'none';
 }
 
 // Show send status message
@@ -589,9 +740,14 @@ function updateTransactionHistory(transactions) {
     // Get current public key for display
     const currentPk = walletApp.getPublicKey();
 
+    // Greek letters for token display
+    const greekLetters = ['α', 'β', 'γ', 'δ', 'ε', 'ζ', 'η', 'θ', 'ι', 'κ'];
+    const greekNames = ['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta', 'Eta', 'Theta', 'Iota', 'Kappa'];
+
     // Build transaction list HTML
     let html = '';
-    for (const tx of transactions) {
+    for (let i = 0; i < transactions.length; i++) {
+        const tx = transactions[i];
         const isOutgoing = tx.direction === 'outgoing';
         const directionClass = isOutgoing ? 'has-text-danger' : 'has-text-success';
         const directionIcon = isOutgoing ? '-' : '+';
@@ -602,24 +758,26 @@ function updateTransactionHistory(transactions) {
         const counterpartyShort = counterpartyPk.substring(0, 8) + '...' + counterpartyPk.substring(56);
 
         // Format token display
-        const tokenLabel = tx.token_id === 0 ? 'Native' : `Token ${tx.token_id}`;
+        const tokenIdx = tx.token_id;
+        const tokenLetter = greekLetters[tokenIdx] || `#${tokenIdx}`;
+        const tokenName = greekNames[tokenIdx] || `Token ${tokenIdx}`;
 
         // Format status
         let statusHtml;
         if (tx.finalized) {
             statusHtml = '<span class="tag is-success is-light">Finalized</span>';
         } else if (tx.confirmations > 0) {
-            statusHtml = `<span class="tag is-warning is-light">${tx.confirmations} conf (${tx.confirmations_remaining} more needed)</span>`;
+            statusHtml = `<span class="tag is-warning is-light">${tx.confirmations} conf</span>`;
         } else {
             statusHtml = '<span class="tag is-info is-light">Pending</span>';
         }
 
         html += `
-            <div class="transaction-item">
+            <div class="transaction-item clickable" data-tx-index="${i}">
                 <div class="columns is-mobile is-vcentered mb-0">
                     <div class="column">
                         <p class="has-text-weight-semibold ${directionClass}">
-                            ${directionIcon} ${tx.amount.toLocaleString()} ${tokenLabel}
+                            ${directionIcon} ${tx.amount.toLocaleString()} ${tokenLetter} ${tokenName}
                         </p>
                         <p class="is-size-7 has-text-grey">
                             ${directionLabel} ${isOutgoing ? 'to' : 'from'}
@@ -628,7 +786,6 @@ function updateTransactionHistory(transactions) {
                     </div>
                     <div class="column is-narrow has-text-right">
                         ${statusHtml}
-                        ${tx.fee > 0 ? `<p class="is-size-7 has-text-grey">Fee: ${tx.fee}</p>` : ''}
                     </div>
                 </div>
             </div>
@@ -636,6 +793,90 @@ function updateTransactionHistory(transactions) {
     }
 
     historyEl.innerHTML = html;
+
+    // Store transactions for detail view
+    window.currentTransactions = transactions;
+
+    // Add click handlers
+    historyEl.querySelectorAll('.transaction-item.clickable').forEach(item => {
+        item.addEventListener('click', () => {
+            const index = parseInt(item.getAttribute('data-tx-index'));
+            showTransactionDetail(window.currentTransactions[index]);
+        });
+    });
+}
+
+// Show transaction detail modal
+function showTransactionDetail(tx) {
+    const modal = document.getElementById('tx-detail-modal');
+    if (!modal || !tx) return;
+
+    const isOutgoing = tx.direction === 'outgoing';
+    const counterpartyPk = isOutgoing ? tx.recipient_pk : tx.sender_pk;
+
+    // Greek letters for token display
+    const greekLetters = ['α', 'β', 'γ', 'δ', 'ε', 'ζ', 'η', 'θ', 'ι', 'κ'];
+    const greekNames = ['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta', 'Eta', 'Theta', 'Iota', 'Kappa'];
+    const tokenIdx = tx.token_id;
+    const tokenName = `${greekLetters[tokenIdx] || '#'} ${greekNames[tokenIdx] || `Token ${tokenIdx}`}`;
+
+    // Update modal content
+    const typeEl = document.getElementById('tx-detail-type');
+    if (typeEl) {
+        typeEl.textContent = isOutgoing ? 'Sent' : 'Received';
+        typeEl.className = `tx-detail-value ${isOutgoing ? 'is-danger' : 'is-success'}`;
+    }
+
+    const amountEl = document.getElementById('tx-detail-amount');
+    if (amountEl) {
+        amountEl.textContent = `${isOutgoing ? '-' : '+'}${tx.amount.toLocaleString()}`;
+        amountEl.className = `tx-detail-value ${isOutgoing ? 'is-danger' : 'is-success'}`;
+    }
+
+    const tokenEl = document.getElementById('tx-detail-token');
+    if (tokenEl) tokenEl.textContent = tokenName;
+
+    const feeEl = document.getElementById('tx-detail-fee');
+    if (feeEl) feeEl.textContent = tx.fee > 0 ? tx.fee.toString() : '0';
+
+    // Status
+    const statusEl = document.getElementById('tx-detail-status');
+    if (statusEl) {
+        if (tx.finalized) {
+            statusEl.innerHTML = '<span class="tag is-success">Finalized</span>';
+        } else if (tx.confirmations > 0) {
+            statusEl.innerHTML = `<span class="tag is-warning">${tx.confirmations} confirmations (${tx.confirmations_remaining} more needed)</span>`;
+        } else {
+            statusEl.innerHTML = '<span class="tag is-info">Pending</span>';
+        }
+    }
+
+    // Block height (if available)
+    const blockRow = document.getElementById('tx-detail-block-row');
+    const blockEl = document.getElementById('tx-detail-block');
+    if (tx.block_height !== undefined && tx.block_height !== null) {
+        if (blockRow) blockRow.style.display = 'flex';
+        if (blockEl) blockEl.textContent = `#${tx.block_height}`;
+    } else {
+        if (blockRow) blockRow.style.display = 'none';
+    }
+
+    // Counterparty address
+    const labelEl = document.getElementById('tx-detail-counterparty-label');
+    if (labelEl) labelEl.textContent = isOutgoing ? 'To' : 'From';
+
+    const addressTextEl = document.getElementById('tx-detail-counterparty-text');
+    if (addressTextEl) addressTextEl.textContent = counterpartyPk;
+
+    // Explorer link
+    const explorerLink = document.getElementById('tx-detail-explorer-link');
+    if (explorerLink) {
+        // Link to the counterparty's account in the explorer
+        explorerLink.href = `http://localhost:3000/#/account/${counterpartyPk}`;
+    }
+
+    // Show modal
+    modal.classList.add('is-active');
 }
 
 // Refresh transaction history from API
@@ -665,15 +906,18 @@ async function sendTransaction() {
     const sendBtn = document.getElementById('send-tx-btn');
     const recipientEl = document.getElementById('send-recipient');
     const amountEl = document.getElementById('send-amount');
-    const tokenIdEl = document.getElementById('send-token-id');
     const feeEl = document.getElementById('send-fee');
 
     hideSendStatus();
 
+    // Get token from carousel selection
+    const selectedIndex = window.carouselState.selectedIndex;
+    const tokenIds = window.carouselState.tokenIds;
+    const tokenId = tokenIds.length > 0 ? parseInt(tokenIds[selectedIndex] || '0', 10) : 0;
+
     // Get form values
     const recipient = recipientEl.value.trim();
     const amount = parseInt(amountEl.value, 10);
-    const tokenId = parseInt(tokenIdEl.value || '0', 10);
     const fee = parseInt(feeEl.value || '1', 10);
 
     // Basic validation
@@ -739,6 +983,9 @@ async function refreshBalance() {
 // Initialize when DOM is loaded
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('Coins Wallet initializing...');
+
+    // Initialize WebSocket connection
+    initWebSocket();
 
     // Initialize WASM module
     try {
@@ -908,18 +1155,100 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    // Copy public key button
+    // Copy public key - click on address area
     const copyPkBtn = document.getElementById('copy-pk-btn');
     if (copyPkBtn) {
         copyPkBtn.addEventListener('click', () => {
             const pkElement = document.getElementById('wallet-public-key');
+            const feedbackElement = document.getElementById('copy-feedback');
             if (pkElement) {
                 navigator.clipboard.writeText(pkElement.textContent).then(() => {
-                    copyPkBtn.textContent = 'Copied!';
+                    copyPkBtn.classList.add('copied');
+                    if (feedbackElement) feedbackElement.textContent = 'copied!';
                     setTimeout(() => {
-                        copyPkBtn.textContent = 'Copy';
+                        copyPkBtn.classList.remove('copied');
+                        if (feedbackElement) feedbackElement.textContent = 'tap to copy';
                     }, 2000);
                 });
+            }
+        });
+    }
+
+    // Quick amount selection
+    const quickAmounts = document.querySelectorAll('.quick-amount');
+    const amountInput = document.getElementById('send-amount');
+
+    quickAmounts.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const amount = parseInt(btn.getAttribute('data-amount'), 10);
+            const maxBalance = window.carouselState.balances[window.carouselState.tokenIds[window.carouselState.selectedIndex]] || 0;
+            const cappedAmount = Math.min(amount, maxBalance);
+            if (amountInput) {
+                amountInput.value = cappedAmount;
+                amountInput.classList.add('scrolling');
+                setTimeout(() => amountInput.classList.remove('scrolling'), 150);
+            }
+            quickAmounts.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+        });
+    });
+
+    // Helper to get max balance for selected token
+    function getSelectedTokenMaxBalance() {
+        const selectedIndex = window.carouselState.selectedIndex;
+        const tokenIds = window.carouselState.tokenIds;
+        const balances = window.carouselState.balances;
+        if (tokenIds.length === 0) return 0;
+        const tokenId = tokenIds[selectedIndex];
+        return balances[tokenId] || 0;
+    }
+
+    // Scroll to adjust amount
+    if (amountInput) {
+        let scrollTimeout;
+        amountInput.addEventListener('wheel', (e) => {
+            e.preventDefault();
+
+            const maxBalance = getSelectedTokenMaxBalance();
+            const currentVal = parseInt(amountInput.value.replace(/,/g, '')) || 0;
+            // Determine step size based on current value
+            let step = 1;
+            if (currentVal >= 10000) step = 1000;
+            else if (currentVal >= 1000) step = 100;
+            else if (currentVal >= 100) step = 10;
+
+            // Scroll up = increase, scroll down = decrease
+            const delta = e.deltaY < 0 ? step : -step;
+            const newVal = Math.max(0, Math.min(maxBalance, currentVal + delta));
+
+            amountInput.value = newVal;
+            amountInput.classList.add('scrolling');
+
+            // Clear active quick amounts
+            quickAmounts.forEach(b => b.classList.remove('active'));
+
+            // Remove scrolling class after a delay
+            clearTimeout(scrollTimeout);
+            scrollTimeout = setTimeout(() => {
+                amountInput.classList.remove('scrolling');
+            }, 150);
+        }, { passive: false });
+
+        // Clear active state and cap at max when manually editing
+        amountInput.addEventListener('input', () => {
+            quickAmounts.forEach(b => b.classList.remove('active'));
+            // Cap value at max balance
+            const maxBalance = getSelectedTokenMaxBalance();
+            const currentVal = parseInt(amountInput.value.replace(/,/g, '')) || 0;
+            if (currentVal > maxBalance) {
+                amountInput.value = maxBalance;
+            }
+        });
+
+        // Only allow numbers
+        amountInput.addEventListener('keypress', (e) => {
+            if (!/[0-9]/.test(e.key) && e.key !== 'Backspace' && e.key !== 'Delete') {
+                e.preventDefault();
             }
         });
     }
@@ -1028,8 +1357,336 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
+    // Transaction detail modal handlers
+    const txDetailModal = document.getElementById('tx-detail-modal');
+    const closeTxDetailModal = document.getElementById('close-tx-detail-modal');
+    const closeTxDetailBtn = document.getElementById('close-tx-detail-btn');
+    const txDetailBackground = txDetailModal?.querySelector('.modal-background');
+
+    function closeTxModal() {
+        if (txDetailModal) txDetailModal.classList.remove('is-active');
+    }
+
+    if (closeTxDetailModal) closeTxDetailModal.addEventListener('click', closeTxModal);
+    if (closeTxDetailBtn) closeTxDetailBtn.addEventListener('click', closeTxModal);
+    if (txDetailBackground) txDetailBackground.addEventListener('click', closeTxModal);
+
+    // Copy counterparty address in transaction detail
+    const txDetailCounterparty = document.getElementById('tx-detail-counterparty');
+    if (txDetailCounterparty) {
+        txDetailCounterparty.addEventListener('click', () => {
+            const addressText = document.getElementById('tx-detail-counterparty-text');
+            const feedbackEl = document.getElementById('tx-detail-copy-feedback');
+            if (addressText) {
+                navigator.clipboard.writeText(addressText.textContent).then(() => {
+                    txDetailCounterparty.classList.add('copied');
+                    if (feedbackEl) feedbackEl.textContent = 'copied!';
+                    setTimeout(() => {
+                        txDetailCounterparty.classList.remove('copied');
+                        if (feedbackEl) feedbackEl.textContent = 'tap to copy';
+                    }, 2000);
+                });
+            }
+        });
+    }
+
+    // Carousel for balance tokens with morphing sizes
+    const balanceScroll = document.getElementById('balance-scroll');
+    const balanceTokens = document.getElementById('balance-tokens');
+
+    if (balanceScroll && balanceTokens) {
+        let isDragging = false;
+        let startX = 0;
+        let dragOffset = 0;
+
+        function updateTokenSizes(offset) {
+            const items = balanceTokens.querySelectorAll('.balance-token-item');
+            const positions = Array.from(items).map(item => item.offsetLeft);
+            const widths = Array.from(items).map(item => item.offsetWidth);
+
+            // Use the balance-hero box as the clipping boundary
+            const balanceHero = balanceScroll.closest('.balance-hero');
+            const heroRect = balanceHero ? balanceHero.getBoundingClientRect() : null;
+            const scrollRect = balanceScroll.getBoundingClientRect();
+            const containerWidth = heroRect ? (heroRect.right - scrollRect.left) : balanceScroll.clientWidth;
+            const containerCenter = balanceScroll.clientWidth / 2;
+
+            // Find which item is closest to center during drag
+            let closestIndex = 0;
+            let closestDist = Infinity;
+
+            for (let i = 0; i < positions.length; i++) {
+                const itemCenter = positions[i] + offset + (widths[i] / 2);
+                const dist = Math.abs(itemCenter - containerCenter);
+                if (dist < closestDist) {
+                    closestDist = dist;
+                    closestIndex = i;
+                }
+            }
+
+            items.forEach((item, index) => {
+                const itemPos = positions[index] || 0;
+                const itemWidth = widths[index] || 100;
+
+                // Check if item would be clipped at right edge
+                const visibleLeft = itemPos + offset;
+                const visibleRight = visibleLeft + itemWidth;
+                const isClippedRight = visibleRight > containerWidth;
+
+                if (isClippedRight) {
+                    item.style.visibility = 'hidden';
+                } else {
+                    item.style.visibility = 'visible';
+                }
+
+                const amountEl = item.querySelector('.balance-token-amount');
+                const nameEl = item.querySelector('.balance-token-name');
+                if (!amountEl || !nameEl) return;
+
+                // Calculate distance from center for smooth size transition
+                const itemCenter = itemPos + offset + (itemWidth / 2);
+                const distFromCenter = Math.abs(itemCenter - containerCenter);
+                const normalizedDist = distFromCenter / 150; // Normalize for smooth transition
+
+                if (index === closestIndex && normalizedDist < 0.5) {
+                    // Centered item - large and accented
+                    const scale = 1 - normalizedDist * 0.4; // Slight size reduction as it moves off center
+                    amountEl.style.fontSize = `${2.5 * scale}rem`;
+                    amountEl.style.color = 'var(--coins-accent)';
+                    nameEl.style.fontSize = `${1 * scale}rem`;
+                    nameEl.style.color = 'var(--coins-accent)';
+                    item.style.opacity = '1';
+                } else {
+                    // Other items - uniform smaller size
+                    amountEl.style.fontSize = '1.25rem';
+                    amountEl.style.color = 'var(--coins-text)';
+                    nameEl.style.fontSize = '0.75rem';
+                    nameEl.style.color = 'var(--coins-text-secondary)';
+                    item.style.opacity = '0.7';
+                }
+            });
+        }
+
+        function getItemPositions() {
+            const items = balanceTokens.querySelectorAll('.balance-token-item');
+            return Array.from(items).map(item => item.offsetLeft);
+        }
+
+        function getItemWidths() {
+            const items = balanceTokens.querySelectorAll('.balance-token-item');
+            return Array.from(items).map(item => item.offsetWidth);
+        }
+
+        function snapToNearest() {
+            const positions = getItemPositions();
+            const widths = getItemWidths();
+            if (positions.length === 0) return;
+
+            const containerWidth = balanceScroll.clientWidth;
+            const containerCenter = containerWidth / 2;
+
+            // Find which item's center is closest to the container center
+            let closestIndex = 0;
+            let closestDist = Infinity;
+
+            for (let i = 0; i < positions.length; i++) {
+                // Item center position in viewport = positions[i] + currentOffset + width/2
+                const itemCenter = positions[i] + window.carouselState.currentOffset + (widths[i] / 2);
+                const dist = Math.abs(itemCenter - containerCenter);
+                if (dist < closestDist) {
+                    closestDist = dist;
+                    closestIndex = i;
+                }
+            }
+
+            // Calculate offset to center this item
+            const selectedPos = positions[closestIndex];
+            const selectedWidth = widths[closestIndex];
+            const centerOffset = containerCenter - selectedPos - (selectedWidth / 2);
+
+            window.carouselState.currentOffset = centerOffset;
+            window.carouselState.selectedIndex = closestIndex;
+
+            balanceTokens.style.transform = `translateX(${centerOffset}px)`;
+            updateCarouselSizes(closestIndex);
+        }
+
+        function handleDragStart(clientX) {
+            isDragging = true;
+            startX = clientX;
+            dragOffset = window.carouselState.currentOffset;
+            balanceScroll.classList.add('grabbing');
+            balanceTokens.classList.add('dragging');
+        }
+
+        function handleDragMove(clientX) {
+            if (!isDragging) return;
+
+            const diff = clientX - startX;
+            const positions = getItemPositions();
+            const widths = getItemWidths();
+            const containerWidth = balanceScroll.clientWidth;
+            const containerCenter = containerWidth / 2;
+
+            // Calculate offset limits for centered carousel
+            // maxOffset: offset to center the first item (index 0)
+            // minOffset: offset to center the last item
+            const firstItemCenter = positions[0] + (widths[0] / 2);
+            const lastItemCenter = positions[positions.length - 1] + (widths[widths.length - 1] / 2);
+            const maxOffset = containerCenter - firstItemCenter;
+            const minOffset = containerCenter - lastItemCenter;
+
+            // Allow slight overscroll (50px) for bounce effect, but will snap back
+            window.carouselState.currentOffset = Math.max(minOffset - 50, Math.min(maxOffset + 50, dragOffset + diff));
+            balanceTokens.style.transform = `translateX(${window.carouselState.currentOffset}px)`;
+            updateTokenSizes(window.carouselState.currentOffset);
+        }
+
+        function handleDragEnd() {
+            if (!isDragging) return;
+            isDragging = false;
+            balanceScroll.classList.remove('grabbing');
+            balanceTokens.classList.remove('dragging');
+            snapToNearest();
+        }
+
+        // Mouse events
+        balanceScroll.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            handleDragStart(e.clientX);
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            handleDragMove(e.clientX);
+        });
+
+        document.addEventListener('mouseup', () => {
+            handleDragEnd();
+        });
+
+        // Touch events
+        balanceScroll.addEventListener('touchstart', (e) => {
+            handleDragStart(e.touches[0].clientX);
+        }, { passive: true });
+
+        balanceScroll.addEventListener('touchmove', (e) => {
+            handleDragMove(e.touches[0].clientX);
+        }, { passive: true });
+
+        balanceScroll.addEventListener('touchend', () => {
+            handleDragEnd();
+        });
+
+        // Note: sizes are initialized by initBalanceCarousel() called from updateBalanceDisplay()
+    }
+
     console.log('Coins Wallet initialized');
 });
+
+// Balance carousel state and initialization
+window.carouselState = {
+    currentOffset: 0,
+    itemWidth: 120,
+    selectedIndex: 0,
+    tokenIds: [],      // Array of token IDs in carousel order
+    balances: {}       // Map of token_id -> balance
+};
+
+window.initBalanceCarousel = function(initialIndex = 0) {
+    const balanceScroll = document.getElementById('balance-scroll');
+    const balanceTokens = document.getElementById('balance-tokens');
+    if (!balanceTokens || !balanceScroll) return;
+
+    const items = balanceTokens.querySelectorAll('.balance-token-item');
+    if (items.length === 0) return;
+
+    // Store the selected index
+    window.carouselState.selectedIndex = initialIndex;
+
+    // First, set sizes based on selection
+    items.forEach((item, index) => {
+        const amountEl = item.querySelector('.balance-token-amount');
+        const nameEl = item.querySelector('.balance-token-name');
+        if (!amountEl || !nameEl) return;
+
+        if (index === initialIndex) {
+            // Selected item - large and accented
+            amountEl.style.fontSize = '2.5rem';
+            amountEl.style.color = 'var(--coins-accent)';
+            nameEl.style.fontSize = '1rem';
+            nameEl.style.color = 'var(--coins-accent)';
+            item.style.opacity = '1';
+        } else {
+            // Other items - uniform smaller
+            amountEl.style.fontSize = '1.25rem';
+            amountEl.style.color = 'var(--coins-text)';
+            nameEl.style.fontSize = '0.75rem';
+            nameEl.style.color = 'var(--coins-text-secondary)';
+            item.style.opacity = '0.7';
+        }
+        item.style.visibility = 'visible';
+    });
+
+    // Force a reflow to get accurate measurements after size changes
+    balanceTokens.offsetHeight;
+
+    // Now calculate positions with correct sizes
+    const containerWidth = balanceScroll.clientWidth;
+    const positions = Array.from(items).map(item => item.offsetLeft);
+    const itemWidths = Array.from(items).map(item => item.offsetWidth);
+
+    // Center position: item center should be at container center
+    const selectedPos = positions[initialIndex] || 0;
+    const selectedWidth = itemWidths[initialIndex] || 100;
+    const centerOffset = (containerWidth / 2) - selectedPos - (selectedWidth / 2);
+
+    window.carouselState.currentOffset = centerOffset;
+    balanceTokens.style.transform = `translateX(${centerOffset}px)`;
+};
+
+function updateCarouselSizes(selectedIndex) {
+    const balanceTokens = document.getElementById('balance-tokens');
+    if (!balanceTokens) return;
+
+    const items = balanceTokens.querySelectorAll('.balance-token-item');
+    items.forEach((item, index) => {
+        const amountEl = item.querySelector('.balance-token-amount');
+        const nameEl = item.querySelector('.balance-token-name');
+        if (!amountEl || !nameEl) return;
+
+        if (index === selectedIndex) {
+            // Selected/centered item - large and accented
+            amountEl.style.fontSize = '2.5rem';
+            amountEl.style.color = 'var(--coins-accent)';
+            nameEl.style.fontSize = '1rem';
+            nameEl.style.color = 'var(--coins-accent)';
+            item.style.opacity = '1';
+        } else {
+            // Other items - uniform smaller size
+            amountEl.style.fontSize = '1.25rem';
+            amountEl.style.color = 'var(--coins-text)';
+            nameEl.style.fontSize = '0.75rem';
+            nameEl.style.color = 'var(--coins-text-secondary)';
+            item.style.opacity = '0.7';
+        }
+        item.style.visibility = 'visible';
+    });
+
+    // Validate send amount against new selection's max balance
+    const sendAmountEl = document.getElementById('send-amount');
+    if (sendAmountEl) {
+        const tokenIds = window.carouselState.tokenIds;
+        const balances = window.carouselState.balances;
+        if (tokenIds.length > 0) {
+            const tokenId = tokenIds[selectedIndex];
+            const maxBalance = balances[tokenId] || 0;
+            const currentVal = parseInt(sendAmountEl.value.replace(/,/g, '')) || 0;
+            if (currentVal > maxBalance) {
+                sendAmountEl.value = maxBalance;
+            }
+        }
+    }
+}
 
 // Export for use by other scripts (future stories)
 window.walletApp = walletApp;

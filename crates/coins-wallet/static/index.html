@@ -5,58 +5,24 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Coins Wallet</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
-    <style>
-        .screen {
-            display: none;
-        }
-        .screen.active {
-            display: block;
-        }
-        .wallet-container {
-            max-width: 600px;
-            margin: 0 auto;
-            padding-top: 2rem;
-        }
-        .public-key-display {
-            font-family: monospace;
-            word-break: break-all;
-            background: #f5f5f5;
-            padding: 0.75rem;
-            border-radius: 4px;
-            font-size: 0.85rem;
-        }
-        .balance-card {
-            margin-bottom: 1.5rem;
-        }
-        .transaction-item {
-            padding: 0.75rem;
-            border-bottom: 1px solid #eee;
-        }
-        .transaction-item:last-child {
-            border-bottom: none;
-        }
-    </style>
+    <link rel="stylesheet" href="/shared/coins-common.css">
 </head>
 <body>
-    <!-- Navigation -->
-    <nav class="navbar is-primary" role="navigation">
-        <div class="container">
-            <div class="navbar-brand">
-                <span class="navbar-item">
-                    <strong>Coins Wallet</strong>
-                </span>
-            </div>
-        </div>
-    </nav>
+    <!-- Minimal status indicator -->
+    <div class="status-indicator" id="status-indicator">
+        <div class="status-dot" id="connection-dot"></div>
+    </div>
 
     <!-- Main Content -->
     <section class="section">
         <div class="wallet-container">
             <!-- Create Screen -->
             <div id="create-screen" class="screen active">
-                <div class="box">
-                    <h2 class="title is-4">Create New Wallet</h2>
-                    <p class="subtitle is-6">Create a new wallet with a secure password</p>
+                <div class="coins-card">
+                    <div class="coins-card-header">
+                        <h2 class="coins-card-title">Create New Wallet</h2>
+                    </div>
+                    <p class="has-text-grey mb-4">Create a new wallet with a secure password</p>
 
                     <div class="field">
                         <label class="label">Password</label>
@@ -93,9 +59,11 @@
 
             <!-- Import Screen -->
             <div id="import-screen" class="screen">
-                <div class="box">
-                    <h2 class="title is-4">Import Existing Wallet</h2>
-                    <p class="subtitle is-6">Import your wallet using a secret key</p>
+                <div class="coins-card">
+                    <div class="coins-card-header">
+                        <h2 class="coins-card-title">Import Existing Wallet</h2>
+                    </div>
+                    <p class="has-text-grey mb-4">Import your wallet using a secret key</p>
 
                     <div class="field">
                         <label class="label">Secret Key</label>
@@ -142,9 +110,11 @@
 
             <!-- Unlock Screen -->
             <div id="unlock-screen" class="screen">
-                <div class="box">
-                    <h2 class="title is-4">Unlock Wallet</h2>
-                    <p class="subtitle is-6">Enter your password to unlock your wallet</p>
+                <div class="coins-card">
+                    <div class="coins-card-header">
+                        <h2 class="coins-card-title">Unlock Wallet</h2>
+                    </div>
+                    <p class="has-text-grey mb-4">Enter your password to unlock your wallet</p>
 
                     <div class="field">
                         <label class="label">Password</label>
@@ -175,107 +145,142 @@
 
             <!-- Wallet Screen -->
             <div id="wallet-screen" class="screen">
-                <!-- Account Info -->
-                <div class="box">
-                    <h2 class="title is-5">Your Account</h2>
-                    <div class="field">
-                        <label class="label is-small">Public Key</label>
-                        <div class="public-key-display">
-                            <span id="wallet-public-key">Loading...</span>
+                <!-- Balance Hero - Horizontally scrollable token balances -->
+                <div class="balance-hero">
+                    <div class="balance-label">Balances <span class="balance-account" id="balance-account"></span></div>
+                    <div class="balance-scroll-container" id="balance-scroll">
+                        <div class="balance-tokens" id="balance-tokens">
+                            <div class="balance-token-item loading">
+                                <div class="balance-token-amount">--</div>
+                                <div class="balance-token-name">Loading...</div>
+                            </div>
                         </div>
-                        <button class="button is-small is-light mt-2" id="copy-pk-btn">
-                            Copy
-                        </button>
                     </div>
                 </div>
 
-                <!-- Balance -->
-                <div class="box balance-card">
-                    <h2 class="title is-5">Balance</h2>
+                <!-- Account Address - Click to Copy -->
+                <div class="address-display clickable" id="copy-pk-btn" title="Click to copy">
+                    <div class="address-label">Your Address <span class="copy-hint" id="copy-feedback">tap to copy</span></div>
+                    <div class="address-text" id="wallet-public-key">Loading...</div>
+                </div>
+
+                <!-- Token Balances (if multiple) -->
+                <div class="coins-card mb-4" id="token-balances-card" style="display: none;">
+                    <div class="coins-card-header">
+                        <h2 class="coins-card-title">Tokens</h2>
+                    </div>
                     <div id="balance-display">
                         <p class="has-text-grey">Loading...</p>
                     </div>
-                    <button class="button is-small is-light mt-2" id="refresh-balance-btn">
-                        Refresh
+                </div>
+
+                <!-- Send Form - Modern Amount Input -->
+                <div class="coins-card mb-4">
+                    <div class="coins-card-header">
+                        <h2 class="coins-card-title">Send</h2>
+                    </div>
+
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" type="text" id="send-recipient" placeholder="Recipient address">
+                        </div>
+                    </div>
+
+                    <!-- Amount Input -->
+                    <div class="amount-input-wrapper">
+                        <input type="text" inputmode="numeric" class="amount-input-large" id="send-amount" placeholder="0" autocomplete="off">
+                        <div class="amount-quick-select">
+                            <span class="quick-amount" data-amount="10">10</span>
+                            <span class="quick-amount" data-amount="100">100</span>
+                            <span class="quick-amount" data-amount="1000">1k</span>
+                            <span class="quick-amount" data-amount="10000">10k</span>
+                        </div>
+                    </div>
+
+                    <!-- Hidden fields -->
+                    <input type="hidden" id="send-fee" value="1">
+
+                    <button class="button is-primary is-fullwidth" id="send-tx-btn">
+                        Send
                     </button>
+
+                    <div id="send-status" class="notification mt-3" style="display: none;"></div>
                 </div>
 
-                <!-- Send Form -->
-                <div class="box">
-                    <h2 class="title is-5">Send Tokens</h2>
-
-                    <div class="field">
-                        <label class="label">Recipient Public Key</label>
-                        <div class="control">
-                            <input class="input" type="text" id="send-recipient" placeholder="64-character hex public key">
-                        </div>
+                <!-- Transaction History - Clickable items -->
+                <div class="coins-card mb-4">
+                    <div class="coins-card-header">
+                        <h2 class="coins-card-title">Activity</h2>
                     </div>
-
-                    <div class="columns">
-                        <div class="column">
-                            <div class="field">
-                                <label class="label">Amount</label>
-                                <div class="control">
-                                    <input class="input" type="number" id="send-amount" placeholder="0" min="0">
-                                </div>
-                            </div>
-                        </div>
-                        <div class="column">
-                            <div class="field">
-                                <label class="label">Token ID</label>
-                                <div class="control">
-                                    <input class="input" type="number" id="send-token-id" placeholder="0" value="0" min="0">
-                                </div>
-                            </div>
-                        </div>
-                        <div class="column">
-                            <div class="field">
-                                <label class="label">Fee</label>
-                                <div class="control">
-                                    <input class="input" type="number" id="send-fee" placeholder="1" value="1" min="1">
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="field">
-                        <div class="control">
-                            <button class="button is-primary is-fullwidth" id="send-tx-btn">
-                                Send Transaction
-                            </button>
-                        </div>
-                    </div>
-
-                    <div id="send-status" class="notification mt-3" style="display: none;">
-                        <!-- Transaction status will be shown here -->
-                    </div>
-                </div>
-
-                <!-- Transaction History (placeholder) -->
-                <div class="box">
-                    <h2 class="title is-5">Recent Transactions</h2>
                     <div id="transaction-history">
-                        <p class="has-text-grey">No transactions yet</p>
+                        <p class="has-text-grey-light has-text-centered py-4">No transactions yet</p>
                     </div>
                 </div>
 
-                <!-- Wallet Actions -->
-                <div class="box">
-                    <h2 class="title is-5">Wallet Actions</h2>
-                    <div class="buttons">
-                        <button class="button is-warning" id="backup-wallet-btn">
-                            Backup Wallet
-                        </button>
-                        <button class="button is-danger is-light" id="lock-wallet-btn">
-                            Lock Wallet
-                        </button>
-                    </div>
+                <!-- Wallet Actions - Simple links -->
+                <div class="wallet-actions">
+                    <a class="action-link" id="backup-wallet-btn">Export backup</a>
+                    <span class="action-separator">·</span>
+                    <a class="action-link has-text-danger" id="lock-wallet-btn">Lock wallet</a>
                 </div>
             </div>
         </div>
     </section>
 
-    <!-- Footer -->
+    <!-- Transaction Detail Modal -->
+    <div id="tx-detail-modal" class="modal">
+        <div class="modal-background"></div>
+        <div class="modal-card">
+            <header class="modal-card-head">
+                <p class="modal-card-title">Transaction Details</p>
+                <button class="delete" aria-label="close" id="close-tx-detail-modal"></button>
+            </header>
+            <section class="modal-card-body">
+                <div class="tx-detail-row">
+                    <span class="tx-detail-label">Type</span>
+                    <span class="tx-detail-value" id="tx-detail-type">--</span>
+                </div>
+                <div class="tx-detail-row">
+                    <span class="tx-detail-label">Amount</span>
+                    <span class="tx-detail-value" id="tx-detail-amount">--</span>
+                </div>
+                <div class="tx-detail-row">
+                    <span class="tx-detail-label">Token</span>
+                    <span class="tx-detail-value" id="tx-detail-token">--</span>
+                </div>
+                <div class="tx-detail-row">
+                    <span class="tx-detail-label">Fee</span>
+                    <span class="tx-detail-value" id="tx-detail-fee">--</span>
+                </div>
+                <div class="tx-detail-row">
+                    <span class="tx-detail-label">Status</span>
+                    <span class="tx-detail-value" id="tx-detail-status">--</span>
+                </div>
+                <div class="tx-detail-row" id="tx-detail-block-row" style="display: none;">
+                    <span class="tx-detail-label">Block</span>
+                    <span class="tx-detail-value" id="tx-detail-block">--</span>
+                </div>
+
+                <hr class="tx-detail-divider">
+
+                <div class="tx-detail-row">
+                    <span class="tx-detail-label" id="tx-detail-counterparty-label">From</span>
+                </div>
+                <div class="tx-detail-address clickable" id="tx-detail-counterparty" title="Click to copy">
+                    <span class="tx-detail-address-text" id="tx-detail-counterparty-text">--</span>
+                    <span class="copy-hint" id="tx-detail-copy-feedback">tap to copy</span>
+                </div>
+
+                <a class="button is-link is-outlined is-fullwidth mt-4" id="tx-detail-explorer-link" href="#" target="_blank">
+                    View in Explorer
+                </a>
+            </section>
+            <footer class="modal-card-foot">
+                <button class="button" id="close-tx-detail-btn">Close</button>
+            </footer>
+        </div>
+    </div>
+
     <!-- Backup Wallet Modal -->
     <div id="backup-modal" class="modal">
         <div class="modal-background"></div>
@@ -288,7 +293,7 @@
                 <!-- Password confirmation step -->
                 <div id="backup-password-step">
                     <div class="notification is-warning is-light">
-                        <p><strong>⚠️ Security Warning</strong></p>
+                        <p><strong>Security Warning</strong></p>
                         <p class="is-size-7">You are about to view your secret key. Make sure no one is looking at your screen.</p>
                     </div>
 
@@ -316,7 +321,7 @@
                 <!-- Secret key display step -->
                 <div id="backup-key-step" style="display: none;">
                     <div class="notification is-danger">
-                        <p><strong>🔒 Keep This Safe!</strong></p>
+                        <p><strong>Keep This Safe!</strong></p>
                         <p class="is-size-7 mb-2">Your secret key gives full access to your wallet. Never share it with anyone!</p>
                         <ul class="is-size-7" style="margin-left: 1.5rem;">
                             <li>Store it in a secure location (password manager, encrypted file, or offline)</li>
@@ -347,13 +352,6 @@
         </div>
     </div>
 
-    <footer class="footer">
-        <div class="content has-text-centered">
-            <p>
-                <strong>Coins Wallet</strong> - Secure browser-based wallet
-            </p>
-        </div>
-    </footer>
 
     <script src="/wallet.js"></script>
 </body>
