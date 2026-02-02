@@ -37,7 +37,7 @@ run_test() {
 
 # Check services
 if ! curl -s http://localhost:8082/account/43878a2a65c154d604cbe7d974d5dad1c63ce4dc2a68f697c45a4a3ef9ab8a21 &>/dev/null; then
-    echo -e "${RED}✗ Publisher not running on port 8082. Run ./scripts/setup-mutinynet.sh first${NC}"
+    echo -e "${RED}✗ Publisher not running on port 8082. Run ./tests/mutinynet/setup-mutinynet.sh first${NC}"
     exit 1
 fi
 

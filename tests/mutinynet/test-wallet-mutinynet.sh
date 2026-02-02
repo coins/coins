@@ -8,7 +8,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+PROJECT_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$PROJECT_ROOT"
 
 echo -e "${BLUE}========================================${NC}"
@@ -38,13 +38,13 @@ echo -e "${YELLOW}[1/8] Checking mutinynet environment...${NC}"
 
 if ! curl -s http://localhost:8082/health &>/dev/null; then
     echo -e "${RED}✗ Publisher not running${NC}"
-    echo -e "${YELLOW}Run ./scripts/setup-mutinynet.sh first${NC}"
+    echo -e "${YELLOW}Run ./tests/mutinynet/setup-mutinynet.sh first${NC}"
     exit 1
 fi
 
 if ! curl -s http://localhost:8083/health &>/dev/null; then
     echo -e "${RED}✗ Indexer not running${NC}"
-    echo -e "${YELLOW}Run ./scripts/setup-mutinynet.sh first${NC}"
+    echo -e "${YELLOW}Run ./tests/mutinynet/setup-mutinynet.sh first${NC}"
     exit 1
 fi
 
@@ -158,7 +158,7 @@ run_test() {
 ALICE_SK_FILE=".data/mutinynet/keys/alice_sk.hex"
 if [ ! -f "$ALICE_SK_FILE" ]; then
     echo -e "${RED}✗ Alice secret key not found${NC}"
-    echo -e "${YELLOW}Run ./scripts/setup-mutinynet.sh first${NC}"
+    echo -e "${YELLOW}Run ./tests/mutinynet/setup-mutinynet.sh first${NC}"
     exit 1
 fi
 

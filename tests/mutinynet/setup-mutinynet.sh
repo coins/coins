@@ -14,7 +14,7 @@ echo -e "${BLUE}=======================================${NC}"
 echo ""
 
 # Configuration
-PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+PROJECT_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 DATA_DIR="${PROJECT_ROOT}/.data"
 NETWORK_DIR="${DATA_DIR}/mutinynet"  # Network-specific directory
 SUBCHAIN_DIR="${NETWORK_DIR}/subchains"
@@ -372,4 +372,4 @@ echo -e "  curl http://localhost:8082/account/${ALICE_PK}"
 echo -e "  curl http://localhost:8082/account/${BOB_PK}\n"
 echo -e "${BLUE}List subchains: ls -lh ${SUBCHAIN_DIR}/subchain_mutinynet_*.bin${NC}"
 echo -e "${BLUE}Monitor logs:   tail -f ${NETWORK_DIR}/logs/publisher.log${NC}"
-echo -e "${BLUE}Run tests:      ./scripts/test-mutinynet.sh${NC}\n"
+echo -e "${BLUE}Run tests:      ./tests/mutinynet/test-mutinynet.sh${NC}\n"

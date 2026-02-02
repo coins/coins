@@ -8,7 +8,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+PROJECT_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$PROJECT_ROOT"
 
 echo -e "${BLUE}========================================${NC}"
@@ -27,19 +27,19 @@ echo -e "${YELLOW}Checking prerequisites...${NC}"
 
 if ! curl -s $PUBLISHER_URL/health &>/dev/null; then
     echo -e "${RED}✗ Publisher not running at $PUBLISHER_URL${NC}"
-    echo -e "${YELLOW}Run ./scripts/setup-regtest.sh first${NC}"
+    echo -e "${YELLOW}Run ./tests/regtest/setup-regtest.sh first${NC}"
     exit 1
 fi
 
 if ! curl -s $INDEXER_URL/health &>/dev/null; then
     echo -e "${RED}✗ Indexer not running at $INDEXER_URL${NC}"
-    echo -e "${YELLOW}Run ./scripts/setup-regtest.sh first${NC}"
+    echo -e "${YELLOW}Run ./tests/regtest/setup-regtest.sh first${NC}"
     exit 1
 fi
 
 if ! $BITCOIN_CLI getblockchaininfo &>/dev/null; then
     echo -e "${RED}✗ Bitcoin Core not running${NC}"
-    echo -e "${YELLOW}Run ./scripts/setup-regtest.sh first${NC}"
+    echo -e "${YELLOW}Run ./tests/regtest/setup-regtest.sh first${NC}"
     exit 1
 fi
 

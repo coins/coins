@@ -14,7 +14,7 @@ echo -e "${BLUE}========================================${NC}"
 echo ""
 
 # Configuration
-PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+PROJECT_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 DATA_DIR="${PROJECT_ROOT}/.data"
 NETWORK_DIR="${DATA_DIR}/regtest"  # Network-specific directory
 BITCOIN_DATADIR="${NETWORK_DIR}/bitcoin"  # Bitcoin regtest data
@@ -403,11 +403,8 @@ echo -e "Blocks:   ${BLOCK_COUNT}"
 echo -e "Logs:     .data/regtest/logs/publisher.log"
 echo ""
 echo -e "${BLUE}Run tests with:${NC}"
-echo -e "  ./scripts/test-regtest.sh"
+echo -e "  ./tests/regtest/test-regtest.sh"
 echo ""
 echo -e "${BLUE}Query accounts:${NC}"
 echo -e "  curl http://localhost:8080/account/<pubkey_hex>"
-echo ""
-echo -e "${BLUE}Stop services:${NC}"
-echo -e "  ./scripts/stop-regtest.sh"
 echo ""
