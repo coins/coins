@@ -142,10 +142,13 @@ impl Engine {
     /// Query backend for all UTXOs belonging to `fee_addr`.
     pub async fn refresh_fee_utxos(&mut self) -> Result<()> {
         let utxos = self.backend.get_address_utxos(&self.fee_addr).await?;
-        self.fee_utxos = utxos.into_iter()
+        let mut fee_utxos: Vec<FeeUtxo> = utxos.into_iter()
             .filter(|u| u.confirmed)
             .map(|u| FeeUtxo { outpoint: u.outpoint, value: u.value })
             .collect();
+        // Sort by value descending so we use the largest UTXO first
+        fee_utxos.sort_by(|a, b| b.value.cmp(&a.value));
+        self.fee_utxos = fee_utxos;
         Ok(())
     }
 

@@ -46,17 +46,9 @@ impl Mempool {
             }
         };
 
-        // Prevent duplicate transaction already in queue (exact same fields)
-        {
-            let q = self.queue.read().await;
-            if q.iter().any(|p| p.sender_id == tx.sender_id
-                && p.recipient_pk == tx.recipient_pk
-                && p.amount == tx.amount
-                && p.fee == tx.fee)
-            {
-                return Err(MempoolError::Duplicate);
-            }
-        }
+        // Note: Duplicate detection is handled at the API layer via signature checks.
+        // We don't check for duplicates here since the same sender can legitimately
+        // send the same amount to the same recipient multiple times (different nonces).
 
         // Check balance based on token type
         // For native tokens: check native_balance >= amount + fee

@@ -11,6 +11,7 @@ use coins_subchain::{PublishMode, PublishFormat};
 use serde::Deserialize;
 use tokio::net::TcpListener;
 use tokio::time::{sleep, Duration};
+use std::time::Instant;
 
 #[derive(Parser, Debug)]
 #[command(name="coins-publisher", about="Run the Coins publisher service")]
@@ -133,11 +134,14 @@ async fn main() -> anyhow::Result<()> {
 
     // Create app state (fee_addr will be set after engine initialization)
     let fee_addr_shared = Arc::new(std::sync::Mutex::new(String::new()));
+    let last_loop_time = Arc::new(std::sync::Mutex::new(None));
     let app_state = AppState {
         indexer: indexer_client.clone(),
         mempool: Arc::new(std::sync::Mutex::new(Vec::new())),
         fee_addr: fee_addr_shared.clone(),
         recently_broadcast: Arc::new(std::sync::Mutex::new(Vec::new())),
+        interval_secs: config.interval,
+        last_loop_time: last_loop_time.clone(),
     };
     let router = router(app_state.clone());
     let api_addr = format!("0.0.0.0:{}", config.api_port);
@@ -230,6 +234,10 @@ async fn main() -> anyhow::Result<()> {
     );
 
     loop {
+        // Update last loop time for status API
+        if let Ok(mut guard) = last_loop_time.lock() {
+            *guard = Some(Instant::now());
+        }
         tracing::debug!("Main loop iteration started");
 
         // Sync with indexer to catch any blocks we missed (e.g. after restart)

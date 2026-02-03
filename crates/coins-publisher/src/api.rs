@@ -17,6 +17,10 @@ pub struct AppState {
     pub fee_addr: Arc<Mutex<String>>,
     /// Transactions that were recently broadcast to Bitcoin (with timestamp, btc_txid, nonce)
     pub recently_broadcast: Arc<Mutex<Vec<(Transaction, Instant, Txid, u32)>>>,
+    /// Publisher loop interval in seconds
+    pub interval_secs: u64,
+    /// Time when the last publisher loop iteration started
+    pub last_loop_time: Arc<Mutex<Option<Instant>>>,
 }
 
 async fn get_account_by_pk(Path(pk_hex): Path<String>, State(app_state): State<AppState>) -> impl IntoResponse {
@@ -359,9 +363,53 @@ async fn health() -> &'static str {
     "OK"
 }
 
+#[derive(Debug, Serialize)]
+struct StatusResponse {
+    /// Publisher loop interval in seconds
+    interval_secs: u64,
+    /// Seconds since last loop iteration (None if never run)
+    secs_since_last_loop: Option<u64>,
+    /// Estimated seconds until next loop iteration
+    secs_until_next_loop: Option<u64>,
+    /// Number of transactions waiting in mempool
+    mempool_size: usize,
+}
+
+async fn get_status(State(state): State<AppState>) -> impl IntoResponse {
+    let mempool_size = state.mempool.lock()
+        .map(|mp| mp.len())
+        .unwrap_or(0);
+
+    let (secs_since_last_loop, secs_until_next_loop) = match state.last_loop_time.lock() {
+        Ok(guard) => {
+            match *guard {
+                Some(last_time) => {
+                    let elapsed = last_time.elapsed().as_secs();
+                    let until_next = if elapsed >= state.interval_secs {
+                        0 // Overdue, should run soon
+                    } else {
+                        state.interval_secs - elapsed
+                    };
+                    (Some(elapsed), Some(until_next))
+                }
+                None => (None, None), // Never run yet
+            }
+        }
+        Err(_) => (None, None),
+    };
+
+    Json(StatusResponse {
+        interval_secs: state.interval_secs,
+        secs_since_last_loop,
+        secs_until_next_loop,
+        mempool_size,
+    }).into_response()
+}
+
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
+        .route("/status", get(get_status))
         .route("/account/:pk", get(get_account_by_pk))
         .route("/tx", post(submit_tx))
         .route("/mempool", get(get_mempool))
