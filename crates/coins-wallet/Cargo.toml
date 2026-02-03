@@ -13,9 +13,10 @@ coins-types = { path = "../coins-types" }
 coins-crypto = { path = "../coins-crypto" }
 
 # Web framework
-axum = { version = "0.7", features = ["json", "macros"] }
+axum = { version = "0.7", features = ["json", "macros", "ws"] }
 tower = "0.5"
 tower-http = { version = "0.5", features = ["fs", "cors", "trace"] }
+futures = "0.3"
 
 # Async runtime
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
