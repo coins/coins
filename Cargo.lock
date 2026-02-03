@@ -898,6 +898,7 @@ dependencies = [
  "axum",
  "coins-crypto",
  "coins-types",
+ "futures",
  "hex",
  "reqwest 0.11.27",
  "serde",
