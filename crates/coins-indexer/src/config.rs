@@ -34,6 +34,7 @@ pub struct ServerConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GenesisConfig {
     pub genesis_pk: String,
+    /// Native token (token_id=0) balance
     pub genesis_balance: u64,
 }
 

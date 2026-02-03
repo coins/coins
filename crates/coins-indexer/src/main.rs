@@ -51,15 +51,19 @@ async fn main() -> Result<()> {
     if state.get_by_pk(&genesis_pk)?.is_none() {
         tracing::info!("Creating genesis account");
         let mut genesis = state.create_account(genesis_pk)?;
-        genesis.balances.insert(NATIVE_TOKEN_ID, config.genesis.genesis_balance);
-        // For testing purposes, also give Genesis some token_id=1 balance
-        genesis.balances.insert(1, 10000);
+
+        // Give genesis account max balance for first 256 token types
+        for token_id in 0u16..256 {
+            genesis.balances.insert(token_id, config.genesis.genesis_balance);
+        }
+
         let genesis_id = genesis.id.0;
         state.apply_batch(&[genesis])?;
         tracing::info!(
             id = genesis_id,
-            balance = config.genesis.genesis_balance,
-            "Genesis account created with native and token_id=1 balances"
+            balance_per_token = config.genesis.genesis_balance,
+            num_tokens = 256,
+            "Genesis account created with all token types"
         );
     } else {
         tracing::info!("Genesis account already exists");
