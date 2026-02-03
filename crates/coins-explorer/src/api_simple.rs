@@ -116,6 +116,9 @@ pub fn simple_router(
         .route("/api/v1/mempool", get(get_mempool))
         .route("/api/v1/recently-broadcast", get(get_recently_broadcast))
         .route("/api/v1/pending-transactions", get(get_pending_transactions))
+        // Serve shared static files
+        .nest_service("/shared", ServeDir::new("shared/static"))
+        // Serve explorer static files at root
         .nest_service("/", ServeDir::new("crates/coins-explorer/src/web/static"))
         .with_state(state)
 }

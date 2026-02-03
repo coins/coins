@@ -103,8 +103,8 @@ class ExplorerApp {
 
         this.ws.onopen = () => {
             console.log('WebSocket connected');
-            document.getElementById('connection-status').textContent = '● Connected';
-            document.getElementById('connection-status').className = 'tag is-success';
+            const dot = document.getElementById('connection-dot');
+            if (dot) dot.classList.remove('disconnected');
         };
 
         this.ws.onmessage = (event) => {
@@ -114,8 +114,8 @@ class ExplorerApp {
 
         this.ws.onclose = () => {
             console.log('WebSocket disconnected, reconnecting...');
-            document.getElementById('connection-status').textContent = '● Disconnected';
-            document.getElementById('connection-status').className = 'tag is-danger is-disconnected';
+            const dot = document.getElementById('connection-dot');
+            if (dot) dot.classList.add('disconnected');
             setTimeout(() => this.initWebSocket(), 3000);
         };
 
@@ -565,51 +565,55 @@ class ExplorerApp {
         }
 
         content.innerHTML = `
-            <h1 class="title">Network Statistics</h1>
+            <!-- Clickable breadcrumb/nav -->
+            <div class="explorer-nav mb-5">
+                <span class="nav-item active" onclick="app.navigate('home')">Overview</span>
+                <span class="nav-item" onclick="app.navigate('blocks')">Blocks</span>
+                <span class="nav-item" onclick="app.navigate('mempool')">Mempool</span>
+            </div>
 
+            <!-- Stats Grid - All clickable -->
             <div class="stats-grid">
-                <div class="stat-card">
+                <div class="stat-card clickable" onclick="app.navigate('blocks')">
                     <div class="stat-value" data-stat="total-blocks">${stats.total_blocks || 0}</div>
-                    <div class="stat-label">Total Blocks</div>
+                    <div class="stat-label">Blocks</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-value" data-stat="total-accounts">${stats.total_accounts || 0}</div>
-                    <div class="stat-label">Total Accounts</div>
+                    <div class="stat-label">Accounts</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-value" data-stat="total-supply">${stats.total_supply || 0}</div>
-                    <div class="stat-label">Total Supply</div>
+                    <div class="stat-label">Supply</div>
                 </div>
-                <div class="stat-card" onclick="app.navigate('mempool')" style="cursor: pointer;">
+                <div class="stat-card clickable" onclick="app.navigate('mempool')">
                     <div class="stat-value" data-stat="pending-txs">${pendingCount}</div>
-                    <div class="stat-label">Pending Txs</div>
+                    <div class="stat-label">Pending</div>
                 </div>
             </div>
 
-            <h2 class="title is-4">Latest Block</h2>
-            ${latestBlock ? this.renderBlockCard(latestBlock) : '<p>No blocks yet</p>'}
+            <!-- Latest Block - Clickable -->
+            ${latestBlock ? this.renderBlockCardClickable(latestBlock) : '<p class="has-text-grey has-text-centered">No blocks yet</p>'}
 
-            <div style="text-align: center; margin: 1rem 0;">
-                <a onclick="app.navigate('blocks')" class="button is-primary is-medium">
-                    📋 Browse All Blocks
-                </a>
-            </div>
-
-            <h2 class="title is-4">Search Account</h2>
-            <div class="box">
-                <div class="field has-addons">
-                    <div class="control is-expanded">
-                        <input class="input" type="text" id="account-search" placeholder="Enter public key (hex)...">
-                    </div>
-                    <div class="control">
-                        <button class="button is-primary" onclick="app.searchAccount()">
-                            Search
-                        </button>
-                    </div>
-                </div>
+            <!-- Inline Search -->
+            <div class="search-section mt-5">
+                <input class="search-input" type="text" id="account-search" placeholder="Search by address..." onkeypress="if(event.key==='Enter')app.searchAccount()">
             </div>
 
             <div id="account-result"></div>
+        `;
+    }
+
+    renderBlockCardClickable(block) {
+        const txCount = block.sub_block && block.sub_block.txs ? block.sub_block.txs.length : 0;
+        return `
+            <div class="block-card clickable" onclick="app.navigate('block', {height: ${block.height}})">
+                <div class="block-card-header">
+                    <span class="block-height">#${block.height}</span>
+                    <span class="block-txcount">${txCount} tx${txCount !== 1 ? 's' : ''}</span>
+                </div>
+                <div class="block-card-hash">${block.btc_txid}</div>
+            </div>
         `;
     }
 
@@ -707,7 +711,13 @@ class ExplorerApp {
         const latestBlock = await this.fetchAPI('/blocks/latest');
 
         if (!latestBlock) {
-            content.innerHTML = '<h1 class="title">Blocks</h1><p>No blocks yet</p>';
+            content.innerHTML = `
+                <div class="explorer-nav mb-5">
+                    <span class="nav-item" onclick="app.navigate('home')">Overview</span>
+                    <span class="nav-item active">Blocks</span>
+                    <span class="nav-item" onclick="app.navigate('mempool')">Mempool</span>
+                </div>
+                <p class="has-text-grey">No blocks yet</p>`;
             return;
         }
 
@@ -725,42 +735,37 @@ class ExplorerApp {
         const endIdx = startIdx + blocksPerPage;
         const blocks = allBlocks.slice(startIdx, endIdx);
 
-        content.innerHTML = `
-            <h1 class="title">Blocks</h1>
-            <div class="subtitle">Showing ${blocks.length} of ${totalBlocks} block(s) (page ${page + 1} of ${totalPages})</div>
-
-            ${blocks.length > 0 ? `
-                <table class="table is-fullwidth is-striped is-hoverable">
-                    <thead>
-                        <tr>
-                            <th>Height</th>
-                            <th>Bitcoin Txid</th>
-                            <th>Transactions</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${blocks.map(block => {
-                            const txCount = block.sub_block && block.sub_block.txs ? block.sub_block.txs.length : 0;
-                            return `
-                                <tr>
-                                    <td><strong>${block.height}</strong></td>
-                                    <td><code style="font-size: 0.85em;">${block.btc_txid.substring(0, 16)}...${block.btc_txid.substring(56)}</code></td>
-                                    <td>${txCount}</td>
-                                    <td>
-                                        <a onclick="app.navigate('block', {height: ${block.height}})" class="button is-small is-primary">
-                                            View Details
-                                        </a>
-                                    </td>
-                                </tr>
-                            `;
-                        }).join('')}
-                    </tbody>
-                </table>
-            ` : `<div class="notification is-info">No blocks found</div>`}
-
-            ${this.renderPagination(page, totalPages)}
+        let html = `
+            <div class="explorer-nav mb-5">
+                <span class="nav-item" onclick="app.navigate('home')">Overview</span>
+                <span class="nav-item active">Blocks</span>
+                <span class="nav-item" onclick="app.navigate('mempool')">Mempool</span>
+            </div>
         `;
+
+        if (blocks.length > 0) {
+            html += blocks.map(block => {
+                const txCount = block.sub_block && block.sub_block.txs ? block.sub_block.txs.length : 0;
+                const confirmLabel = block.confirmations >= 6 ? 'confirmed' :
+                                     block.confirmations >= 1 ? `${block.confirmations} conf` : 'unconfirmed';
+                return `
+                    <div class="block-card clickable" onclick="app.navigate('block', {height: ${block.height}})">
+                        <div class="block-card-header">
+                            <span class="block-height">#${block.height}</span>
+                            <span class="block-txcount">${txCount} tx · ${confirmLabel}</span>
+                        </div>
+                        <div class="block-card-hash">${block.btc_txid}</div>
+                    </div>`;
+            }).join('');
+
+            if (totalPages > 1) {
+                html += this.renderPagination(page, totalPages);
+            }
+        } else {
+            html += `<p class="has-text-grey">No blocks found</p>`;
+        }
+
+        content.innerHTML = html;
     }
 
     async renderMempool() {
@@ -781,34 +786,42 @@ class ExplorerApp {
 
         const totalPending = pendingTxs.length;
 
-        content.innerHTML = `
-            <h1 class="title">Mempool</h1>
-            <p class="subtitle">${totalPending} pending transaction${totalPending !== 1 ? 's' : ''}</p>
+        let html = `
+            <div class="explorer-nav mb-5">
+                <span class="nav-item" onclick="app.navigate('home')">Overview</span>
+                <span class="nav-item" onclick="app.navigate('blocks')">Blocks</span>
+                <span class="nav-item active">Mempool</span>
+            </div>
 
-            ${unconfirmedTxs.length > 0 ? `
-                <h2 class="title is-4">Unconfirmed (${unconfirmedTxs.length})</h2>
-                <p class="help">Transactions in Bitcoin mempool, indexed by indexer</p>
-                ${this.renderPendingTxTable(unconfirmedTxs)}
-            ` : ''}
-
-            ${broadcastingTxs.length > 0 ? `
-                <h2 class="title is-4"${unconfirmedTxs.length > 0 ? ' style="margin-top: 2rem;"' : ''}>Broadcasting (${broadcastingTxs.length})</h2>
-                <p class="help">Transactions broadcast to Bitcoin, waiting for indexer discovery</p>
-                ${this.renderPendingTxTable(broadcastingTxs)}
-            ` : ''}
-
-            ${publishingTxs.length > 0 ? `
-                <h2 class="title is-4" style="margin-top: 2rem;">Publishing (${publishingTxs.length})</h2>
-                <p class="help">Transactions in publisher mempool, waiting to be mined</p>
-                ${this.renderPendingTxTable(publishingTxs)}
-            ` : ''}
-
-            ${totalPending === 0 ? `
-                <div class="notification is-info">
-                    <p>No pending transactions</p>
-                </div>
-            ` : ''}
+            <p class="has-text-grey-dark mb-4">${totalPending} pending</p>
         `;
+
+        if (unconfirmedTxs.length > 0) {
+            html += `
+                <div class="coins-card-header"><h2 class="coins-card-title">Unconfirmed</h2></div>
+                ${this.renderPendingTxTable(unconfirmedTxs)}
+            `;
+        }
+
+        if (broadcastingTxs.length > 0) {
+            html += `
+                <div class="coins-card-header mt-4"><h2 class="coins-card-title">Broadcasting</h2></div>
+                ${this.renderPendingTxTable(broadcastingTxs)}
+            `;
+        }
+
+        if (publishingTxs.length > 0) {
+            html += `
+                <div class="coins-card-header mt-4"><h2 class="coins-card-title">Publishing</h2></div>
+                ${this.renderPendingTxTable(publishingTxs)}
+            `;
+        }
+
+        if (totalPending === 0) {
+            html += `<p class="has-text-grey has-text-centered py-5">No pending transactions</p>`;
+        }
+
+        content.innerHTML = html;
     }
 
     renderMempoolTable(txs, status) {
