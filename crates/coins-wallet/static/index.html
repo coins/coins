@@ -8,11 +8,6 @@
     <link rel="stylesheet" href="/shared/coins-common.css">
 </head>
 <body>
-    <!-- Minimal status indicator -->
-    <div class="status-indicator" id="status-indicator">
-        <div class="status-dot" id="connection-dot"></div>
-    </div>
-
     <!-- Main Content -->
     <section class="section">
         <div class="wallet-container">
@@ -145,8 +140,37 @@
 
             <!-- Wallet Screen -->
             <div id="wallet-screen" class="screen">
-                <!-- Balance Hero - Horizontally scrollable token balances -->
-                <div class="balance-hero">
+                <!-- Balance Hero wrapper with status indicator -->
+                <div class="balance-hero-wrapper">
+                    <!-- Status indicator - positioned above and right of balance-hero -->
+                    <div class="status-indicator" id="status-indicator">
+                        <div class="status-dot" id="connection-dot"></div>
+                        <div class="status-tooltip-content" id="status-tooltip">
+                            <div class="tooltip-row">
+                                <span class="tooltip-service">Indexer</span>
+                                <span class="tooltip-status">
+                                    <span class="tooltip-dot" id="indexer-status-dot"></span>
+                                    <span id="indexer-status-text">Checking...</span>
+                                </span>
+                            </div>
+                            <div class="tooltip-row">
+                                <span class="tooltip-service">Publisher</span>
+                                <span class="tooltip-status">
+                                    <span class="tooltip-dot" id="publisher-status-dot"></span>
+                                    <span id="publisher-status-text">Checking...</span>
+                                </span>
+                            </div>
+                            <div class="tooltip-row">
+                                <span class="tooltip-service">Explorer</span>
+                                <span class="tooltip-status">
+                                    <span class="tooltip-dot" id="explorer-status-dot"></span>
+                                    <span id="explorer-status-text">Checking...</span>
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Balance Hero - Horizontally scrollable token balances -->
+                    <div class="balance-hero">
                     <div class="balance-label">Balances <span class="balance-account" id="balance-account"></span></div>
                     <div class="balance-scroll-container" id="balance-scroll">
                         <div class="balance-tokens" id="balance-tokens">
@@ -157,6 +181,7 @@
                         </div>
                     </div>
                 </div>
+                </div><!-- end balance-hero-wrapper -->
 
                 <!-- Account Address - Click to Copy -->
                 <div class="address-display clickable" id="copy-pk-btn" title="Click to copy">
@@ -175,7 +200,7 @@
                 </div>
 
                 <!-- Send Form - Modern Amount Input -->
-                <div class="coins-card mb-4">
+                <div class="coins-card mb-4" id="send-card">
                     <div class="coins-card-header">
                         <h2 class="coins-card-title">Send</h2>
                     </div>
@@ -220,6 +245,8 @@
                 <!-- Wallet Actions - Simple links -->
                 <div class="wallet-actions">
                     <a class="action-link" id="backup-wallet-btn">Export backup</a>
+                    <span class="action-separator">·</span>
+                    <a class="action-link" id="resync-nonce-btn">Resync nonce</a>
                     <span class="action-separator">·</span>
                     <a class="action-link has-text-danger" id="lock-wallet-btn">Lock wallet</a>
                 </div>
