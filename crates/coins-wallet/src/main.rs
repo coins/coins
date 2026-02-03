@@ -2,12 +2,14 @@
 //!
 //! A web-based wallet service for the Coins protocol.
 //! Serves static files for the wallet UI and WASM module.
+//! Includes WebSocket support for real-time updates.
 
 use axum::{routing::get, Router};
-use coins_wallet::api::{self, AppState};
+use coins_wallet::api::{self, AppState, WsMessage};
 use reqwest::Client;
 use std::env;
 use tokio::net::TcpListener;
+use tokio::sync::broadcast;
 use tower_http::services::ServeDir;
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -20,6 +22,8 @@ struct Config {
     indexer_url: String,
     /// Publisher service URL
     publisher_url: String,
+    /// Explorer service URL
+    explorer_url: String,
 }
 
 impl Config {
@@ -30,9 +34,11 @@ impl Config {
                 .and_then(|p| p.parse().ok())
                 .unwrap_or(8085),
             indexer_url: env::var("INDEXER_URL")
-                .unwrap_or_else(|_| "http://127.0.0.1:8080".to_string()),
+                .unwrap_or_else(|_| "http://127.0.0.1:8083".to_string()),
             publisher_url: env::var("PUBLISHER_URL")
                 .unwrap_or_else(|_| "http://127.0.0.1:8082".to_string()),
+            explorer_url: env::var("EXPLORER_URL")
+                .unwrap_or_else(|_| "http://127.0.0.1:3000".to_string()),
         }
     }
 }
@@ -58,22 +64,38 @@ async fn main() -> anyhow::Result<()> {
     info!("Starting Coins Wallet Server...");
     info!("Indexer URL: {}", config.indexer_url);
     info!("Publisher URL: {}", config.publisher_url);
+    info!("Explorer URL: {}", config.explorer_url);
+
+    // Create WebSocket broadcast channel
+    let (ws_tx, _) = broadcast::channel::<WsMessage>(100);
 
     // Create HTTP client for API proxying
     let client = Client::new();
     let app_state = AppState {
-        client,
+        client: client.clone(),
         indexer_url: config.indexer_url.clone(),
         publisher_url: config.publisher_url.clone(),
+        explorer_url: config.explorer_url.clone(),
     };
 
-    // Build router with API endpoints and static file serving
+    // Spawn background task to monitor indexer and explorer for changes
+    let monitor_client = client.clone();
+    let monitor_indexer_url = config.indexer_url.clone();
+    let monitor_explorer_url = config.explorer_url.clone();
+    let monitor_ws_tx = ws_tx.clone();
+    tokio::spawn(async move {
+        api::monitor_indexer_changes(monitor_client, monitor_indexer_url, monitor_explorer_url, monitor_ws_tx).await;
+    });
+
+    // Build router with API endpoints, WebSocket, and static file serving
     let app = Router::new()
         .route("/health", get(health))
-        // Merge API proxy routes
-        .merge(api::create_router(app_state))
+        // Merge API proxy routes with WebSocket support
+        .merge(api::create_router_with_ws(app_state, ws_tx))
         // Serve WASM files at /wasm path
         .nest_service("/wasm", ServeDir::new("crates/coins-wallet/wasm/pkg"))
+        // Serve shared static files
+        .nest_service("/shared", ServeDir::new("shared/static"))
         // Serve static files at root (must be last)
         .fallback_service(ServeDir::new("crates/coins-wallet/static"));
 
