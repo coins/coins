@@ -4,6 +4,7 @@
 
 const STORAGE_KEY = 'coins_wallet_key';
 const SESSION_KEY = 'coins_wallet_session_key';
+const NONCE_KEY = 'coins_wallet_nonce';
 const PBKDF2_ITERATIONS = 100000;
 const SALT_SIZE = 16;
 const IV_SIZE = 12;
@@ -81,6 +82,98 @@ function updateConnectionStatus(connected) {
 }
 
 /**
+ * Check connection status for indexer, publisher, and explorer
+ */
+async function checkServiceConnections() {
+    const indexerDot = document.getElementById('indexer-status-dot');
+    const indexerText = document.getElementById('indexer-status-text');
+    const publisherDot = document.getElementById('publisher-status-dot');
+    const publisherText = document.getElementById('publisher-status-text');
+    const explorerDot = document.getElementById('explorer-status-dot');
+    const explorerText = document.getElementById('explorer-status-text');
+    const mainDot = document.getElementById('connection-dot');
+
+    let indexerConnected = false;
+    let publisherConnected = false;
+    let explorerConnected = false;
+
+    // Check indexer health
+    try {
+        const resp = await fetch('/api/account/health-check-dummy', {
+            method: 'GET',
+            signal: AbortSignal.timeout(3000)
+        });
+        // Even a 404 means the indexer is reachable
+        indexerConnected = true;
+        if (indexerText) indexerText.textContent = 'Connected';
+    } catch (e) {
+        if (indexerText) indexerText.textContent = 'Offline';
+    }
+    if (indexerDot) {
+        indexerDot.classList.toggle('connected', indexerConnected);
+        indexerDot.classList.toggle('disconnected', !indexerConnected);
+    }
+
+    // Check publisher status
+    try {
+        const resp = await fetch('/api/publisher/status', {
+            signal: AbortSignal.timeout(3000)
+        });
+        if (resp.ok) {
+            const status = await resp.json();
+            publisherConnected = true;
+            if (publisherText) {
+                const nextLoop = status.secs_until_next_loop;
+                if (nextLoop !== null) {
+                    publisherText.textContent = `Next batch: ${nextLoop}s`;
+                } else {
+                    publisherText.textContent = 'Connected';
+                }
+            }
+        } else {
+            if (publisherText) publisherText.textContent = 'Offline';
+        }
+    } catch (e) {
+        if (publisherText) publisherText.textContent = 'Offline';
+    }
+    if (publisherDot) {
+        publisherDot.classList.toggle('connected', publisherConnected);
+        publisherDot.classList.toggle('disconnected', !publisherConnected);
+    }
+
+    // Check explorer health
+    try {
+        const resp = await fetch('/api/explorer/health', {
+            signal: AbortSignal.timeout(3000)
+        });
+        explorerConnected = resp.ok;
+        if (explorerText) explorerText.textContent = explorerConnected ? 'Connected' : 'Offline';
+    } catch (e) {
+        if (explorerText) explorerText.textContent = 'Offline';
+    }
+    if (explorerDot) {
+        explorerDot.classList.toggle('connected', explorerConnected);
+        explorerDot.classList.toggle('disconnected', !explorerConnected);
+    }
+
+    // Update main dot based on all services
+    if (mainDot) {
+        const allConnected = indexerConnected && publisherConnected && explorerConnected;
+        mainDot.classList.toggle('disconnected', !allConnected);
+    }
+}
+
+// Check connections when hovering over status indicator
+document.addEventListener('DOMContentLoaded', () => {
+    const statusIndicator = document.getElementById('status-indicator');
+    if (statusIndicator) {
+        statusIndicator.addEventListener('mouseenter', () => {
+            checkServiceConnections();
+        });
+    }
+});
+
+/**
  * Handle WebSocket messages
  */
 function handleWSMessage(msg) {
@@ -98,6 +191,10 @@ function handleWSMessage(msg) {
             // Refresh both balance and transactions
             refreshBalance();
             refreshTransactions();
+            break;
+        case 'pending_txs_update':
+            // Refresh pending transaction statuses
+            refreshPendingTransactions();
             break;
         case 'connected':
             console.log('WebSocket connection confirmed');
@@ -245,6 +342,9 @@ class WalletApp {
         const secretKeyHex = Array.from(secretKeyBytes).map(b => b.toString(16).padStart(2, '0')).join('');
         sessionStorage.setItem(SESSION_KEY, secretKeyHex);
 
+        // Initialize nonce to 0 for new wallet
+        this.setLocalNonce(0);
+
         console.log('Wallet created successfully');
         console.log('Public key:', walletKey.public_key_hex());
 
@@ -293,6 +393,22 @@ class WalletApp {
 
         // Store decrypted key in sessionStorage for persistence across page refreshes
         sessionStorage.setItem(SESSION_KEY, secretKeyHex);
+
+        // Fetch account from API to get the current nonce
+        try {
+            const pk = walletKey.public_key_hex();
+            const response = await fetch(`/api/account/${pk}`);
+            if (response.ok) {
+                const account = await response.json();
+                this.setLocalNonce(account.nonce || 0);
+            } else {
+                // Account doesn't exist yet, start at 0
+                this.setLocalNonce(0);
+            }
+        } catch (error) {
+            console.warn('Could not fetch account nonce during import:', error);
+            this.setLocalNonce(0);
+        }
 
         console.log('Wallet imported successfully');
         console.log('Public key:', walletKey.public_key_hex());
@@ -358,6 +474,23 @@ class WalletApp {
      */
     isUnlocked() {
         return currentKey !== null;
+    }
+
+    /**
+     * Get the local nonce from localStorage
+     * @returns {number} The stored nonce or 0 if not set
+     */
+    getLocalNonce() {
+        const stored = localStorage.getItem(NONCE_KEY);
+        return stored !== null ? parseInt(stored, 10) : 0;
+    }
+
+    /**
+     * Set the local nonce in localStorage
+     * @param {number} nonce - The nonce value to store
+     */
+    setLocalNonce(nonce) {
+        localStorage.setItem(NONCE_KEY, nonce.toString());
     }
 
     /**
@@ -462,6 +595,49 @@ class WalletApp {
     }
 
     /**
+     * Fetch pending transactions from the explorer
+     * @returns {Promise<Array>} Array of pending transactions with status
+     */
+    async fetchPendingTransactions() {
+        if (!currentKey) {
+            return [];
+        }
+
+        // We need the account ID to filter pending transactions
+        try {
+            const account = await this.refreshBalance();
+            if (!account) {
+                return [];
+            }
+
+            const senderId = account.id;
+            const response = await fetch(`/api/pending-transactions?sender_id=${senderId}`);
+
+            if (!response.ok) {
+                console.warn('Failed to fetch pending transactions:', response.status);
+                return [];
+            }
+
+            return await response.json();
+        } catch (error) {
+            console.warn('Error fetching pending transactions:', error);
+            return [];
+        }
+    }
+
+    /**
+     * Resync nonce from the API
+     * Useful when local nonce gets out of sync with on-chain state
+     * @returns {Promise<number>} The resynced nonce
+     */
+    async resyncNonce() {
+        const account = await this.refreshBalance();
+        const nonce = account ? account.nonce : 0;
+        this.setLocalNonce(nonce);
+        return nonce;
+    }
+
+    /**
      * Get the secret key from localStorage by decrypting with password
      * @param {string} password - The password to decrypt the wallet
      * @returns {Promise<string>} The secret key hex
@@ -515,14 +691,25 @@ class WalletApp {
             throw new Error('Fee must be between 1 and 255');
         }
 
-        // Fetch account to get sender_id and nonce
+        // Fetch account to get sender_id
         const account = await this.refreshBalance();
         if (account === null) {
             throw new Error('Account not found. You need to receive tokens first before sending.');
         }
 
         const senderId = account.id;
-        const nonce = account.nonce;
+
+        // Get nonce from localStorage
+        let nonce = this.getLocalNonce();
+
+        // If nonce isn't set in localStorage yet (existing wallet from before this change),
+        // initialize from account
+        if (localStorage.getItem(NONCE_KEY) === null) {
+            nonce = account.nonce || 0;
+        }
+
+        // Increment and store for next transaction
+        this.setLocalNonce(nonce + 1);
 
         console.log('Building transaction:', { senderId, recipientPk, tokenId, amount, fee, nonce });
 
@@ -561,11 +748,13 @@ class WalletApp {
         const responseText = await response.text();
 
         if (!response.ok) {
+            // On failure, decrement the nonce since transaction wasn't accepted
+            this.setLocalNonce(nonce);
             throw new Error(`Transaction failed: ${responseText}`);
         }
 
         console.log('Transaction submitted successfully:', responseText);
-        return { success: true, message: responseText };
+        return { success: true, message: responseText, usedNonce: nonce, signature: signature };
     }
 }
 
@@ -709,7 +898,7 @@ function updateBalanceDisplay(account) {
     if (tokenBalancesCard) tokenBalancesCard.style.display = 'none';
 }
 
-// Show send status message
+// Show send status message (only for errors now)
 function showSendStatus(message, isError = false) {
     const statusEl = document.getElementById('send-status');
     if (statusEl) {
@@ -727,49 +916,351 @@ function hideSendStatus() {
     }
 }
 
+// Show send animation overlay
+function showSendAnimation() {
+    const sendCard = document.getElementById('send-card');
+    if (!sendCard) return;
+
+    // Make sure the card has position relative for absolute overlay
+    sendCard.style.position = 'relative';
+
+    // Create overlay with coin stack animation
+    const overlay = document.createElement('div');
+    overlay.className = 'send-animation-overlay';
+    overlay.id = 'send-animation-overlay';
+    overlay.innerHTML = `
+        <div class="coin-stack">
+            <div class="coin coin-dropping">◎</div>
+            <div class="coin coin-3">◎</div>
+            <div class="coin coin-2">◎</div>
+            <div class="coin coin-1">◎</div>
+        </div>
+        <div class="send-animation-text">Sending...</div>
+    `;
+
+    sendCard.appendChild(overlay);
+
+    // Remove after animation completes
+    setTimeout(() => {
+        overlay.style.opacity = '0';
+        overlay.style.transition = 'opacity 0.2s ease-out';
+        setTimeout(() => {
+            overlay.remove();
+        }, 200);
+    }, 1000);
+}
+
 // Update transaction history display
-function updateTransactionHistory(transactions) {
+// Store pending transactions that haven't been confirmed yet
+window.pendingTransactions = window.pendingTransactions || [];
+
+// Store pending transactions fetched from API (explorer)
+window.apiPendingTransactions = window.apiPendingTransactions || [];
+
+// Countdown timer for pending transactions
+let pendingCountdownInterval = null;
+let pendingCountdownSecs = null;
+
+// Polling interval for pending tx status (after countdown reaches 0)
+let pendingStatusPollInterval = null;
+
+// Start countdown timer for pending transactions
+function startPendingCountdown() {
+    // Clear any existing interval
+    if (pendingCountdownInterval) {
+        clearInterval(pendingCountdownInterval);
+        pendingCountdownInterval = null;
+    }
+
+    // If no pending transactions, don't start countdown
+    if (!window.pendingTransactions || window.pendingTransactions.length === 0) {
+        return;
+    }
+
+    // Fetch initial publisher status
+    fetchPublisherCountdown();
+
+    // Update every second
+    pendingCountdownInterval = setInterval(() => {
+        if (pendingCountdownSecs !== null && pendingCountdownSecs > 0) {
+            pendingCountdownSecs--;
+            updatePendingCountdownDisplay();
+        } else {
+            // Countdown reached 0 - transaction should be broadcasting
+            // Start polling for actual status from API
+            startPendingStatusPolling();
+        }
+    }, 1000);
+}
+
+// Start polling for pending transaction status from API
+function startPendingStatusPolling() {
+    // Stop the countdown interval since we're now polling
+    if (pendingCountdownInterval) {
+        clearInterval(pendingCountdownInterval);
+        pendingCountdownInterval = null;
+    }
+
+    // Clear any existing poll interval
+    if (pendingStatusPollInterval) {
+        clearInterval(pendingStatusPollInterval);
+        pendingStatusPollInterval = null;
+    }
+
+    // Fetch immediately
+    refreshPendingTransactions();
+
+    // Poll every 3 seconds
+    pendingStatusPollInterval = setInterval(async () => {
+        await refreshPendingTransactions();
+
+        // If no more local pending or API pending transactions, stop polling
+        if ((!window.pendingTransactions || window.pendingTransactions.length === 0) &&
+            (!window.apiPendingTransactions || window.apiPendingTransactions.length === 0)) {
+            stopPendingStatusPolling();
+        }
+    }, 3000);
+}
+
+// Stop polling for pending transaction status
+function stopPendingStatusPolling() {
+    if (pendingStatusPollInterval) {
+        clearInterval(pendingStatusPollInterval);
+        pendingStatusPollInterval = null;
+    }
+}
+
+// Refresh pending transactions from API and re-render
+async function refreshPendingTransactions() {
+    try {
+        const pendingFromAPI = await walletApp.fetchPendingTransactions();
+        window.apiPendingTransactions = pendingFromAPI || [];
+        renderTransactionHistory();
+    } catch (error) {
+        console.warn('Error refreshing pending transactions:', error);
+    }
+}
+
+// Fetch countdown from publisher
+async function fetchPublisherCountdown() {
+    try {
+        const resp = await fetch('/api/publisher/status', {
+            signal: AbortSignal.timeout(3000)
+        });
+        if (resp.ok) {
+            const status = await resp.json();
+            if (status.secs_until_next_loop !== null) {
+                pendingCountdownSecs = status.secs_until_next_loop;
+                updatePendingCountdownDisplay();
+            }
+        }
+    } catch (e) {
+        console.warn('Could not fetch publisher status for countdown:', e);
+    }
+}
+
+// Update the countdown display in pending transactions
+function updatePendingCountdownDisplay() {
+    const countdownEls = document.querySelectorAll('.pending-countdown');
+    countdownEls.forEach(el => {
+        if (pendingCountdownSecs !== null) {
+            el.textContent = `${pendingCountdownSecs}s`;
+        }
+    });
+}
+
+// Stop countdown timer and status polling
+function stopPendingCountdown() {
+    if (pendingCountdownInterval) {
+        clearInterval(pendingCountdownInterval);
+        pendingCountdownInterval = null;
+    }
+    if (pendingStatusPollInterval) {
+        clearInterval(pendingStatusPollInterval);
+        pendingStatusPollInterval = null;
+    }
+    pendingCountdownSecs = null;
+}
+
+// Add a pending transaction to the activity list
+function addPendingTransaction(tx) {
+    const currentPk = walletApp.getPublicKey();
+
+    // Add to pending list with timestamp
+    window.pendingTransactions.unshift({
+        ...tx,
+        sender_pk: currentPk,
+        pending: true,
+        timestamp: Date.now()
+    });
+
+    // Re-render the transaction history with the pending transaction at the top
+    renderTransactionHistory();
+
+    // Start countdown timer
+    startPendingCountdown();
+}
+
+// Render transaction history including pending transactions
+function renderTransactionHistory() {
     const historyEl = document.getElementById('transaction-history');
     if (!historyEl) return;
 
-    if (transactions === null || transactions.length === 0) {
+    const confirmedTxs = window.currentTransactions || [];
+    const localPendingTxs = window.pendingTransactions || [];
+    const apiPendingTxs = window.apiPendingTransactions || [];
+    const currentPk = walletApp.getPublicKey();
+
+    // Filter out local pending transactions that are now:
+    // 1. In API pending (we'll show API version instead)
+    // 2. Confirmed in the indexer
+    const stillLocalPending = localPendingTxs.filter(pending => {
+        // Check if in API pending (match by sender_pk + nonce)
+        const inApiPending = apiPendingTxs.some(api =>
+            api.sender_pk === pending.sender_pk &&
+            api.nonce === pending.nonce
+        );
+        if (inApiPending) return false;
+
+        // Check if confirmed
+        const isConfirmed = confirmedTxs.some(confirmed =>
+            confirmed.sender_pk === pending.sender_pk &&
+            confirmed.nonce === pending.nonce &&
+            confirmed.direction === pending.direction
+        );
+        return !isConfirmed;
+    });
+    window.pendingTransactions = stillLocalPending;
+
+    // Filter out API pending transactions that are confirmed (finalized ones)
+    // Note: API pending txs with status 'unconfirmed' have confirmations but aren't in our confirmed list yet
+    const stillApiPending = apiPendingTxs.filter(pending => {
+        // Keep if not finalized (unconfirmed/broadcasting/publishing are all pending states)
+        if (!pending.finalized) return true;
+
+        // Check if in confirmed txs
+        const isConfirmed = confirmedTxs.some(confirmed =>
+            confirmed.sender_pk === pending.sender_pk &&
+            confirmed.nonce === pending.nonce
+        );
+        return !isConfirmed;
+    });
+    window.apiPendingTransactions = stillApiPending;
+
+    // Stop polling if no more pending transactions
+    if (stillLocalPending.length === 0 && stillApiPending.length === 0) {
+        stopPendingCountdown();
+    }
+
+    if (confirmedTxs.length === 0 && stillLocalPending.length === 0 && stillApiPending.length === 0) {
         historyEl.innerHTML = '<p class="has-text-grey">No transactions yet</p>';
         return;
     }
 
-    // Get current public key for display
-    const currentPk = walletApp.getPublicKey();
-
-    // Greek letters for token display
     const greekLetters = ['α', 'β', 'γ', 'δ', 'ε', 'ζ', 'η', 'θ', 'ι', 'κ'];
     const greekNames = ['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta', 'Eta', 'Theta', 'Iota', 'Kappa'];
 
-    // Build transaction list HTML
     let html = '';
-    for (let i = 0; i < transactions.length; i++) {
-        const tx = transactions[i];
+
+    // 1. Add local pending transactions (just submitted, not yet in API)
+    // These show "Publishing in Xs" with countdown
+    for (const tx of stillLocalPending) {
+        const tokenIdx = tx.token_id;
+        const tokenLetter = greekLetters[tokenIdx] || `#${tokenIdx}`;
+        const tokenName = greekNames[tokenIdx] || `Token ${tokenIdx}`;
+        const counterpartyShort = tx.recipient_pk.substring(0, 8) + '...' + tx.recipient_pk.substring(56);
+
+        const countdownText = pendingCountdownSecs !== null && pendingCountdownSecs > 0
+            ? `${pendingCountdownSecs}s`
+            : '...';
+        html += `
+            <div class="transaction-item clickable pending-tx">
+                <div class="columns is-mobile is-vcentered mb-0">
+                    <div class="column">
+                        <p class="has-text-weight-semibold has-text-danger">
+                            - ${tx.amount.toLocaleString()} ${tokenLetter} ${tokenName}
+                        </p>
+                        <p class="is-size-7 has-text-grey">
+                            Sending to
+                            <span class="is-family-monospace">${counterpartyShort}</span>
+                        </p>
+                    </div>
+                    <div class="column is-narrow has-text-right">
+                        <span class="tag is-warning is-light pending-tag">
+                            Publishing in <span class="pending-countdown">${countdownText}</span>
+                        </span>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    // 2. Add API pending transactions (from explorer)
+    // These show actual status: Publishing, Broadcasting, or Unconfirmed with confirmations
+    for (const tx of stillApiPending) {
+        const tokenIdx = tx.token_id;
+        const tokenLetter = greekLetters[tokenIdx] || `#${tokenIdx}`;
+        const tokenName = greekNames[tokenIdx] || `Token ${tokenIdx}`;
+        const counterpartyShort = tx.recipient_pk.substring(0, 8) + '...' + tx.recipient_pk.substring(56);
+
+        let statusHtml;
+        if (tx.status === 'publishing') {
+            statusHtml = '<span class="tag is-warning is-light">Publishing</span>';
+        } else if (tx.status === 'broadcasting') {
+            statusHtml = '<span class="tag is-info is-light">Broadcasting</span>';
+        } else if (tx.status === 'unconfirmed') {
+            if (tx.confirmations > 0) {
+                statusHtml = `<span class="tag is-warning is-light">${tx.confirmations} conf</span>`;
+            } else {
+                statusHtml = '<span class="tag is-info is-light">Unconfirmed</span>';
+            }
+        } else {
+            statusHtml = '<span class="tag is-info is-light">Pending</span>';
+        }
+
+        html += `
+            <div class="transaction-item clickable pending-tx">
+                <div class="columns is-mobile is-vcentered mb-0">
+                    <div class="column">
+                        <p class="has-text-weight-semibold has-text-danger">
+                            - ${tx.amount.toLocaleString()} ${tokenLetter} ${tokenName}
+                        </p>
+                        <p class="is-size-7 has-text-grey">
+                            Sending to
+                            <span class="is-family-monospace">${counterpartyShort}</span>
+                        </p>
+                    </div>
+                    <div class="column is-narrow has-text-right">
+                        ${statusHtml}
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    // 3. Add confirmed transactions (newest first, reversed order)
+    for (let i = confirmedTxs.length - 1; i >= 0; i--) {
+        const tx = confirmedTxs[i];
         const isOutgoing = tx.direction === 'outgoing';
         const directionClass = isOutgoing ? 'has-text-danger' : 'has-text-success';
         const directionIcon = isOutgoing ? '-' : '+';
         const directionLabel = isOutgoing ? 'Sent' : 'Received';
 
-        // Format counterparty address (truncate for display)
         const counterpartyPk = isOutgoing ? tx.recipient_pk : tx.sender_pk;
         const counterpartyShort = counterpartyPk.substring(0, 8) + '...' + counterpartyPk.substring(56);
 
-        // Format token display
         const tokenIdx = tx.token_id;
         const tokenLetter = greekLetters[tokenIdx] || `#${tokenIdx}`;
         const tokenName = greekNames[tokenIdx] || `Token ${tokenIdx}`;
 
-        // Format status
         let statusHtml;
         if (tx.finalized) {
             statusHtml = '<span class="tag is-success is-light">Finalized</span>';
         } else if (tx.confirmations > 0) {
             statusHtml = `<span class="tag is-warning is-light">${tx.confirmations} conf</span>`;
         } else {
-            statusHtml = '<span class="tag is-info is-light">Pending</span>';
+            // Confirmed but 0 confirmations - show "Unconfirmed"
+            statusHtml = '<span class="tag is-info is-light">Unconfirmed</span>';
         }
 
         html += `
@@ -794,16 +1285,23 @@ function updateTransactionHistory(transactions) {
 
     historyEl.innerHTML = html;
 
-    // Store transactions for detail view
-    window.currentTransactions = transactions;
-
-    // Add click handlers
-    historyEl.querySelectorAll('.transaction-item.clickable').forEach(item => {
+    // Add click handlers for confirmed transactions
+    historyEl.querySelectorAll('.transaction-item.clickable[data-tx-index]').forEach(item => {
         item.addEventListener('click', () => {
-            const index = parseInt(item.getAttribute('data-tx-index'));
-            showTransactionDetail(window.currentTransactions[index]);
+            const index = parseInt(item.getAttribute('data-tx-index'), 10);
+            if (window.currentTransactions && window.currentTransactions[index]) {
+                showTransactionDetails(window.currentTransactions[index]);
+            }
         });
     });
+}
+
+function updateTransactionHistory(transactions) {
+    // Store transactions for later use
+    window.currentTransactions = transactions || [];
+
+    // Use the render function that handles both pending and confirmed
+    renderTransactionHistory();
 }
 
 // Show transaction detail modal
@@ -936,15 +1434,25 @@ async function sendTransaction() {
 
         const result = await walletApp.sendTransaction(recipient, amount, tokenId, fee);
 
-        showSendStatus(`Transaction submitted successfully!`);
+        // Show send animation instead of status message
+        showSendAnimation();
+
+        // Add pending transaction to activity for UI display
+        addPendingTransaction({
+            recipient_pk: recipient,
+            amount: amount,
+            token_id: tokenId,
+            fee: fee,
+            direction: 'outgoing',
+            nonce: result.usedNonce
+        });
 
         // Clear form
         recipientEl.value = '';
         amountEl.value = '';
 
-        // Refresh balance and transactions after successful send
+        // Refresh balance (transactions will include the pending one we just added)
         await refreshBalance();
-        await refreshTransactions();
 
     } catch (error) {
         console.error('Send transaction failed:', error);
@@ -1278,6 +1786,31 @@ document.addEventListener('DOMContentLoaded', async () => {
                 document.getElementById('backup-password').value = '';
                 document.getElementById('backup-secret-key').value = '';
                 hideError('backup-password-error');
+            }
+        });
+    }
+
+    // Resync nonce button
+    const resyncNonceBtn = document.getElementById('resync-nonce-btn');
+    if (resyncNonceBtn) {
+        resyncNonceBtn.addEventListener('click', async () => {
+            const originalText = resyncNonceBtn.textContent;
+            resyncNonceBtn.textContent = 'Syncing...';
+            resyncNonceBtn.style.pointerEvents = 'none';
+            try {
+                const nonce = await walletApp.resyncNonce();
+                resyncNonceBtn.textContent = `Synced (${nonce})`;
+                setTimeout(() => {
+                    resyncNonceBtn.textContent = originalText;
+                    resyncNonceBtn.style.pointerEvents = '';
+                }, 2000);
+            } catch (error) {
+                console.error('Failed to resync nonce:', error);
+                resyncNonceBtn.textContent = 'Failed';
+                setTimeout(() => {
+                    resyncNonceBtn.textContent = originalText;
+                    resyncNonceBtn.style.pointerEvents = '';
+                }, 2000);
             }
         });
     }
