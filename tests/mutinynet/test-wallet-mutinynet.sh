@@ -396,7 +396,7 @@ echo ""
 echo -e "${YELLOW}[Test 5] Verify transaction history via indexer${NC}"
 
 # Query indexer for Alice's account
-INDEXER_RESPONSE=$(curl -s "http://localhost:8083/account/${ALICE_PK}" 2>/dev/null)
+INDEXER_RESPONSE=$(curl -s "http://localhost:8083/accounts/${ALICE_PK}" 2>/dev/null)
 
 if echo "$INDEXER_RESPONSE" | jq -e '.id' &>/dev/null; then
     INDEXER_NONCE=$(echo "$INDEXER_RESPONSE" | jq -r '.nonce // 0')

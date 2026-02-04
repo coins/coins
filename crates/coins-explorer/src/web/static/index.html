@@ -14,17 +14,26 @@
         <div class="status-dot" id="connection-dot"></div>
     </div>
 
+    <!-- Global Search Bar -->
+    <div class="explorer-search-bar">
+        <div class="container">
+            <div class="explorer-search-wrapper">
+                <input class="search-input" type="text" id="global-search"
+                       placeholder="Search by address or block height..."
+                       onkeypress="if(event.key==='Enter')app.globalSearch()">
+                <div class="explorer-search-error" id="global-search-error"></div>
+            </div>
+        </div>
+    </div>
+
     <!-- Main Content -->
-    <section class="section" style="padding-top: 2rem;">
+    <section class="section" style="padding-top: 1rem;">
         <div class="container">
             <div id="content">
                 <!-- Dynamic content loaded here -->
             </div>
         </div>
     </section>
-
-    <!-- Hidden search input for keyboard shortcut -->
-    <input type="text" id="search-input" style="position: absolute; left: -9999px;">
 
     <script src="/app.js?v=44"></script>
 </body>

@@ -6,6 +6,7 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use coins_crypto::G1;
 use coins_types::Account;
 use super::AppState;
@@ -155,6 +156,8 @@ async fn get_account_transactions(
     };
 
     let mut history = Vec::new();
+    // Cache block timestamps by btc_height to avoid repeated RPC calls
+    let mut timestamp_cache: HashMap<u32, u64> = HashMap::new();
 
     // Iterate through all blocks (both finalized and unfinalized)
     for item in state.indexer.blocks.iter() {
@@ -194,6 +197,15 @@ async fn get_account_transactions(
                 (confs, final_status, remaining)
             };
 
+            // Look up block timestamp (cached per btc_height)
+            let timestamp = if chain_block.btc_height == 0 {
+                0
+            } else {
+                *timestamp_cache.entry(chain_block.btc_height).or_insert_with(|| {
+                    state.rpc_backend.get_block_timestamp(chain_block.btc_height).unwrap_or(0)
+                })
+            };
+
             // Look up sender's public key from sender_id
             let sender_pk = match state.state.get_account(coins_types::AccountId(tx.sender_id)) {
                 Ok(Some(sender_account)) => sender_account.pk,
@@ -216,6 +228,7 @@ async fn get_account_transactions(
                     nonce,
                     btc_height: chain_block.btc_height,
                     btc_txid: chain_block.btc_txid.to_string(),
+                    timestamp,
                     confirmations,
                     finalized,
                     confirmations_remaining,
@@ -228,6 +241,7 @@ async fn get_account_transactions(
                     nonce,
                     btc_height: chain_block.btc_height,
                     btc_txid: chain_block.btc_txid.to_string(),
+                    timestamp,
                     confirmations,
                     finalized,
                     confirmations_remaining,
@@ -240,6 +254,7 @@ async fn get_account_transactions(
                     nonce,
                     btc_height: chain_block.btc_height,
                     btc_txid: chain_block.btc_txid.to_string(),
+                    timestamp,
                     confirmations,
                     finalized,
                     confirmations_remaining,
@@ -253,6 +268,7 @@ async fn get_account_transactions(
                     nonce,
                     btc_height: chain_block.btc_height,
                     btc_txid: chain_block.btc_txid.to_string(),
+                    timestamp,
                     confirmations,
                     finalized,
                     confirmations_remaining,

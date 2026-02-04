@@ -1,13 +1,20 @@
-- Add selected token info and max selection to send box amount selector
-- Have explorer look same style as wallet
-- Limit Activity to X entries per page and then have pages to click through or a load
-more button
-- Change timer format to have a space between in and the number of seconds -> currently looks like "Broadcast in8s" but should look like "Broadcast in 8s". Also stop at 1s and then go to next state and do not show 0s. Maybe at 0s show "Broadcasting".
-- Fix the transaction information page not showing when clicking on a tx in the
-activity box and include the timestamp of the bitcoin bock that this transation was in.
-- Add an address book for the recipient Address field in the same modern style as the rest of the wallet page.
-- Create an invoice format to be able to share to other users to prefill the amount and
-token id and so on to send a tx. Ask the user what it should include and how it should work. QR code would be nice but also shareable via string so e.g. account number.
-- Add a filter to activity box to show selected token only. and to filter by date interval or day. e.g. last 180 days. 1 year ago etc.
 
-- After finishing all of the above todos take the claude session and ask it what it learned about setting up development (how to start all services and so on for mutinynet and regtest) and how to send transactions and run the tests and ask it to keep that in persistent storage (so i assume include in CLAUDE.md of the project)
+- WebSocket refresh causes visual flash: the balances tab redraws on every WebSocket
+update even when nothing changed. If data hasn't changed, skip the re-render so the
+user doesn't see the page flash/reload.
+
+- Send box token amount selector redesign: move the token indicator from the top-left
+corner to after the amount input as a dimmed currency suffix (same style as the "10",
+"100", ... quick-amount buttons). The "Max" button should match that format and sit
+inline with the quick-amount buttons. Show the available balance in the amount selector
+after the currency label (currency in accent color, available amount in default color)
+and remove it from the top-right corner where it currently is.
+
+- Recipient field fuzzy search and contacts: add fuzzy search that matches against
+addresses we've previously sent to, known account numbers (e.g. typing "3" suggests
+account 3), and saved contact names. After a successful send and the coins animation
+finishes, prompt the user to save the recipient as a contact (with a name input). Only
+show this prompt when the address is not already in contacts.
+
+- Receive box layout: move the QR code below the fields. Place the Amount, Token,
+Expires, and Memo fields next to each other horizontally if possible.

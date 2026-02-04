@@ -172,6 +172,7 @@ pub struct TransactionWithStatus {
     pub nonce: u32,
     pub btc_height: u32,
     pub btc_txid: String,
+    pub timestamp: u64,
     pub confirmations: u32,
     pub finalized: bool,
     pub confirmations_remaining: u32,

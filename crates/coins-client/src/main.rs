@@ -5,7 +5,7 @@ use ark_bn254::{Fr, G1Projective};
 use ark_ff::{PrimeField, BigInteger};
 use std::fs;
 use std::path::PathBuf;
-use coins_types::{Account, Transaction, NATIVE_TOKEN_ID, bin_config};
+use coins_types::{Account, Transaction, NATIVE_TOKEN_ID, bin_config, invoice::Invoice};
 use bincode::serde::encode_to_vec;
 use ark_ec::Group;
 use std::ops::Mul;
@@ -55,14 +55,37 @@ enum Commands {
     /// Send a number of coins to an address
     Send {
         /// The public key of the recipient (hex)
-        #[arg(long)]
-        recipient_pk: String,
+        #[arg(long, required_unless_present = "invoice")]
+        recipient_pk: Option<String>,
         /// The amount of coins to send
-        #[arg(long)]
-        amount: u32,
+        #[arg(long, required_unless_present = "invoice")]
+        amount: Option<u32>,
         /// The token ID to send (0 = native token)
         #[arg(long, default_value = "0")]
         token_id: u16,
+        /// Parse a coins:// invoice URI to pre-fill send parameters
+        #[arg(long)]
+        invoice: Option<String>,
+    },
+    /// Create a payment request (invoice) URI
+    Invoice {
+        /// Requested amount in sats (optional)
+        #[arg(long)]
+        amount: Option<u32>,
+        /// Token ID (optional, defaults to native)
+        #[arg(long)]
+        token: Option<u16>,
+        /// Memo / description (optional)
+        #[arg(long)]
+        memo: Option<String>,
+        /// Expiration Unix timestamp (optional)
+        #[arg(long)]
+        expires: Option<u64>,
+    },
+    /// Parse and display a coins:// invoice URI
+    ParseInvoice {
+        /// The coins:// URI to parse
+        uri: String,
     },
 }
 
@@ -103,8 +126,12 @@ async fn main() -> anyhow::Result<()> {
 
             fs::write(&keyfile, hex::encode(sk_bytes))?;
 
-            println!("New secret key stored in {}", keyfile.display());
-            println!("Your public key is: {}", pk.to_hex());
+            println!("Wallet initialized successfully!");
+            println!();
+            println!("  Keyfile:    {}", keyfile.display());
+            println!("  Public key: {}", pk.to_hex());
+            println!();
+            println!("Share your public key to receive funds.");
         }
         Commands::Balance => {
             if !keyfile.exists() {
@@ -125,25 +152,52 @@ async fn main() -> anyhow::Result<()> {
 
             if res.status().is_success() {
                 let account: Account = res.json().await?;
+                println!("Account #{}", account.id.0);
+                println!("  Public key: {}", pk.to_hex());
+                println!("  Nonce:      {}", account.nonce);
+                println!();
                 if account.balances.is_empty() {
-                    println!("No token balances.");
+                    println!("  No token balances.");
                 } else {
-                    for (&token_id, &balance) in &account.balances {
-                        if token_id == NATIVE_TOKEN_ID {
-                            println!("Token {}: {} sats (native)", token_id, balance);
-                        } else {
-                            println!("Token {}: {} sats", token_id, balance);
-                        }
+                    println!("  Balances:");
+                    let mut sorted: Vec<_> = account.balances.iter().collect();
+                    sorted.sort_by_key(|&(&k, _)| k);
+                    for &(&token_id, &balance) in &sorted {
+                        let label = if token_id == NATIVE_TOKEN_ID { " (native)" } else { "" };
+                        println!("    Token {}: {} sats{}", token_id, balance, label);
                     }
                 }
             } else if res.status() == reqwest::StatusCode::NOT_FOUND {
-                println!("Account not found. Your public key is: {}", pk.to_hex());
-                println!("Please ensure the account has been funded.");
+                println!("Account not found.");
+                println!("  Public key: {}", pk.to_hex());
+                println!();
+                println!("This account has not been funded yet.");
             } else {
-                println!("Error fetching account: {}", res.status());
+                eprintln!("Error fetching account: {}", res.status());
             }
         }
-        Commands::Send { recipient_pk, amount, token_id } => {
+        Commands::Send { recipient_pk, amount, token_id, invoice } => {
+            // Resolve parameters: invoice overrides individual fields
+            let (resolved_recipient, resolved_amount, resolved_token_id) = if let Some(uri) = invoice {
+                let inv = Invoice::from_uri(&uri)
+                    .map_err(|e| anyhow::anyhow!("Invalid invoice: {}", e))?;
+
+                if inv.is_expired() {
+                    eprintln!("Warning: This invoice has expired!");
+                }
+
+                let r = recipient_pk.unwrap_or(inv.addr);
+                let a = amount.or(inv.amount).ok_or_else(|| anyhow::anyhow!("Amount required: invoice does not specify one, use --amount"))?;
+                let t = inv.token_id.unwrap_or(token_id);
+                (r, a, t)
+            } else {
+                (
+                    recipient_pk.ok_or_else(|| anyhow::anyhow!("--recipient-pk is required"))?,
+                    amount.ok_or_else(|| anyhow::anyhow!("--amount is required"))?,
+                    token_id,
+                )
+            };
+
             if !keyfile.exists() {
                 println!("Secret key file not found at: {}", keyfile.display());
                 println!("Please run `init` first.");
@@ -155,8 +209,10 @@ async fn main() -> anyhow::Result<()> {
             let fr = Fr::from_le_bytes_mod_order(&sk_bytes);
             let sk = SecretKey(fr);
 
-            let recipient_pk = G1::from_hex(&recipient_pk)
+            let recipient_pk = G1::from_hex(&resolved_recipient)
                 .map_err(|e| anyhow::anyhow!("invalid recipient_pk: {}", e))?;
+            let amount = resolved_amount;
+            let token_id = resolved_token_id;
 
             // Fetch sender's account to get ID
             let pk = G1::from_affine(&G1Projective::generator().mul(sk.0).into());
@@ -211,9 +267,73 @@ async fn main() -> anyhow::Result<()> {
                 // Increment and save nonce for next transaction
                 let next_nonce = nonce + 1;
                 fs::write(&nonce_file, next_nonce.to_string())?;
-                println!("Transaction sent successfully! (nonce={})", nonce);
+                println!("Transaction submitted!");
+                println!();
+                println!("  From:     Account #{}", sender_account.id.0);
+                println!("  To:       {}", tx.recipient_pk.to_hex());
+                println!("  Amount:   {} sats", amount);
+                println!("  Token:    {}{}", token_id, if token_id == NATIVE_TOKEN_ID { " (native)" } else { "" });
+                println!("  Fee:      {} sats", tx.fee);
+                println!("  Nonce:    {}", nonce);
             } else {
-                println!("Failed to send transaction: {}", res.status());
+                let body = res.text().await.unwrap_or_default();
+                eprintln!("Failed to send transaction: {}", body);
+            }
+        }
+        Commands::Invoice { amount, token, memo, expires } => {
+            if !keyfile.exists() {
+                println!("Secret key file not found at: {}", keyfile.display());
+                println!("Please run `init` first.");
+                return Ok(());
+            }
+
+            let sk_hex = fs::read_to_string(&keyfile)?;
+            let sk_bytes = hex::decode(sk_hex.trim())?;
+            let fr = Fr::from_le_bytes_mod_order(&sk_bytes);
+            let sk = SecretKey(fr);
+            let pk = G1::from_affine(&G1Projective::generator().mul(sk.0).into());
+
+            let inv = Invoice {
+                addr: pk.to_hex(),
+                amount,
+                token_id: token,
+                memo,
+                expires,
+            };
+
+            let uri = inv.to_uri();
+            println!("Invoice created:");
+            println!();
+            println!("  {}", uri);
+            println!();
+            println!("Share this URI or encode it as a QR code.");
+        }
+        Commands::ParseInvoice { uri } => {
+            match Invoice::from_uri(&uri) {
+                Ok(inv) => {
+                    println!("Invoice details:");
+                    println!();
+                    println!("  Address:  {}", inv.addr);
+                    if let Some(amount) = inv.amount {
+                        println!("  Amount:   {} sats", amount);
+                    }
+                    if let Some(token_id) = inv.token_id {
+                        let label = if token_id == NATIVE_TOKEN_ID { " (native)" } else { "" };
+                        println!("  Token:    {}{}", token_id, label);
+                    }
+                    if let Some(ref memo) = inv.memo {
+                        println!("  Memo:     {}", memo);
+                    }
+                    if let Some(expires) = inv.expires {
+                        println!("  Expires:  {}", expires);
+                        if inv.is_expired() {
+                            println!("  WARNING:  This invoice has expired!");
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Failed to parse invoice: {}", e);
+                }
             }
         }
     }

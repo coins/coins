@@ -268,7 +268,7 @@ class ExplorerApp {
                         return `
                             <tr>
                                 <td>${tokenId}${label}</td>
-                                <td><strong style="color: #23d160;">${balance} sats</strong></td>
+                                <td><strong style="color: var(--coins-success);">${balance} sats</strong></td>
                             </tr>
                         `;
                     }).join('')}
@@ -290,17 +290,17 @@ class ExplorerApp {
             counterparty = `<span class="has-text-grey">From Account #${tx.sender_id}</span>`;
         } else if (isIncoming) {
             const senderPkHex = this.ensureHex(tx.sender_pk);
-            counterparty = `<a onclick="app.navigate('account', {pk: '${senderPkHex}'})" style="cursor: pointer; color: #3273dc;">
+            counterparty = `<a onclick="app.navigate('account', {pk: '${senderPkHex}'})" style="cursor: pointer;">
                 <code style="font-size: 0.85em;">${senderPkHex.substring(0, 16)}...${senderPkHex.substring(56)}</code>
             </a>`;
         } else {
             const recipientPkHex = this.ensureHex(tx.recipient_pk);
-            counterparty = `<a onclick="app.navigate('account', {pk: '${recipientPkHex}'})" style="cursor: pointer; color: #3273dc;">
+            counterparty = `<a onclick="app.navigate('account', {pk: '${recipientPkHex}'})" style="cursor: pointer;">
                 <code style="font-size: 0.85em;">${recipientPkHex.substring(0, 16)}...${recipientPkHex.substring(56)}</code>
             </a>`;
         }
 
-        const amountColor = isIncoming ? '#23d160' : '#ff3860';
+        const amountColor = isIncoming ? 'var(--coins-success)' : 'var(--coins-danger)';
         const statusBadge = this.renderStatusBadge(tx);
         const txKey = this.getTxKey(tx);
 
@@ -428,7 +428,7 @@ class ExplorerApp {
                     const actualRow = tbody.lastElementChild;
                     if (actualRow) {
                         // Highlight new row briefly
-                        actualRow.style.backgroundColor = '#fffbeb';
+                        actualRow.style.backgroundColor = 'var(--coins-surface-elevated)';
                         setTimeout(() => {
                             actualRow.style.transition = 'background-color 1s';
                             actualRow.style.backgroundColor = '';
@@ -595,11 +595,6 @@ class ExplorerApp {
             <!-- Latest Block - Clickable -->
             ${latestBlock ? this.renderBlockCardClickable(latestBlock) : '<p class="has-text-grey has-text-centered">No blocks yet</p>'}
 
-            <!-- Inline Search -->
-            <div class="search-section mt-5">
-                <input class="search-input" type="text" id="account-search" placeholder="Search by address..." onkeypress="if(event.key==='Enter')app.searchAccount()">
-            </div>
-
             <div id="account-result"></div>
         `;
     }
@@ -625,7 +620,7 @@ class ExplorerApp {
                     <tr>
                         <th>Height</th>
                         <td>
-                            <a onclick="app.navigate('block', {height: ${block.height}})" style="cursor: pointer; color: #3273dc;">
+                            <a onclick="app.navigate('block', {height: ${block.height}})" style="cursor: pointer;">
                                 <strong>${block.height}</strong>
                             </a>
                         </td>
@@ -668,7 +663,7 @@ class ExplorerApp {
                     .sort((a, b) => parseInt(a[0]) - parseInt(b[0]))
                     .map(([tokenId, balance]) => {
                         const label = parseInt(tokenId) === 0 ? ' (native)' : '';
-                        return `Token ${tokenId}${label}: <strong style="color: #23d160;">${balance} sats</strong>`;
+                        return `Token ${tokenId}${label}: <strong style="color: var(--coins-success);">${balance} sats</strong>`;
                     }).join('<br>');
 
             resultDiv.innerHTML = `
@@ -858,7 +853,7 @@ class ExplorerApp {
                                 <tr>
                                     <td>Account #${tx.sender_id}</td>
                                     <td>
-                                        <a onclick="app.navigate('account', {pk: '${recipientPk}'})" style="cursor: pointer; color: #3273dc;">
+                                        <a onclick="app.navigate('account', {pk: '${recipientPk}'})" style="cursor: pointer;">
                                             <code style="font-size: 0.85em;">${recipientPk.substring(0, 12)}...${recipientPk.substring(56)}</code>
                                         </a>
                                     </td>
@@ -921,7 +916,7 @@ class ExplorerApp {
                                 <tr>
                                     <td>Account #${tx.sender_id}</td>
                                     <td>
-                                        <a onclick="app.navigate('account', {pk: '${recipientPk}'})" style="cursor: pointer; color: #3273dc;">
+                                        <a onclick="app.navigate('account', {pk: '${recipientPk}'})" style="cursor: pointer;">
                                             <code style="font-size: 0.85em;">${recipientPk.substring(0, 12)}...${recipientPk.substring(56)}</code>
                                         </a>
                                     </td>
@@ -1006,7 +1001,7 @@ class ExplorerApp {
                                 <tr>
                                     <td><strong>${tx.sender_id}</strong></td>
                                     <td>
-                                        <a onclick="app.navigate('account', {pk: '${recipient_pk_hex}'})" style="cursor: pointer; color: #3273dc;">
+                                        <a onclick="app.navigate('account', {pk: '${recipient_pk_hex}'})" style="cursor: pointer;">
                                             <code style="font-size: 0.85em;">${recipient_pk_hex.substring(0, 16)}...${recipient_pk_hex.substring(56)}</code>
                                         </a>
                                     </td>
@@ -1302,6 +1297,34 @@ class ExplorerApp {
                 </ul>
             </nav>
         `;
+    }
+
+    globalSearch() {
+        const input = document.getElementById('global-search');
+        const errorEl = document.getElementById('global-search-error');
+        const query = input.value.trim();
+
+        if (errorEl) errorEl.textContent = '';
+
+        if (!query) return;
+
+        // Check if it's a block height (all digits)
+        if (/^\d+$/.test(query)) {
+            const height = parseInt(query, 10);
+            this.navigate('block', { height });
+            input.value = '';
+            return;
+        }
+
+        // Check if it's a hex string (public key)
+        if (/^[0-9a-fA-F]+$/.test(query)) {
+            this.navigate('account', { pk: query });
+            input.value = '';
+            return;
+        }
+
+        // Invalid input
+        if (errorEl) errorEl.textContent = 'Enter a block height (number) or public key (hex)';
     }
 
     async search() {

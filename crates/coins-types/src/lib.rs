@@ -4,6 +4,8 @@
 //! crates can already depend on them while the detailed serialization logic
 //! is filled in later phases.
 
+pub mod invoice;
+
 use std::collections::BTreeMap;
 use coins_crypto::{G1, G2, G1_SIZE, G2_SIZE};
 use serde::{Serialize, Deserialize};

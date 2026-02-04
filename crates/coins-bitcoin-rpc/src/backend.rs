@@ -547,6 +547,19 @@ impl RpcBackend {
         Ok(height as u32)
     }
 
+    /// Get the timestamp (unix seconds) of a Bitcoin block by height
+    pub fn get_block_timestamp(&self, height: u32) -> Result<u64> {
+        let block_hash: String = self.rpc
+            .call("getblockhash", &[json!(height)])
+            .with_context(|| format!("Failed to get block hash at height {}", height))?;
+        let header: serde_json::Value = self.rpc
+            .call("getblockheader", &[json!(block_hash)])
+            .with_context(|| format!("Failed to get block header for height {}", height))?;
+        header["time"]
+            .as_u64()
+            .ok_or_else(|| anyhow!("Missing time in block header at height {}", height))
+    }
+
     /// Find the transaction that spent a given outpoint (anchor output[1]).
     ///
     /// # Data Transaction Validity Rule
