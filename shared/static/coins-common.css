@@ -290,11 +290,38 @@ body {
     line-height: 1.5;
 }
 
-/* Amount Row with Token Selector */
+/* Amount Row with Token Suffix Overlay */
 .amount-row {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
+    position: relative;
+}
+
+.amount-row .amount-input-large {
+    width: 100%;
+    text-align: center;
+}
+
+.amount-measure {
+    position: absolute;
+    visibility: hidden;
+    pointer-events: none;
+    white-space: pre;
+    /* Must match .amount-input-large font metrics exactly */
+    font-size: 2rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+}
+
+.amount-token-suffix {
+    position: absolute;
+    top: 0;
+    padding-left: 0.5em;
+    font-size: 0.875rem;
+    font-weight: 500;
+    line-height: 1;
+    color: var(--coins-text-muted);
+    white-space: nowrap;
+    pointer-events: none;
+    transition: left 0.05s ease;
 }
 
 .token-selector {
@@ -370,6 +397,132 @@ body {
     color: var(--coins-accent);
 }
 
+/* Recipient Row */
+.recipient-row {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.recipient-row .input {
+    flex: 1;
+}
+
+.addressbook-toggle {
+    font-size: 0.75rem;
+    white-space: nowrap;
+}
+
+/* Address Book */
+.addressbook-contact {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.625rem 0.75rem;
+    border-bottom: 1px solid var(--coins-border-light);
+    cursor: pointer;
+    transition: background var(--coins-transition);
+    border-radius: var(--coins-radius-sm);
+    margin-bottom: 0.25rem;
+}
+
+.addressbook-contact:hover {
+    background: var(--coins-bg-secondary);
+}
+
+.addressbook-contact:last-child {
+    border-bottom: none;
+}
+
+.addressbook-contact-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.addressbook-contact-label {
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: var(--coins-text);
+}
+
+.addressbook-contact-addr {
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 0.6875rem;
+    color: var(--coins-text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.addressbook-contact-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-left: 0.5rem;
+}
+
+.addressbook-contact-actions .button {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.6875rem;
+}
+
+.addressbook-empty {
+    text-align: center;
+    color: var(--coins-text-muted);
+    padding: 1.5rem;
+    font-size: 0.875rem;
+}
+
+/* Recipient Suggestions Dropdown */
+.recipient-suggestions {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    max-height: 180px;
+    overflow-y: auto;
+    background: var(--coins-surface-elevated);
+    border: 1px solid var(--coins-border);
+    border-radius: var(--coins-radius);
+    box-shadow: var(--coins-shadow-lg);
+    z-index: 50;
+    display: none;
+}
+
+.recipient-suggestions.open {
+    display: block;
+}
+
+.recipient-suggestion {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    cursor: pointer;
+    transition: background var(--coins-transition);
+}
+
+.recipient-suggestion:hover {
+    background: var(--coins-bg-secondary);
+}
+
+.suggestion-label {
+    font-weight: 600;
+    font-size: 0.8125rem;
+    color: var(--coins-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.suggestion-address {
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 0.6875rem;
+    color: var(--coins-text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin-left: auto;
+}
+
 /* Modern Amount Input */
 .amount-input-wrapper {
     flex: 1;
@@ -428,6 +581,19 @@ body {
 
 .quick-amount.active {
     color: var(--coins-accent);
+}
+
+.quick-amount-max {
+    font-weight: 600;
+    color: var(--coins-accent);
+    border: 1px solid var(--coins-accent);
+    border-radius: var(--coins-radius-sm);
+    padding: 0.125rem 0.5rem;
+}
+
+.quick-amount-max:hover {
+    background: var(--coins-accent);
+    color: var(--coins-bg);
 }
 
 /* Wallet action links */
@@ -1384,6 +1550,24 @@ code, .mono {
 }
 
 /* ========================================
+   Explorer Global Search Bar
+   ======================================== */
+.explorer-search-bar {
+    padding: 1rem 1.5rem 0;
+}
+
+.explorer-search-wrapper {
+    max-width: 600px;
+}
+
+.explorer-search-error {
+    font-size: 0.75rem;
+    color: var(--coins-danger);
+    margin-top: 0.375rem;
+    min-height: 1rem;
+}
+
+/* ========================================
    Inline Search
    ======================================== */
 .search-section {
@@ -1645,6 +1829,209 @@ hr {
     color: var(--coins-success);
 }
 
+/* Activity Filters */
+.activity-filters {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--coins-border-light);
+    position: relative;
+}
+
+.activity-token-chips {
+    display: flex;
+    gap: 0.375rem;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    flex: 1;
+    min-width: 0;
+}
+
+.activity-token-chips::-webkit-scrollbar {
+    display: none;
+}
+
+.activity-token-chips:empty {
+    display: none;
+}
+
+.activity-token-chips:empty + .date-drum {
+    margin-left: 0;
+}
+
+.token-chip {
+    flex-shrink: 0;
+    font-size: 0.7rem;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    border: 1px solid var(--coins-border-light);
+    background: transparent;
+    color: var(--coins-text-muted);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+    font-family: inherit;
+    line-height: 1.4;
+}
+
+.token-chip:hover {
+    border-color: var(--coins-text-secondary);
+    color: var(--coins-text-secondary);
+}
+
+.token-chip.active {
+    border-color: var(--coins-accent);
+    color: var(--coins-accent);
+    background: rgba(45, 211, 191, 0.08);
+}
+
+/* Date Drum Picker */
+.date-drum {
+    flex-shrink: 0;
+    margin-left: auto;
+    width: 80px;
+    cursor: grab;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: pan-y;
+    position: relative;
+}
+
+.date-drum.grabbing {
+    cursor: grabbing;
+}
+
+.date-drum-viewport {
+    height: 22px;
+    overflow: hidden;
+    position: relative;
+}
+
+.date-drum-viewport::before,
+.date-drum-viewport::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 6px;
+    z-index: 2;
+    pointer-events: none;
+}
+
+.date-drum-viewport::before {
+    top: 0;
+    background: linear-gradient(to bottom, var(--coins-surface), transparent);
+}
+
+.date-drum-viewport::after {
+    bottom: 0;
+    background: linear-gradient(to top, var(--coins-surface), transparent);
+}
+
+.date-drum-track {
+    display: flex;
+    flex-direction: column;
+    transition: transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    will-change: transform;
+}
+
+.date-drum-track.dragging {
+    transition: none;
+}
+
+.date-drum-item {
+    height: 22px;
+    line-height: 22px;
+    font-size: 0.7rem;
+    color: var(--coins-text-muted);
+    text-align: right;
+    white-space: nowrap;
+    flex-shrink: 0;
+    padding: 0 0.25rem;
+    transition: color 0.15s ease, font-weight 0.15s ease;
+}
+
+.date-drum-item.active {
+    color: var(--coins-accent);
+    font-weight: 600;
+}
+
+/* Date Range Picker Overlay */
+.date-range-picker {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 0.25rem);
+    z-index: 50;
+    background: var(--coins-surface);
+    border: 1px solid var(--coins-border);
+    border-radius: var(--coins-radius);
+    padding: 0.75rem;
+    box-shadow: var(--coins-shadow-lg);
+    min-width: 200px;
+}
+
+.date-range-header {
+    font-size: 0.6875rem;
+    font-weight: 500;
+    color: var(--coins-accent);
+    margin-bottom: 0.5rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.date-range-picker label {
+    display: block;
+    font-size: 0.7rem;
+    color: var(--coins-text-secondary);
+    margin-bottom: 0.375rem;
+    font-weight: 500;
+}
+
+.date-range-picker input[type="date"] {
+    width: 100%;
+    font-size: 0.75rem;
+    padding: 0.375rem 0.5rem;
+    border-radius: var(--coins-radius-sm);
+    border: 1.5px solid var(--coins-border);
+    background: var(--coins-bg-secondary);
+    color: var(--coins-text);
+    margin-top: 0.125rem;
+    transition: all var(--coins-transition);
+    color-scheme: dark;
+}
+
+.date-range-picker input[type="date"]:focus {
+    outline: none;
+    border-color: var(--coins-accent);
+    box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.15);
+}
+
+.date-range-actions {
+    display: flex;
+    gap: 0.375rem;
+    margin-top: 0.625rem;
+}
+
+.date-range-actions .button {
+    flex: 1;
+    font-size: 0.7rem;
+    padding: 0.3rem 0.5rem;
+}
+
+/* Activity Load More */
+.activity-load-more {
+    padding: 0.75rem;
+    text-align: center;
+}
+
+.activity-count {
+    font-size: 0.6875rem;
+    color: var(--coins-text-muted);
+    margin-top: 0.5rem;
+}
+
 /* Clickable transaction items */
 .transaction-item.clickable {
     cursor: pointer;
@@ -1758,4 +2145,455 @@ hr {
 .button.is-link.is-outlined:hover {
     background: var(--coins-accent);
     color: var(--coins-bg);
+}
+
+/* ========================================
+   Send / Receive Tab Switcher
+   ======================================== */
+.send-receive-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--coins-border);
+    margin: -1.5rem -1.5rem 1rem;
+    padding: 0 1.5rem;
+}
+
+.sr-tab {
+    flex: 1;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--coins-text-muted);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0.875rem 0;
+    cursor: pointer;
+    transition: color var(--coins-transition), border-color var(--coins-transition);
+}
+
+.sr-tab:hover {
+    color: var(--coins-text-secondary);
+}
+
+.sr-tab.active {
+    color: var(--coins-accent);
+    border-bottom-color: var(--coins-accent);
+}
+
+.sr-pane {
+    display: none;
+}
+
+.sr-pane.active {
+    display: block;
+    animation: fadeIn 0.2s ease-out;
+}
+
+/* ========================================
+   Receive Tab Layout
+   ======================================== */
+
+/* Top row: Amount + Token side by side */
+.receive-top-row {
+    display: flex;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.receive-top-row .receive-field-amount {
+    flex: 1;
+    min-width: 0;
+    margin-bottom: 0;
+}
+
+.receive-top-row .receive-field-token {
+    flex: 0 0 auto;
+    min-width: 120px;
+    margin-bottom: 0;
+}
+
+/* Bottom row: QR left, Expiry+Memo right */
+.receive-bottom-row {
+    display: flex;
+    gap: 1rem;
+    align-items: flex-start;
+}
+
+.receive-bottom-fields {
+    flex: 1;
+    min-width: 0;
+}
+
+.receive-qr-container {
+    flex-shrink: 0;
+    border-radius: var(--coins-radius-lg);
+    overflow: hidden;
+    cursor: pointer;
+    border: 1px solid var(--coins-border);
+    position: relative;
+    transition: border-color var(--coins-transition), box-shadow var(--coins-transition);
+}
+
+.receive-qr-container:hover {
+    border-color: var(--coins-accent);
+    box-shadow: 0 0 20px rgba(45, 212, 191, 0.15);
+}
+
+.receive-qr-container canvas {
+    display: block;
+}
+
+.receive-qr-copied {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(15, 23, 42, 0.9);
+    color: var(--coins-success);
+    font-size: 0.875rem;
+    font-weight: 600;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.15s ease, visibility 0.15s ease;
+}
+
+.receive-qr-container.copied .receive-qr-copied {
+    opacity: 1;
+    visibility: visible;
+}
+
+.receive-field-group {
+    margin-bottom: 0.625rem;
+}
+
+.receive-field-label {
+    display: block;
+    font-size: 0.6875rem;
+    font-weight: 500;
+    color: var(--coins-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.25rem;
+}
+
+.receive-amount-wrapper {
+    padding: 0.25rem 0;
+}
+
+.receive-amount-wrapper .amount-input-large {
+    font-size: 1.25rem;
+    text-align: left;
+}
+
+/* ========================================
+   Receive Token Selector (searchable dropdown)
+   ======================================== */
+.receive-token-select {
+    position: relative;
+}
+
+.receive-token-selected {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    background: var(--coins-bg-secondary);
+    border: 1.5px solid var(--coins-border);
+    border-radius: var(--coins-radius);
+    padding: 0.5rem 0.75rem;
+    cursor: pointer;
+    transition: border-color var(--coins-transition);
+    font-family: inherit;
+    color: var(--coins-text);
+}
+
+.receive-token-selected:hover {
+    border-color: var(--coins-text-muted);
+}
+
+.receive-token-selected:focus {
+    outline: none;
+    border-color: var(--coins-accent);
+}
+
+.receive-token-icon {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--coins-accent);
+    width: 1.25rem;
+    text-align: center;
+}
+
+.receive-token-select .receive-token-name {
+    flex: 1;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    text-align: left;
+}
+
+.receive-token-chevron {
+    font-size: 0.625rem;
+    color: var(--coins-text-muted);
+    transition: transform var(--coins-transition);
+}
+
+.receive-token-select.open .receive-token-chevron {
+    transform: rotate(180deg);
+}
+
+.receive-token-dropdown {
+    display: none;
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    z-index: 50;
+    background: var(--coins-surface);
+    border: 1px solid var(--coins-border);
+    border-radius: var(--coins-radius);
+    box-shadow: var(--coins-shadow-lg);
+    overflow: hidden;
+}
+
+.receive-token-select.open .receive-token-dropdown {
+    display: block;
+}
+
+.receive-token-search {
+    width: 100%;
+    border: none;
+    border-bottom: 1px solid var(--coins-border);
+    background: var(--coins-bg-secondary);
+    color: var(--coins-text);
+    font-size: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    outline: none;
+}
+
+.receive-token-search::placeholder {
+    color: var(--coins-text-muted);
+}
+
+.receive-token-search:focus {
+    background: var(--coins-surface-elevated);
+}
+
+.receive-token-list {
+    max-height: 180px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--coins-border) transparent;
+}
+
+.receive-token-list::-webkit-scrollbar {
+    width: 4px;
+}
+
+.receive-token-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.receive-token-list::-webkit-scrollbar-thumb {
+    background: var(--coins-border);
+    border-radius: 2px;
+}
+
+.receive-token-option {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.75rem;
+    cursor: pointer;
+    transition: background var(--coins-transition);
+    font-size: 0.75rem;
+    color: var(--coins-text);
+}
+
+.receive-token-option:hover {
+    background: var(--coins-bg-secondary);
+}
+
+.receive-token-option.selected {
+    background: rgba(45, 212, 191, 0.08);
+}
+
+.receive-token-option .tok-icon {
+    font-weight: 600;
+    color: var(--coins-accent);
+    width: 1.25rem;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.receive-token-option .tok-name {
+    flex: 1;
+    font-weight: 500;
+}
+
+.receive-token-option .tok-owned {
+    font-size: 0.625rem;
+    color: var(--coins-text-muted);
+}
+
+.receive-token-divider {
+    height: 1px;
+    background: var(--coins-border);
+    margin: 0.25rem 0;
+}
+
+/* ========================================
+   Receive Drum (vertical picker)
+   ======================================== */
+.receive-drum {
+    width: 100%;
+    cursor: grab;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: pan-y;
+    position: relative;
+}
+
+.receive-drum.grabbing {
+    cursor: grabbing;
+}
+
+.receive-drum-viewport {
+    height: 22px;
+    overflow: hidden;
+    position: relative;
+}
+
+.receive-drum-viewport::before,
+.receive-drum-viewport::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 6px;
+    z-index: 2;
+    pointer-events: none;
+}
+
+.receive-drum-viewport::before {
+    top: 0;
+    background: linear-gradient(to bottom, var(--coins-surface), transparent);
+}
+
+.receive-drum-viewport::after {
+    bottom: 0;
+    background: linear-gradient(to top, var(--coins-surface), transparent);
+}
+
+.receive-drum-track {
+    display: flex;
+    flex-direction: column;
+    transition: transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    will-change: transform;
+}
+
+.receive-drum-track.dragging {
+    transition: none;
+}
+
+.receive-drum-item {
+    height: 22px;
+    line-height: 22px;
+    font-size: 0.7rem;
+    color: var(--coins-text-muted);
+    text-align: left;
+    white-space: nowrap;
+    flex-shrink: 0;
+    padding: 0 0.25rem;
+    transition: color 0.15s ease, font-weight 0.15s ease;
+}
+
+.receive-drum-item.active {
+    color: var(--coins-accent);
+    font-weight: 600;
+}
+
+/* ========================================
+   Receive Memo Badge & Input
+   ======================================== */
+.receive-memo-badge {
+    display: inline-block;
+    font-size: 0.7rem;
+    color: var(--coins-text-muted);
+    border: 1px dashed var(--coins-border);
+    border-radius: 999px;
+    padding: 0.2rem 0.625rem;
+    cursor: pointer;
+    transition: color var(--coins-transition), border-color var(--coins-transition);
+}
+
+.receive-memo-badge:hover {
+    color: var(--coins-accent);
+    border-color: var(--coins-accent);
+}
+
+.receive-memo-input {
+    position: relative;
+}
+
+.receive-memo-input .input {
+    padding-right: 3rem;
+    font-size: 0.8125rem;
+}
+
+.receive-memo-count {
+    position: absolute;
+    bottom: 0.375rem;
+    right: 0.5rem;
+    font-size: 0.625rem;
+    color: var(--coins-text-muted);
+}
+
+/* ========================================
+   Receive Custom Expiry
+   ======================================== */
+.receive-custom-expiry {
+    margin-top: 0.375rem;
+}
+
+.receive-custom-expiry input {
+    width: 100%;
+    font-size: 0.75rem;
+    padding: 0.375rem 0.5rem;
+    border-radius: var(--coins-radius-sm);
+    border: 1.5px solid var(--coins-border);
+    background: var(--coins-bg-secondary);
+    color: var(--coins-text);
+    color-scheme: dark;
+    transition: all var(--coins-transition);
+}
+
+.receive-custom-expiry input:focus {
+    outline: none;
+    border-color: var(--coins-accent);
+    box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.15);
+}
+
+/* ========================================
+   Receive Tab Mobile
+   ======================================== */
+@media screen and (max-width: 768px) {
+    .receive-top-row {
+        flex-wrap: wrap;
+    }
+
+    .receive-bottom-row {
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .receive-bottom-fields {
+        width: 100%;
+    }
+
+    .receive-qr-container canvas {
+        width: 200px;
+        height: 200px;
+    }
 }

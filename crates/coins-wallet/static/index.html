@@ -6,6 +6,7 @@
     <title>Coins Wallet</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
     <link rel="stylesheet" href="/shared/coins-common.css">
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.4.4/build/qrcode.min.js"></script>
 </head>
 <body>
     <!-- Main Content -->
@@ -199,43 +200,156 @@
                     </div>
                 </div>
 
-                <!-- Send Form - Modern Amount Input -->
+                <!-- Send / Receive Card -->
                 <div class="coins-card mb-4" id="send-card">
-                    <div class="coins-card-header">
-                        <h2 class="coins-card-title">Send</h2>
+                    <!-- Tab Switcher -->
+                    <div class="send-receive-tabs">
+                        <button class="sr-tab active" data-tab="send" id="tab-send">Send</button>
+                        <button class="sr-tab" data-tab="receive" id="tab-receive">Receive</button>
                     </div>
 
-                    <div class="field">
-                        <div class="control">
-                            <input class="input" type="text" id="send-recipient" placeholder="Recipient address">
+                    <!-- Send Pane -->
+                    <div class="sr-pane active" id="pane-send">
+                        <div class="field" style="position:relative">
+                            <div class="recipient-row">
+                                <input class="input" type="text" id="send-recipient" placeholder="Recipient address" autocomplete="off">
+                                <button class="button is-light addressbook-toggle" id="open-addressbook-btn" title="Address book">
+                                    Contacts
+                                </button>
+                            </div>
+                            <div class="recipient-suggestions" id="recipient-suggestions"></div>
+                        </div>
+
+                        <!-- Amount Input with Token Suffix -->
+                        <div class="amount-input-wrapper">
+                            <div class="amount-row">
+                                <input type="text" inputmode="numeric" class="amount-input-large" id="send-amount" placeholder="0" autocomplete="off">
+                                <span class="amount-measure" id="send-amount-measure" aria-hidden="true"></span>
+                                <span class="amount-token-suffix" id="send-token-suffix">&alpha; Alpha</span>
+                            </div>
+                            <div class="amount-quick-select" id="send-quick-select">
+                                <!-- Populated dynamically by JS based on balance -->
+                            </div>
+                        </div>
+
+                        <!-- Hidden fields -->
+                        <input type="hidden" id="send-fee" value="1">
+
+                        <button class="button is-primary is-fullwidth" id="send-tx-btn">
+                            Send
+                        </button>
+
+                        <div id="send-status" class="notification mt-3" style="display: none;"></div>
+                    </div>
+
+                    <!-- Receive Pane -->
+                    <div class="sr-pane" id="pane-receive">
+                        <!-- Top row: Amount + Token side by side -->
+                        <div class="receive-top-row">
+                            <div class="receive-field-group receive-field-amount">
+                                <label class="receive-field-label">Amount</label>
+                                <div class="amount-input-wrapper receive-amount-wrapper">
+                                    <input type="text" class="amount-input-large" id="receive-amount" placeholder="Any" value="Any" autocomplete="off">
+                                    <div class="amount-quick-select">
+                                        <span class="quick-amount receive-quick-amount active" data-amount="any">Any</span>
+                                        <span class="quick-amount receive-quick-amount" data-amount="10">10</span>
+                                        <span class="quick-amount receive-quick-amount" data-amount="100">100</span>
+                                        <span class="quick-amount receive-quick-amount" data-amount="1000">1k</span>
+                                        <span class="quick-amount receive-quick-amount" data-amount="10000">10k</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="receive-field-group receive-field-token">
+                                <label class="receive-field-label">Token</label>
+                                <div class="receive-token-select" id="receive-token-select">
+                                    <button class="receive-token-selected" id="receive-token-btn" type="button">
+                                        <span class="receive-token-icon" id="receive-token-icon">&alpha;</span>
+                                        <span class="receive-token-name" id="receive-token-label">Alpha</span>
+                                        <span class="receive-token-chevron">&#9662;</span>
+                                    </button>
+                                    <div class="receive-token-dropdown" id="receive-token-dropdown">
+                                        <input class="receive-token-search" id="receive-token-search"
+                                               type="text" placeholder="Search tokens..." autocomplete="off">
+                                        <div class="receive-token-list" id="receive-token-list">
+                                            <!-- Populated by JS -->
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Bottom row: QR left, Expiry+Memo right -->
+                        <div class="receive-bottom-row">
+                            <div class="receive-qr-container" id="receive-qr-container" title="Tap to copy invoice URI">
+                                <canvas id="receive-qr-canvas"></canvas>
+                                <div class="receive-qr-copied" id="receive-qr-copied">Copied!</div>
+                            </div>
+
+                            <div class="receive-bottom-fields">
+                                <div class="receive-field-group">
+                                    <label class="receive-field-label">Expires</label>
+                                    <div class="receive-drum" id="receive-expiry-drum">
+                                        <div class="receive-drum-viewport">
+                                            <div class="receive-drum-track" id="receive-expiry-drum-track">
+                                                <div class="receive-drum-item active" data-seconds="0">No expiry</div>
+                                                <div class="receive-drum-item" data-seconds="3600">1 hour</div>
+                                                <div class="receive-drum-item" data-seconds="28800">8 hours</div>
+                                                <div class="receive-drum-item" data-seconds="86400">1 day</div>
+                                                <div class="receive-drum-item" data-seconds="604800">1 week</div>
+                                                <div class="receive-drum-item" data-seconds="custom">Custom...</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="receive-custom-expiry" id="receive-custom-expiry" style="display:none">
+                                        <input type="datetime-local" id="receive-custom-datetime">
+                                    </div>
+                                </div>
+
+                                <div class="receive-field-group">
+                                    <span class="receive-memo-badge" id="receive-memo-badge">+ Add memo</span>
+                                    <div class="receive-memo-input" id="receive-memo-input" style="display:none">
+                                        <input class="input is-small" type="text" id="receive-memo"
+                                               placeholder="e.g. Payment for coffee" maxlength="255">
+                                        <span class="receive-memo-count" id="receive-memo-count">0/255</span>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
-
-                    <!-- Amount Input -->
-                    <div class="amount-input-wrapper">
-                        <input type="text" inputmode="numeric" class="amount-input-large" id="send-amount" placeholder="0" autocomplete="off">
-                        <div class="amount-quick-select">
-                            <span class="quick-amount" data-amount="10">10</span>
-                            <span class="quick-amount" data-amount="100">100</span>
-                            <span class="quick-amount" data-amount="1000">1k</span>
-                            <span class="quick-amount" data-amount="10000">10k</span>
-                        </div>
-                    </div>
-
-                    <!-- Hidden fields -->
-                    <input type="hidden" id="send-fee" value="1">
-
-                    <button class="button is-primary is-fullwidth" id="send-tx-btn">
-                        Send
-                    </button>
-
-                    <div id="send-status" class="notification mt-3" style="display: none;"></div>
                 </div>
 
                 <!-- Transaction History - Clickable items -->
                 <div class="coins-card mb-4">
                     <div class="coins-card-header">
                         <h2 class="coins-card-title">Activity</h2>
+                    </div>
+                    <div class="activity-filters" id="activity-filters">
+                        <div class="activity-token-chips" id="activity-token-chips">
+                            <!-- Token chips populated by JS -->
+                        </div>
+                        <div class="date-drum" id="date-drum">
+                            <div class="date-drum-viewport">
+                                <div class="date-drum-track" id="date-drum-track">
+                                    <div class="date-drum-item" data-days="all">All time</div>
+                                    <div class="date-drum-item" data-days="7">7 days</div>
+                                    <div class="date-drum-item" data-days="30">30 days</div>
+                                    <div class="date-drum-item" data-days="90">90 days</div>
+                                    <div class="date-drum-item" data-days="180">180 days</div>
+                                    <div class="date-drum-item" data-days="365">1 year</div>
+                                    <div class="date-drum-item" data-days="custom">Custom...</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="date-range-picker" id="date-range-picker" style="display:none">
+                            <div class="date-range-header">Custom Range</div>
+                            <label>From <input type="date" id="date-range-from"></label>
+                            <label>To <input type="date" id="date-range-to"></label>
+                            <div class="date-range-actions">
+                                <button class="button is-primary" id="date-range-apply">Apply</button>
+                                <button class="button is-light" id="date-range-cancel">Cancel</button>
+                            </div>
+                        </div>
                     </div>
                     <div id="transaction-history">
                         <p class="has-text-grey-light has-text-centered py-4">No transactions yet</p>
@@ -244,6 +358,8 @@
 
                 <!-- Wallet Actions - Simple links -->
                 <div class="wallet-actions">
+                    <a class="action-link" id="request-payment-btn">Request payment</a>
+                    <span class="action-separator">·</span>
                     <a class="action-link" id="backup-wallet-btn">Export backup</a>
                     <span class="action-separator">·</span>
                     <a class="action-link" id="resync-nonce-btn">Resync nonce</a>
@@ -280,12 +396,20 @@
                     <span class="tx-detail-value" id="tx-detail-fee">--</span>
                 </div>
                 <div class="tx-detail-row">
+                    <span class="tx-detail-label">Nonce</span>
+                    <span class="tx-detail-value" id="tx-detail-nonce">--</span>
+                </div>
+                <div class="tx-detail-row">
                     <span class="tx-detail-label">Status</span>
                     <span class="tx-detail-value" id="tx-detail-status">--</span>
                 </div>
                 <div class="tx-detail-row" id="tx-detail-block-row" style="display: none;">
-                    <span class="tx-detail-label">Block</span>
+                    <span class="tx-detail-label">Bitcoin Block</span>
                     <span class="tx-detail-value" id="tx-detail-block">--</span>
+                </div>
+                <div class="tx-detail-row" id="tx-detail-btctxid-row" style="display: none;">
+                    <span class="tx-detail-label">Bitcoin Txid</span>
+                    <span class="tx-detail-value" id="tx-detail-btctxid" style="font-size: 0.75rem; font-family: monospace; word-break: break-all;">--</span>
                 </div>
 
                 <hr class="tx-detail-divider">
@@ -379,6 +503,91 @@
         </div>
     </div>
 
+
+    <!-- Request Payment Modal -->
+    <div id="invoice-modal" class="modal">
+        <div class="modal-background"></div>
+        <div class="modal-card">
+            <header class="modal-card-head">
+                <p class="modal-card-title">Request Payment</p>
+                <button class="delete" aria-label="close" id="close-invoice-modal"></button>
+            </header>
+            <section class="modal-card-body">
+                <div id="invoice-create-form">
+                    <div class="field">
+                        <label class="label is-small">Amount (optional)</label>
+                        <input class="input" type="number" id="invoice-amount" placeholder="Amount in sats">
+                    </div>
+                    <div class="field">
+                        <label class="label is-small">Token ID (optional)</label>
+                        <input class="input" type="number" id="invoice-token" placeholder="0 (native)" value="0">
+                    </div>
+                    <div class="field">
+                        <label class="label is-small">Memo (optional)</label>
+                        <input class="input" type="text" id="invoice-memo" placeholder="e.g. Payment for coffee">
+                    </div>
+                    <div class="field">
+                        <button class="button is-primary is-fullwidth" id="generate-invoice-btn">Generate Invoice</button>
+                    </div>
+                </div>
+                <div id="invoice-result" style="display: none;">
+                    <div class="has-text-centered mb-4">
+                        <canvas id="invoice-qr" style="max-width: 200px; margin: 0 auto;"></canvas>
+                    </div>
+                    <div class="field">
+                        <label class="label is-small">Invoice URI</label>
+                        <div class="control">
+                            <textarea class="textarea is-family-monospace is-small" id="invoice-uri-text" rows="3" readonly></textarea>
+                        </div>
+                    </div>
+                    <div class="field">
+                        <button class="button is-link is-fullwidth is-small" id="copy-invoice-uri-btn">Copy URI</button>
+                    </div>
+                    <hr>
+                    <button class="button is-light is-fullwidth is-small" id="invoice-new-btn">Create Another</button>
+                </div>
+            </section>
+            <footer class="modal-card-foot">
+                <button class="button" id="close-invoice-btn">Close</button>
+            </footer>
+        </div>
+    </div>
+
+    <!-- Address Book Modal -->
+    <div id="addressbook-modal" class="modal">
+        <div class="modal-background"></div>
+        <div class="modal-card">
+            <header class="modal-card-head">
+                <p class="modal-card-title">Address Book</p>
+                <button class="delete" aria-label="close" id="close-addressbook-modal"></button>
+            </header>
+            <section class="modal-card-body">
+                <div class="field">
+                    <input class="input" type="text" id="addressbook-search" placeholder="Search contacts...">
+                </div>
+                <div id="addressbook-list">
+                    <!-- Contacts will be rendered here -->
+                </div>
+                <hr>
+                <div id="addressbook-add-form">
+                    <h3 class="section-heading" style="margin-bottom: 0.75rem;">Add Contact</h3>
+                    <div class="field">
+                        <input class="input" type="text" id="addressbook-new-label" placeholder="Label (e.g. Alice)">
+                    </div>
+                    <div class="field">
+                        <input class="input is-family-monospace" type="text" id="addressbook-new-address" placeholder="Public key (hex)">
+                    </div>
+                    <div class="field">
+                        <button class="button is-primary is-small" id="addressbook-add-btn">Add Contact</button>
+                    </div>
+                    <div id="addressbook-error" class="notification is-danger is-light" style="display: none;"></div>
+                </div>
+            </section>
+            <footer class="modal-card-foot">
+                <button class="button" id="close-addressbook-btn">Close</button>
+            </footer>
+        </div>
+    </div>
 
     <script src="/wallet.js"></script>
 </body>

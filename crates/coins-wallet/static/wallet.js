@@ -19,6 +19,11 @@ let currentKey = null;
 let ws = null;
 let wsReconnectTimeout = null;
 
+// Cache for WebSocket refresh deduplication (skip re-render when data unchanged)
+let lastBalanceJSON = null;
+let lastTransactionsJSON = null;
+let lastPendingJSON = null;
+
 /**
  * Initialize WebSocket connection for real-time updates
  */
@@ -896,6 +901,9 @@ function updateBalanceDisplay(account) {
 
     // Hide the separate token balances card since we show them in the hero now
     if (tokenBalancesCard) tokenBalancesCard.style.display = 'none';
+
+    // Update send token info display
+    updateSendTokenInfo();
 }
 
 // Show send status message (only for errors now)
@@ -951,11 +959,53 @@ function showSendAnimation() {
 }
 
 // Update transaction history display
+// Balance polling interval (poll every 30s when wallet is unlocked)
+const BALANCE_POLL_INTERVAL_MS = 30000;
+let balancePollInterval = null;
+
+function startBalancePolling() {
+    stopBalancePolling();
+    balancePollInterval = setInterval(async () => {
+        if (walletApp.isUnlocked()) {
+            await refreshBalance();
+            await refreshTransactions();
+        } else {
+            stopBalancePolling();
+        }
+    }, BALANCE_POLL_INTERVAL_MS);
+}
+
+function stopBalancePolling() {
+    if (balancePollInterval) {
+        clearInterval(balancePollInterval);
+        balancePollInterval = null;
+    }
+}
+
 // Store pending transactions that haven't been confirmed yet
 window.pendingTransactions = window.pendingTransactions || [];
 
 // Store pending transactions fetched from API (explorer)
 window.apiPendingTransactions = window.apiPendingTransactions || [];
+
+// Pagination state for activity list
+const ACTIVITY_PAGE_SIZE = 20;
+window.activityDisplayCount = window.activityDisplayCount || ACTIVITY_PAGE_SIZE;
+
+// Activity filter state
+window.activityFilters = window.activityFilters || {
+    tokenIds: null, // null = all tokens, Set of enabled token IDs when filtering
+    dateDays: 'all', // 'all', number of days, or 'custom'
+    customFrom: null, // Date string (yyyy-mm-dd) for custom range start
+    customTo: null,   // Date string (yyyy-mm-dd) for custom range end
+};
+
+// Date drum picker state
+window.dateDrumState = {
+    currentOffset: 0,
+    selectedIndex: 0,
+    itemHeight: 22
+};
 
 // Countdown timer for pending transactions
 let pendingCountdownInterval = null;
@@ -982,11 +1032,13 @@ function startPendingCountdown() {
 
     // Update every second
     pendingCountdownInterval = setInterval(() => {
-        if (pendingCountdownSecs !== null && pendingCountdownSecs > 0) {
+        if (pendingCountdownSecs !== null && pendingCountdownSecs > 1) {
             pendingCountdownSecs--;
             updatePendingCountdownDisplay();
         } else {
-            // Countdown reached 0 - transaction should be broadcasting
+            // Countdown reached 1 or below - transition to "Broadcasting"
+            pendingCountdownSecs = 0;
+            updatePendingCountdownDisplay();
             // Start polling for actual status from API
             startPendingStatusPolling();
         }
@@ -1034,6 +1086,9 @@ function stopPendingStatusPolling() {
 async function refreshPendingTransactions() {
     try {
         const pendingFromAPI = await walletApp.fetchPendingTransactions();
+        const json = JSON.stringify(pendingFromAPI);
+        if (json === lastPendingJSON) return;
+        lastPendingJSON = json;
         window.apiPendingTransactions = pendingFromAPI || [];
         renderTransactionHistory();
     } catch (error) {
@@ -1061,10 +1116,14 @@ async function fetchPublisherCountdown() {
 
 // Update the countdown display in pending transactions
 function updatePendingCountdownDisplay() {
-    const countdownEls = document.querySelectorAll('.pending-countdown');
-    countdownEls.forEach(el => {
-        if (pendingCountdownSecs !== null) {
-            el.textContent = `${pendingCountdownSecs}s`;
+    const pendingTags = document.querySelectorAll('.pending-tag');
+    pendingTags.forEach(el => {
+        if (pendingCountdownSecs !== null && pendingCountdownSecs > 0) {
+            el.innerHTML = `Broadcast in <span class="pending-countdown">${pendingCountdownSecs}s</span>`;
+        } else {
+            el.innerHTML = 'Broadcasting';
+            el.classList.remove('is-warning');
+            el.classList.add('is-info');
         }
     });
 }
@@ -1170,9 +1229,12 @@ function renderTransactionHistory() {
         const tokenName = greekNames[tokenIdx] || `Token ${tokenIdx}`;
         const counterpartyShort = tx.recipient_pk.substring(0, 8) + '...' + tx.recipient_pk.substring(56);
 
-        const countdownText = pendingCountdownSecs !== null && pendingCountdownSecs > 0
-            ? `${pendingCountdownSecs}s`
-            : '...';
+        let tagHtml;
+        if (pendingCountdownSecs !== null && pendingCountdownSecs > 0) {
+            tagHtml = `<span class="tag is-warning is-light pending-tag">Broadcast in <span class="pending-countdown">${pendingCountdownSecs}s</span></span>`;
+        } else {
+            tagHtml = `<span class="tag is-info is-light pending-tag">Broadcasting</span>`;
+        }
         html += `
             <div class="transaction-item clickable pending-tx">
                 <div class="columns is-mobile is-vcentered mb-0">
@@ -1186,9 +1248,7 @@ function renderTransactionHistory() {
                         </p>
                     </div>
                     <div class="column is-narrow has-text-right">
-                        <span class="tag is-warning is-light pending-tag">
-                            Publishing in <span class="pending-countdown">${countdownText}</span>
-                        </span>
+                        ${tagHtml}
                     </div>
                 </div>
             </div>
@@ -1239,8 +1299,18 @@ function renderTransactionHistory() {
     }
 
     // 3. Add confirmed transactions (newest first, reversed order)
-    for (let i = confirmedTxs.length - 1; i >= 0; i--) {
-        const tx = confirmedTxs[i];
+    // Apply filters
+    const filteredTxs = applyActivityFilters(confirmedTxs);
+
+    // Apply pagination: only show up to activityDisplayCount confirmed items
+    const pendingCount = stillLocalPending.length + stillApiPending.length;
+    const confirmedLimit = window.activityDisplayCount - pendingCount;
+    const totalConfirmed = filteredTxs.length;
+    let confirmedShown = 0;
+
+    for (let i = filteredTxs.length - 1; i >= 0 && confirmedShown < confirmedLimit; i--) {
+        confirmedShown++;
+        const tx = filteredTxs[i];
         const isOutgoing = tx.direction === 'outgoing';
         const directionClass = isOutgoing ? 'has-text-danger' : 'has-text-success';
         const directionIcon = isOutgoing ? '-' : '+';
@@ -1283,14 +1353,37 @@ function renderTransactionHistory() {
         `;
     }
 
+    // "Load more" button if there are more confirmed transactions to show
+    const totalDisplayed = pendingCount + confirmedShown;
+    const totalAll = pendingCount + totalConfirmed;
+    if (confirmedShown < totalConfirmed) {
+        html += `
+            <div class="activity-load-more">
+                <button class="button is-light is-fullwidth is-small" id="load-more-activity">
+                    Load more
+                </button>
+                <p class="activity-count">Showing ${totalDisplayed} of ${totalAll}</p>
+            </div>
+        `;
+    }
+
     historyEl.innerHTML = html;
+
+    // Wire up "Load more" button
+    const loadMoreBtn = document.getElementById('load-more-activity');
+    if (loadMoreBtn) {
+        loadMoreBtn.addEventListener('click', () => {
+            window.activityDisplayCount += ACTIVITY_PAGE_SIZE;
+            renderTransactionHistory();
+        });
+    }
 
     // Add click handlers for confirmed transactions
     historyEl.querySelectorAll('.transaction-item.clickable[data-tx-index]').forEach(item => {
         item.addEventListener('click', () => {
             const index = parseInt(item.getAttribute('data-tx-index'), 10);
             if (window.currentTransactions && window.currentTransactions[index]) {
-                showTransactionDetails(window.currentTransactions[index]);
+                showTransactionDetail(window.currentTransactions[index]);
             }
         });
     });
@@ -1300,8 +1393,145 @@ function updateTransactionHistory(transactions) {
     // Store transactions for later use
     window.currentTransactions = transactions || [];
 
+    // Update token filter options based on available tokens
+    updateTokenFilterOptions(transactions || []);
+
     // Use the render function that handles both pending and confirmed
     renderTransactionHistory();
+}
+
+function updateTokenFilterOptions(transactions) {
+    const container = document.getElementById('activity-token-chips');
+    if (!container) return;
+
+    const tokenSet = new Set();
+    for (const tx of transactions) {
+        tokenSet.add(tx.token_id);
+    }
+
+    const sorted = [...tokenSet].sort((a, b) => a - b);
+    if (sorted.length <= 1) {
+        container.innerHTML = '';
+        return;
+    }
+
+    const activeSet = window.activityFilters.tokenIds;
+    let html = '';
+    for (const tid of sorted) {
+        const idx = parseInt(tid);
+        const letter = greekLetters[idx] || `#${tid}`;
+        const name = greekNames[idx] || `Token ${tid}`;
+        const isActive = !activeSet || activeSet.has(idx);
+        html += `<button class="token-chip${isActive ? ' active' : ''}" data-token-id="${idx}">${letter} ${name}</button>`;
+    }
+    container.innerHTML = html;
+
+    container.querySelectorAll('.token-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+            const tid = parseInt(chip.dataset.tokenId);
+            toggleTokenFilter(tid, sorted.map(t => parseInt(t)));
+        });
+    });
+}
+
+function toggleTokenFilter(tid, allTokenIds) {
+    let activeSet = window.activityFilters.tokenIds;
+
+    if (!activeSet) {
+        // Currently showing all — turn off the clicked token
+        activeSet = new Set(allTokenIds);
+        activeSet.delete(tid);
+    } else if (activeSet.has(tid)) {
+        // Token is on — turn it off
+        activeSet.delete(tid);
+    } else {
+        // Token is off — turn it on
+        activeSet.add(tid);
+    }
+
+    // If all are selected (or none), reset to null (show all)
+    if (activeSet.size === 0 || activeSet.size === allTokenIds.length) {
+        activeSet = null;
+    }
+
+    window.activityFilters.tokenIds = activeSet;
+
+    // Update chip visuals directly
+    const container = document.getElementById('activity-token-chips');
+    if (container) {
+        container.querySelectorAll('.token-chip').forEach(chip => {
+            const chipTid = parseInt(chip.dataset.tokenId);
+            const isActive = !activeSet || activeSet.has(chipTid);
+            chip.classList.toggle('active', isActive);
+        });
+    }
+
+    window.activityDisplayCount = ACTIVITY_PAGE_SIZE;
+    renderTransactionHistory();
+}
+
+// Apply activity filters to confirmed transactions
+function applyActivityFilters(confirmedTxs) {
+    let filtered = confirmedTxs;
+    const { tokenIds, dateDays, customFrom, customTo } = window.activityFilters;
+
+    // Token filter (multi-select)
+    if (tokenIds) {
+        filtered = filtered.filter(tx => tokenIds.has(tx.token_id));
+    }
+
+    // Check if transactions have real timestamps from the backend
+    const hasTimestamps = confirmedTxs.some(tx => tx.timestamp > 0);
+
+    // Date filter — uses tx.timestamp when available, falls back to block height
+    if (dateDays === 'custom' && (customFrom || customTo)) {
+        if (hasTimestamps) {
+            if (customFrom) {
+                const fromTs = new Date(customFrom).getTime() / 1000;
+                filtered = filtered.filter(tx => tx.timestamp >= fromTs);
+            }
+            if (customTo) {
+                const toDate = new Date(customTo);
+                toDate.setDate(toDate.getDate() + 1);
+                const toTs = toDate.getTime() / 1000;
+                filtered = filtered.filter(tx => tx.timestamp < toTs);
+            }
+        } else {
+            // Fallback: estimate from block heights (~144 blocks/day)
+            let maxHeight = 0;
+            for (const tx of confirmedTxs) {
+                if (tx.btc_height > maxHeight) maxHeight = tx.btc_height;
+            }
+            const now = new Date();
+            const blocksPerDay = 144;
+            if (customFrom) {
+                const daysAgo = Math.max(0, (now - new Date(customFrom)) / 86400000);
+                filtered = filtered.filter(tx => tx.btc_height >= maxHeight - Math.ceil(daysAgo * blocksPerDay));
+            }
+            if (customTo) {
+                const toDate = new Date(customTo);
+                toDate.setDate(toDate.getDate() + 1);
+                const daysAgo = Math.max(0, (now - toDate) / 86400000);
+                filtered = filtered.filter(tx => tx.btc_height <= maxHeight - Math.ceil(daysAgo * blocksPerDay));
+            }
+        }
+    } else if (dateDays !== 'all' && dateDays !== 'custom') {
+        const days = parseInt(dateDays, 10);
+        if (hasTimestamps) {
+            const cutoffTs = (Date.now() / 1000) - (days * 86400);
+            filtered = filtered.filter(tx => tx.timestamp >= cutoffTs);
+        } else {
+            // Fallback: estimate from block heights (~144 blocks/day)
+            let maxHeight = 0;
+            for (const tx of confirmedTxs) {
+                if (tx.btc_height > maxHeight) maxHeight = tx.btc_height;
+            }
+            const cutoff = maxHeight - (days * 144);
+            filtered = filtered.filter(tx => tx.btc_height >= cutoff);
+        }
+    }
+
+    return filtered;
 }
 
 // Show transaction detail modal
@@ -1337,26 +1567,40 @@ function showTransactionDetail(tx) {
     const feeEl = document.getElementById('tx-detail-fee');
     if (feeEl) feeEl.textContent = tx.fee > 0 ? tx.fee.toString() : '0';
 
+    // Nonce
+    const nonceEl = document.getElementById('tx-detail-nonce');
+    if (nonceEl) nonceEl.textContent = tx.nonce !== undefined ? tx.nonce.toString() : '--';
+
     // Status
     const statusEl = document.getElementById('tx-detail-status');
     if (statusEl) {
         if (tx.finalized) {
             statusEl.innerHTML = '<span class="tag is-success">Finalized</span>';
         } else if (tx.confirmations > 0) {
-            statusEl.innerHTML = `<span class="tag is-warning">${tx.confirmations} confirmations (${tx.confirmations_remaining} more needed)</span>`;
+            statusEl.innerHTML = `<span class="tag is-warning">${tx.confirmations} confirmation${tx.confirmations !== 1 ? 's' : ''} (${tx.confirmations_remaining} more needed)</span>`;
         } else {
             statusEl.innerHTML = '<span class="tag is-info">Pending</span>';
         }
     }
 
-    // Block height (if available)
+    // Bitcoin block height (if available)
     const blockRow = document.getElementById('tx-detail-block-row');
     const blockEl = document.getElementById('tx-detail-block');
-    if (tx.block_height !== undefined && tx.block_height !== null) {
+    if (tx.btc_height && tx.btc_height > 0) {
         if (blockRow) blockRow.style.display = 'flex';
-        if (blockEl) blockEl.textContent = `#${tx.block_height}`;
+        if (blockEl) blockEl.textContent = `#${tx.btc_height}`;
     } else {
         if (blockRow) blockRow.style.display = 'none';
+    }
+
+    // Bitcoin txid (if available)
+    const btcTxidRow = document.getElementById('tx-detail-btctxid-row');
+    const btcTxidEl = document.getElementById('tx-detail-btctxid');
+    if (tx.btc_txid) {
+        if (btcTxidRow) btcTxidRow.style.display = 'flex';
+        if (btcTxidEl) btcTxidEl.textContent = tx.btc_txid;
+    } else {
+        if (btcTxidRow) btcTxidRow.style.display = 'none';
     }
 
     // Counterparty address
@@ -1387,9 +1631,10 @@ async function refreshTransactions() {
     }
 
     try {
-        if (historyEl) historyEl.innerHTML = '<p class="has-text-grey">Loading...</p>';
-
         const transactions = await walletApp.fetchTransactions();
+        const json = JSON.stringify(transactions);
+        if (json === lastTransactionsJSON) return;
+        lastTransactionsJSON = json;
         updateTransactionHistory(transactions);
     } catch (error) {
         console.error('Failed to refresh transactions:', error);
@@ -1434,6 +1679,11 @@ async function sendTransaction() {
 
         const result = await walletApp.sendTransaction(recipient, amount, tokenId, fee);
 
+        // Clear refresh caches so next WS update always re-renders
+        lastBalanceJSON = null;
+        lastTransactionsJSON = null;
+        lastPendingJSON = null;
+
         // Show send animation instead of status message
         showSendAnimation();
 
@@ -1447,12 +1697,54 @@ async function sendTransaction() {
             nonce: result.usedNonce
         });
 
+        // Store recipient before clearing form
+        const sentTo = recipient;
+
         // Clear form
         recipientEl.value = '';
         amountEl.value = '';
 
         // Refresh balance (transactions will include the pending one we just added)
         await refreshBalance();
+
+        // After animation (1200ms), prompt to save contact if not already in address book
+        setTimeout(() => {
+            const contacts = getAddressBook();
+            const alreadySaved = contacts.some(c => c.address === sentTo);
+            if (!alreadySaved) {
+                const statusEl = document.getElementById('send-status');
+                if (statusEl) {
+                    const shortAddr = sentTo.length > 16
+                        ? sentTo.slice(0, 8) + '...' + sentTo.slice(-6)
+                        : sentTo;
+                    statusEl.innerHTML = `
+                        <div class="save-contact-prompt">
+                            <span>Save <strong>${shortAddr}</strong> as contact?</span>
+                            <div style="display:flex;gap:0.5rem;margin-top:0.5rem">
+                                <input class="input is-small" type="text" id="save-contact-name"
+                                       placeholder="Contact name" style="flex:1">
+                                <button class="button is-primary is-small" id="save-contact-btn">Save</button>
+                                <button class="button is-light is-small" id="dismiss-contact-btn">Dismiss</button>
+                            </div>
+                        </div>`;
+                    statusEl.className = 'notification mt-3 is-info';
+                    statusEl.style.display = 'block';
+
+                    document.getElementById('save-contact-btn')?.addEventListener('click', () => {
+                        const name = document.getElementById('save-contact-name')?.value.trim();
+                        if (name) {
+                            const contacts = getAddressBook();
+                            contacts.push({ label: name, address: sentTo });
+                            saveAddressBook(contacts);
+                        }
+                        statusEl.style.display = 'none';
+                    });
+                    document.getElementById('dismiss-contact-btn')?.addEventListener('click', () => {
+                        statusEl.style.display = 'none';
+                    });
+                }
+            }
+        }, 1200);
 
     } catch (error) {
         console.error('Send transaction failed:', error);
@@ -1474,9 +1766,11 @@ async function refreshBalance() {
 
     try {
         if (refreshBtn) refreshBtn.classList.add('is-loading');
-        if (balanceEl) balanceEl.innerHTML = '<p class="has-text-grey">Loading...</p>';
 
         const account = await walletApp.refreshBalance();
+        const json = JSON.stringify(account);
+        if (json === lastBalanceJSON) return;
+        lastBalanceJSON = json;
         updateBalanceDisplay(account);
     } catch (error) {
         console.error('Failed to refresh balance:', error);
@@ -1515,6 +1809,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Auto-refresh balance and transactions
         await refreshBalance();
         await refreshTransactions();
+        startBalancePolling();
     } else {
         // No session - check if wallet exists in localStorage
         const hasWallet = walletApp.hasWallet();
@@ -1574,6 +1869,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 // Auto-refresh balance and transactions after creation
                 await refreshBalance();
                 await refreshTransactions();
+                startBalancePolling();
             } catch (error) {
                 alert('Failed to create wallet: ' + error.message);
             } finally {
@@ -1617,6 +1913,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 // Auto-refresh balance and transactions after import
                 await refreshBalance();
                 await refreshTransactions();
+                startBalancePolling();
             } catch (error) {
                 showError('import-error', error.message);
             } finally {
@@ -1645,6 +1942,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 // Auto-refresh balance and transactions after unlock
                 await refreshBalance();
                 await refreshTransactions();
+                startBalancePolling();
             } catch (error) {
                 showError('unlock-error', error.message);
             } finally {
@@ -1657,6 +1955,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const lockBtn = document.getElementById('lock-wallet-btn');
     if (lockBtn) {
         lockBtn.addEventListener('click', () => {
+            stopBalancePolling();
             walletApp.lockWallet();
             document.getElementById('unlock-password').value = '';
             showScreen('unlock-screen');
@@ -1682,24 +1981,56 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    // Quick amount selection
-    const quickAmounts = document.querySelectorAll('.quick-amount');
-    const amountInput = document.getElementById('send-amount');
+    // Position token suffix right after the amount digits, baseline-aligned
+    // Uses a temporary inline probe to find the real rendered baseline.
+    function repositionTokenSuffix() {
+        const input = document.getElementById('send-amount');
+        const measure = document.getElementById('send-amount-measure');
+        const suffix = document.getElementById('send-token-suffix');
+        if (!input || !measure || !suffix) return;
 
-    quickAmounts.forEach(btn => {
-        btn.addEventListener('click', () => {
-            const amount = parseInt(btn.getAttribute('data-amount'), 10);
-            const maxBalance = window.carouselState.balances[window.carouselState.tokenIds[window.carouselState.selectedIndex]] || 0;
-            const cappedAmount = Math.min(amount, maxBalance);
-            if (amountInput) {
-                amountInput.value = cappedAmount;
-                amountInput.classList.add('scrolling');
-                setTimeout(() => amountInput.classList.remove('scrolling'), 150);
-            }
-            quickAmounts.forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-        });
-    });
+        // Horizontal: place suffix right after the centered text
+        const text = input.value || input.placeholder || '';
+        measure.textContent = text;
+        const inputRect = input.getBoundingClientRect();
+        const textWidth = measure.offsetWidth;
+        const center = inputRect.left + inputRect.width / 2;
+        const rowRect = input.closest('.amount-row').getBoundingClientRect();
+        const leftPos = center + textWidth / 2 - rowRect.left;
+        suffix.style.left = leftPos + 'px';
+
+        // Vertical: baseline-align using a hidden inline-flex container
+        // with both font sizes, letting the browser compute the exact alignment.
+        const inputStyle = getComputedStyle(input);
+        const helper = document.createElement('div');
+        helper.style.cssText = 'position:absolute;top:-9999px;left:0;display:inline-flex;align-items:baseline;';
+        const bigSpan = document.createElement('span');
+        bigSpan.style.cssText = `font-size:${inputStyle.fontSize};font-weight:${inputStyle.fontWeight};font-family:${inputStyle.fontFamily};line-height:${inputStyle.lineHeight};padding:${inputStyle.padding};`;
+        bigSpan.textContent = text || '0';
+        const smallSpan = document.createElement('span');
+        const suffixStyle = getComputedStyle(suffix);
+        smallSpan.style.cssText = `font-size:${suffixStyle.fontSize};font-weight:${suffixStyle.fontWeight};font-family:${suffixStyle.fontFamily};line-height:1;`;
+        smallSpan.textContent = suffix.textContent;
+        helper.appendChild(bigSpan);
+        helper.appendChild(smallSpan);
+        document.body.appendChild(helper);
+        const delta = smallSpan.getBoundingClientRect().top - bigSpan.getBoundingClientRect().top;
+        document.body.removeChild(helper);
+
+        suffix.style.top = delta + 'px';
+    }
+
+    const sendAmountInput = document.getElementById('send-amount');
+    if (sendAmountInput) {
+        sendAmountInput.addEventListener('input', repositionTokenSuffix);
+        // Initial position after layout
+        requestAnimationFrame(repositionTokenSuffix);
+    }
+    // Expose for use by updateSendTokenInfo
+    window.repositionTokenSuffix = repositionTokenSuffix;
+
+    // Send amount input — scroll to adjust & manual input cap
+    const amountInput = document.getElementById('send-amount');
 
     // Helper to get max balance for selected token
     function getSelectedTokenMaxBalance() {
@@ -1733,7 +2064,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             amountInput.classList.add('scrolling');
 
             // Clear active quick amounts
-            quickAmounts.forEach(b => b.classList.remove('active'));
+            const quickSelectEl = document.getElementById('send-quick-select');
+            if (quickSelectEl) quickSelectEl.querySelectorAll('.quick-amount').forEach(b => b.classList.remove('active'));
+
+            if (window.repositionTokenSuffix) window.repositionTokenSuffix();
 
             // Remove scrolling class after a delay
             clearTimeout(scrollTimeout);
@@ -1744,7 +2078,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Clear active state and cap at max when manually editing
         amountInput.addEventListener('input', () => {
-            quickAmounts.forEach(b => b.classList.remove('active'));
+            const quickSelectEl = document.getElementById('send-quick-select');
+            if (quickSelectEl) quickSelectEl.querySelectorAll('.quick-amount').forEach(b => b.classList.remove('active'));
             // Cap value at max balance
             const maxBalance = getSelectedTokenMaxBalance();
             const currentVal = parseInt(amountInput.value.replace(/,/g, '')) || 0;
@@ -2113,6 +2448,20 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Note: sizes are initialized by initBalanceCarousel() called from updateBalanceDisplay()
     }
 
+    // Date drum picker initialization
+    initDateDrum();
+
+    // Initialize invoice/request payment
+    initInvoice();
+
+    // Initialize send/receive tabs and receive tab
+    initSendReceiveTabs();
+    initReceiveTab();
+
+    // Initialize recipient suggestions and address book
+    initRecipientSuggestions();
+    initAddressBook();
+
     console.log('Coins Wallet initialized');
 });
 
@@ -2218,6 +2567,1073 @@ function updateCarouselSizes(selectedIndex) {
                 sendAmountEl.value = maxBalance;
             }
         }
+    }
+
+    // Update send token info display
+    updateSendTokenInfo();
+}
+
+// ========================================
+// Date Drum Picker
+// ========================================
+function initDateDrum() {
+    const drum = document.getElementById('date-drum');
+    const track = document.getElementById('date-drum-track');
+    if (!drum || !track) return;
+
+    const items = track.querySelectorAll('.date-drum-item');
+    if (items.length === 0) return;
+
+    const state = window.dateDrumState;
+    state.itemHeight = items[0].offsetHeight || 22;
+
+    let isDragging = false;
+    let startY = 0;
+    let dragOffset = 0;
+    let prevSelectedIndex = state.selectedIndex;
+
+    // Set initial active state
+    updateDrumActive(state.selectedIndex);
+
+    function updateDrumActive(index) {
+        items.forEach((item, i) => {
+            item.classList.toggle('active', i === index);
+        });
+    }
+
+    function snapToIndex(index) {
+        index = Math.max(0, Math.min(items.length - 1, index));
+        state.selectedIndex = index;
+        state.currentOffset = -index * state.itemHeight;
+        track.style.transform = 'translateY(' + state.currentOffset + 'px)';
+        updateDrumActive(index);
+
+        // Update activity filter
+        const dayValue = items[index].dataset.days;
+        if (dayValue === 'custom') {
+            window.activityFilters.dateDays = 'custom';
+            openDateRangePicker();
+        } else {
+            window.activityFilters.dateDays = dayValue;
+            window.activityFilters.customFrom = null;
+            window.activityFilters.customTo = null;
+            updateCustomDrumLabel(null, null);
+            closeDateRangePicker();
+            window.activityDisplayCount = ACTIVITY_PAGE_SIZE;
+            renderTransactionHistory();
+        }
+    }
+
+    function snapToNearest() {
+        const index = Math.round(-state.currentOffset / state.itemHeight);
+        snapToIndex(index);
+    }
+
+    function handleDragStart(clientY) {
+        isDragging = true;
+        startY = clientY;
+        dragOffset = state.currentOffset;
+        prevSelectedIndex = state.selectedIndex;
+        drum.classList.add('grabbing');
+        track.classList.add('dragging');
+    }
+
+    function handleDragMove(clientY) {
+        if (!isDragging) return;
+        var diff = clientY - startY;
+        var maxOffset = 0;
+        var minOffset = -(items.length - 1) * state.itemHeight;
+        state.currentOffset = Math.max(minOffset - 20, Math.min(maxOffset + 20, dragOffset + diff));
+        track.style.transform = 'translateY(' + state.currentOffset + 'px)';
+
+        // Preview which item would be selected
+        var previewIndex = Math.round(-state.currentOffset / state.itemHeight);
+        previewIndex = Math.max(0, Math.min(items.length - 1, previewIndex));
+        updateDrumActive(previewIndex);
+    }
+
+    function handleDragEnd() {
+        if (!isDragging) return;
+        isDragging = false;
+        drum.classList.remove('grabbing');
+        track.classList.remove('dragging');
+        snapToNearest();
+    }
+
+    // Mouse events
+    drum.addEventListener('mousedown', function(e) {
+        e.preventDefault();
+        handleDragStart(e.clientY);
+    });
+    document.addEventListener('mousemove', function(e) {
+        handleDragMove(e.clientY);
+    });
+    document.addEventListener('mouseup', function() {
+        handleDragEnd();
+    });
+
+    // Touch events
+    drum.addEventListener('touchstart', function(e) {
+        handleDragStart(e.touches[0].clientY);
+    }, { passive: true });
+    drum.addEventListener('touchmove', function(e) {
+        handleDragMove(e.touches[0].clientY);
+    }, { passive: true });
+    drum.addEventListener('touchend', function() {
+        handleDragEnd();
+    });
+
+    // Click on drum opens date range picker (if not dragging)
+    drum.addEventListener('click', function(e) {
+        if (Math.abs(state.currentOffset - dragOffset) < 3) {
+            // Tap without drag - open date range picker
+            openDateRangePicker();
+        }
+    });
+
+    // Date range picker buttons
+    var applyBtn = document.getElementById('date-range-apply');
+    var cancelBtn = document.getElementById('date-range-cancel');
+    if (applyBtn) {
+        applyBtn.addEventListener('click', function() {
+            applyDateRange();
+        });
+    }
+    if (cancelBtn) {
+        cancelBtn.addEventListener('click', function() {
+            cancelDateRange();
+        });
+    }
+}
+
+function openDateRangePicker() {
+    var picker = document.getElementById('date-range-picker');
+    if (!picker) return;
+
+    // Set default dates if not already set
+    var fromInput = document.getElementById('date-range-from');
+    var toInput = document.getElementById('date-range-to');
+    if (toInput && !toInput.value) {
+        toInput.value = new Date().toISOString().split('T')[0];
+    }
+    if (fromInput && !fromInput.value) {
+        var d = new Date();
+        d.setDate(d.getDate() - 30);
+        fromInput.value = d.toISOString().split('T')[0];
+    }
+
+    picker.style.display = '';
+}
+
+function closeDateRangePicker() {
+    var picker = document.getElementById('date-range-picker');
+    if (picker) picker.style.display = 'none';
+}
+
+function formatShortDate(dateStr) {
+    if (!dateStr) return '';
+    var parts = dateStr.split('-');
+    // mm/dd from yyyy-mm-dd
+    return parseInt(parts[1], 10) + '/' + parseInt(parts[2], 10);
+}
+
+function updateCustomDrumLabel(fromVal, toVal) {
+    var track = document.getElementById('date-drum-track');
+    if (!track) return;
+    var items = track.querySelectorAll('.date-drum-item');
+    for (var i = 0; i < items.length; i++) {
+        if (items[i].dataset.days === 'custom') {
+            if (fromVal || toVal) {
+                var label = formatShortDate(fromVal) + ' – ' + formatShortDate(toVal);
+                items[i].textContent = label;
+            } else {
+                items[i].textContent = 'Custom...';
+            }
+            break;
+        }
+    }
+}
+
+function applyDateRange() {
+    var fromInput = document.getElementById('date-range-from');
+    var toInput = document.getElementById('date-range-to');
+    var fromVal = fromInput ? fromInput.value : null;
+    var toVal = toInput ? toInput.value : null;
+
+    // Snap drum to "Custom..." item and update its label
+    var track = document.getElementById('date-drum-track');
+    if (track) {
+        var items = track.querySelectorAll('.date-drum-item');
+        for (var i = 0; i < items.length; i++) {
+            if (items[i].dataset.days === 'custom') {
+                window.dateDrumState.selectedIndex = i;
+                window.dateDrumState.currentOffset = -i * window.dateDrumState.itemHeight;
+                track.style.transform = 'translateY(' + window.dateDrumState.currentOffset + 'px)';
+                items.forEach(function(el, idx) {
+                    el.classList.toggle('active', idx === i);
+                });
+                break;
+            }
+        }
+    }
+
+    updateCustomDrumLabel(fromVal, toVal);
+
+    window.activityFilters.dateDays = 'custom';
+    window.activityFilters.customFrom = fromVal || null;
+    window.activityFilters.customTo = toVal || null;
+    window.activityDisplayCount = ACTIVITY_PAGE_SIZE;
+    closeDateRangePicker();
+    renderTransactionHistory();
+}
+
+function cancelDateRange() {
+    closeDateRangePicker();
+    // If we were on custom and cancelled, revert to previous non-custom selection
+    if (window.activityFilters.dateDays === 'custom' && !window.activityFilters.customFrom && !window.activityFilters.customTo) {
+        // Snap back to "All time"
+        var track = document.getElementById('date-drum-track');
+        if (track) {
+            window.dateDrumState.selectedIndex = 0;
+            window.dateDrumState.currentOffset = 0;
+            track.style.transform = 'translateY(0px)';
+            var items = track.querySelectorAll('.date-drum-item');
+            items.forEach(function(el, idx) {
+                el.classList.toggle('active', idx === 0);
+            });
+        }
+        updateCustomDrumLabel(null, null);
+        window.activityFilters.dateDays = 'all';
+        window.activityDisplayCount = ACTIVITY_PAGE_SIZE;
+        renderTransactionHistory();
+    }
+}
+
+// Greek letters/names for token display
+const greekLetters = ['α', 'β', 'γ', 'δ', 'ε', 'ζ', 'η', 'θ', 'ι', 'κ'];
+const greekNames = ['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta', 'Eta', 'Theta', 'Iota', 'Kappa'];
+
+// Update the token info display in the send box and rebuild quick-select amounts
+function updateSendTokenInfo() {
+    const tokenSuffixEl = document.getElementById('send-token-suffix');
+    const quickSelectEl = document.getElementById('send-quick-select');
+
+    const { selectedIndex, tokenIds, balances } = window.carouselState;
+    if (tokenIds.length === 0) {
+        if (tokenSuffixEl) tokenSuffixEl.textContent = '--';
+        if (quickSelectEl) quickSelectEl.innerHTML = '';
+        return;
+    }
+
+    const tokenId = tokenIds[selectedIndex] || '0';
+    const idx = parseInt(tokenId);
+    const letter = greekLetters[idx] || `#${tokenId}`;
+    const name = greekNames[idx] || `Token ${tokenId}`;
+    const balance = balances[tokenId] || 0;
+    const fee = parseInt(document.getElementById('send-fee')?.value || '1', 10);
+    const maxSendable = Math.max(0, balance - fee);
+
+    if (tokenSuffixEl) tokenSuffixEl.textContent = `${letter} ${name}`;
+
+    // Rebuild quick-select: only show preset amounts < balance, plus maxSendable
+    if (quickSelectEl) {
+        const presets = [10, 100, 1000, 10000];
+        const validPresets = presets.filter(v => v < balance);
+
+        let html = '';
+        for (const v of validPresets) {
+            const label = v >= 1000 ? (v / 1000) + 'k' : v;
+            html += `<span class="quick-amount" data-amount="${v}">${label}</span>`;
+        }
+        // Always show max (balance - fee) if positive
+        if (maxSendable > 0) {
+            const maxLabel = maxSendable.toLocaleString();
+            html += `<span class="quick-amount" data-amount="${maxSendable}">${maxLabel}</span>`;
+        }
+        quickSelectEl.innerHTML = html;
+
+        // Wire up click handlers on newly created buttons
+        const amountInput = document.getElementById('send-amount');
+        quickSelectEl.querySelectorAll('.quick-amount').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const amount = parseInt(btn.getAttribute('data-amount'), 10);
+                if (amountInput) {
+                    amountInput.value = amount;
+                    amountInput.classList.add('scrolling');
+                    setTimeout(() => amountInput.classList.remove('scrolling'), 150);
+                }
+                quickSelectEl.querySelectorAll('.quick-amount').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                if (window.repositionTokenSuffix) window.repositionTokenSuffix();
+            });
+        });
+    }
+
+    // Reposition suffix after token name change
+    if (window.repositionTokenSuffix) requestAnimationFrame(window.repositionTokenSuffix);
+}
+
+// ========================================
+// Invoice / Payment Request
+// ========================================
+
+function parseCoinsUri(uri) {
+    if (!uri.startsWith('coins://pay')) return null;
+    const rest = uri.slice('coins://pay'.length);
+    if (!rest.startsWith('?')) return null;
+    const query = rest.slice(1);
+    const params = {};
+    for (const pair of query.split('&')) {
+        if (!pair) continue;
+        const eq = pair.indexOf('=');
+        if (eq < 0) continue;
+        const key = pair.slice(0, eq);
+        const value = pair.slice(eq + 1);
+        params[key] = decodeURIComponent(value);
+    }
+    if (!params.addr) return null;
+    return {
+        addr: params.addr,
+        amount: params.amount ? parseInt(params.amount, 10) : null,
+        token_id: params.token ? parseInt(params.token, 10) : null,
+        memo: params.memo || null,
+        expires: params.expires ? parseInt(params.expires, 10) : null,
+    };
+}
+
+function generateCoinsUri(addr, amount, token_id, memo, expires) {
+    let uri = `coins://pay?addr=${addr}`;
+    if (amount) uri += `&amount=${amount}`;
+    if (token_id !== undefined && token_id !== null) uri += `&token=${token_id}`;
+    if (memo) uri += `&memo=${encodeURIComponent(memo)}`;
+    if (expires) uri += `&expires=${expires}`;
+    return uri;
+}
+
+function initInvoice() {
+    // Request payment button
+    const reqBtn = document.getElementById('request-payment-btn');
+    if (reqBtn) {
+        reqBtn.addEventListener('click', () => {
+            document.getElementById('invoice-create-form').style.display = 'block';
+            document.getElementById('invoice-result').style.display = 'none';
+            document.getElementById('invoice-modal').classList.add('is-active');
+        });
+    }
+
+    // Close modal
+    ['close-invoice-modal', 'close-invoice-btn'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('click', () => {
+            document.getElementById('invoice-modal').classList.remove('is-active');
+        });
+    });
+    const invoiceBg = document.querySelector('#invoice-modal .modal-background');
+    if (invoiceBg) invoiceBg.addEventListener('click', () => {
+        document.getElementById('invoice-modal').classList.remove('is-active');
+    });
+
+    // Generate invoice
+    const genBtn = document.getElementById('generate-invoice-btn');
+    if (genBtn) {
+        genBtn.addEventListener('click', () => {
+            const pk = walletApp.getPublicKey();
+            if (!pk) return;
+
+            const amountVal = document.getElementById('invoice-amount').value;
+            const tokenVal = document.getElementById('invoice-token').value;
+            const memoVal = document.getElementById('invoice-memo').value.trim();
+
+            const amount = amountVal ? parseInt(amountVal, 10) : null;
+            const token = tokenVal ? parseInt(tokenVal, 10) : null;
+
+            const uri = generateCoinsUri(pk, amount, token, memoVal || null);
+
+            // Show result
+            document.getElementById('invoice-create-form').style.display = 'none';
+            document.getElementById('invoice-result').style.display = 'block';
+            document.getElementById('invoice-uri-text').value = uri;
+
+            // Generate QR code
+            const canvas = document.getElementById('invoice-qr');
+            if (canvas && typeof QRCode !== 'undefined') {
+                QRCode.toCanvas(canvas, uri, {
+                    width: 200,
+                    margin: 2,
+                    color: { dark: '#0f172a', light: '#f1f5f9' }
+                });
+            }
+        });
+    }
+
+    // Copy URI
+    const copyBtn = document.getElementById('copy-invoice-uri-btn');
+    if (copyBtn) {
+        copyBtn.addEventListener('click', () => {
+            const text = document.getElementById('invoice-uri-text').value;
+            navigator.clipboard.writeText(text).then(() => {
+                copyBtn.textContent = 'Copied!';
+                setTimeout(() => { copyBtn.textContent = 'Copy URI'; }, 2000);
+            });
+        });
+    }
+
+    // Create another
+    const newBtn = document.getElementById('invoice-new-btn');
+    if (newBtn) {
+        newBtn.addEventListener('click', () => {
+            document.getElementById('invoice-create-form').style.display = 'block';
+            document.getElementById('invoice-result').style.display = 'none';
+        });
+    }
+
+    // Detect coins:// URI paste in recipient field
+    const recipientInput = document.getElementById('send-recipient');
+    if (recipientInput) {
+        recipientInput.addEventListener('input', () => {
+            const val = recipientInput.value.trim();
+            if (val.startsWith('coins://pay')) {
+                const inv = parseCoinsUri(val);
+                if (inv) {
+                    recipientInput.value = inv.addr;
+                    if (inv.amount) {
+                        const amountInput = document.getElementById('send-amount');
+                        if (amountInput) amountInput.value = inv.amount;
+                    }
+                    if (inv.expires) {
+                        const now = Math.floor(Date.now() / 1000);
+                        if (now > inv.expires) {
+                            showSendStatus('Warning: This invoice has expired', true);
+                        }
+                    }
+                }
+            }
+        });
+    }
+}
+
+// ========================================
+// Send / Receive Tab Switcher
+// ========================================
+
+window.receiveState = {
+    expiryDrum: { currentOffset: 0, selectedIndex: 0, itemHeight: 22 },
+    qrDebounceTimer: null,
+    tokenSelectorReady: false,
+    selectedTokenId: 0
+};
+
+function initSendReceiveTabs() {
+    const tabSend = document.getElementById('tab-send');
+    const tabReceive = document.getElementById('tab-receive');
+    const paneSend = document.getElementById('pane-send');
+    const paneReceive = document.getElementById('pane-receive');
+    if (!tabSend || !tabReceive || !paneSend || !paneReceive) return;
+
+    tabSend.addEventListener('click', () => {
+        tabSend.classList.add('active');
+        tabReceive.classList.remove('active');
+        paneSend.classList.add('active');
+        paneReceive.classList.remove('active');
+    });
+
+    tabReceive.addEventListener('click', () => {
+        tabReceive.classList.add('active');
+        tabSend.classList.remove('active');
+        paneReceive.classList.add('active');
+        paneSend.classList.remove('active');
+
+        // Lazily populate token drum and generate initial QR
+        // Use rAF to ensure the pane is laid out before rendering QR
+        if (!window.receiveState.tokenSelectorReady) {
+            initReceiveTokenSelector();
+            window.receiveState.tokenSelectorReady = true;
+        }
+        requestAnimationFrame(() => updateReceiveQR());
+    });
+}
+
+function initReceiveTab() {
+    // QR click-to-copy
+    const qrContainer = document.getElementById('receive-qr-container');
+    if (qrContainer) {
+        qrContainer.addEventListener('click', () => {
+            const uri = buildReceiveUri();
+            if (!uri) return;
+            navigator.clipboard.writeText(uri).then(() => {
+                qrContainer.classList.add('copied');
+                setTimeout(() => qrContainer.classList.remove('copied'), 1500);
+            });
+        });
+    }
+
+    // Amount input
+    const amountInput = document.getElementById('receive-amount');
+    const receiveQuickBtns = document.querySelectorAll('.receive-quick-amount');
+
+    function updateReceiveQuickActive(val) {
+        receiveQuickBtns.forEach(b => {
+            b.classList.toggle('active', b.dataset.amount === val);
+        });
+    }
+
+    if (amountInput) {
+        // Clear "Any" on focus so user can type
+        amountInput.addEventListener('focus', () => {
+            if (amountInput.value === 'Any') {
+                amountInput.value = '';
+                amountInput.inputMode = 'numeric';
+            }
+        });
+        // If user empties field and blurs, restore "Any"
+        amountInput.addEventListener('blur', () => {
+            if (!amountInput.value.trim()) {
+                amountInput.value = 'Any';
+                amountInput.inputMode = '';
+                updateReceiveQuickActive('any');
+                onReceiveFieldChange();
+            }
+        });
+        amountInput.addEventListener('input', () => {
+            amountInput.value = amountInput.value.replace(/[^0-9]/g, '');
+            updateReceiveQuickActive(amountInput.value);
+            onReceiveFieldChange();
+        });
+    }
+
+    // Quick amount buttons
+    receiveQuickBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            if (!amountInput) return;
+            if (btn.dataset.amount === 'any') {
+                amountInput.value = 'Any';
+                amountInput.inputMode = '';
+            } else {
+                amountInput.value = btn.dataset.amount;
+                amountInput.inputMode = 'numeric';
+            }
+            updateReceiveQuickActive(btn.dataset.amount);
+            onReceiveFieldChange();
+        });
+    });
+
+    // Memo badge → expand
+    const memoBadge = document.getElementById('receive-memo-badge');
+    const memoInputWrap = document.getElementById('receive-memo-input');
+    const memoInput = document.getElementById('receive-memo');
+    const memoCount = document.getElementById('receive-memo-count');
+
+    if (memoBadge && memoInputWrap && memoInput) {
+        memoBadge.addEventListener('click', () => {
+            memoBadge.style.display = 'none';
+            memoInputWrap.style.display = '';
+            memoInput.focus();
+        });
+
+        memoInput.addEventListener('input', () => {
+            if (memoCount) {
+                memoCount.textContent = memoInput.value.length + '/255';
+            }
+            onReceiveFieldChange();
+        });
+    }
+
+    // Custom datetime change
+    const customDatetime = document.getElementById('receive-custom-datetime');
+    if (customDatetime) {
+        customDatetime.addEventListener('change', () => {
+            onReceiveFieldChange();
+        });
+    }
+
+    // Init expiry drum
+    initReceiveDrum(
+        'receive-expiry-drum',
+        'receive-expiry-drum-track',
+        window.receiveState.expiryDrum,
+        (item) => {
+            const customExpiry = document.getElementById('receive-custom-expiry');
+            if (item && item.dataset.seconds === 'custom') {
+                if (customExpiry) customExpiry.style.display = '';
+            } else {
+                if (customExpiry) customExpiry.style.display = 'none';
+            }
+            onReceiveFieldChange();
+        }
+    );
+}
+
+function initReceiveDrum(drumId, trackId, stateObj, onChange) {
+    const drum = document.getElementById(drumId);
+    const track = document.getElementById(trackId);
+    if (!drum || !track) return;
+
+    const items = track.querySelectorAll('.receive-drum-item');
+    if (items.length === 0) return;
+
+    stateObj.itemHeight = items[0].offsetHeight || 22;
+
+    let isDragging = false;
+    let startY = 0;
+    let dragOffset = 0;
+
+    function updateActive(index) {
+        items.forEach((item, i) => item.classList.toggle('active', i === index));
+    }
+
+    updateActive(stateObj.selectedIndex);
+
+    function snapToIndex(index) {
+        index = Math.max(0, Math.min(items.length - 1, index));
+        stateObj.selectedIndex = index;
+        stateObj.currentOffset = -index * stateObj.itemHeight;
+        track.style.transform = 'translateY(' + stateObj.currentOffset + 'px)';
+        updateActive(index);
+        if (onChange) onChange(items[index]);
+    }
+
+    function snapToNearest() {
+        const index = Math.round(-stateObj.currentOffset / stateObj.itemHeight);
+        snapToIndex(index);
+    }
+
+    function handleDragStart(clientY) {
+        isDragging = true;
+        startY = clientY;
+        dragOffset = stateObj.currentOffset;
+        drum.classList.add('grabbing');
+        track.classList.add('dragging');
+    }
+
+    function handleDragMove(clientY) {
+        if (!isDragging) return;
+        const diff = clientY - startY;
+        const maxOffset = 0;
+        const minOffset = -(items.length - 1) * stateObj.itemHeight;
+        stateObj.currentOffset = Math.max(minOffset - 20, Math.min(maxOffset + 20, dragOffset + diff));
+        track.style.transform = 'translateY(' + stateObj.currentOffset + 'px)';
+        const previewIndex = Math.max(0, Math.min(items.length - 1, Math.round(-stateObj.currentOffset / stateObj.itemHeight)));
+        updateActive(previewIndex);
+    }
+
+    function handleDragEnd() {
+        if (!isDragging) return;
+        isDragging = false;
+        drum.classList.remove('grabbing');
+        track.classList.remove('dragging');
+        snapToNearest();
+    }
+
+    drum.addEventListener('mousedown', (e) => { e.preventDefault(); handleDragStart(e.clientY); });
+    document.addEventListener('mousemove', (e) => { handleDragMove(e.clientY); });
+    document.addEventListener('mouseup', () => { handleDragEnd(); });
+    drum.addEventListener('touchstart', (e) => { handleDragStart(e.touches[0].clientY); }, { passive: true });
+    drum.addEventListener('touchmove', (e) => { handleDragMove(e.touches[0].clientY); }, { passive: true });
+    drum.addEventListener('touchend', () => { handleDragEnd(); });
+}
+
+function tokenDisplayInfo(id) {
+    var idx = parseInt(id, 10);
+    var letter = greekLetters[idx];
+    var name = greekNames[idx];
+    if (letter && name) return { icon: letter, name: name };
+    return { icon: '#', name: String(idx) };
+}
+
+function initReceiveTokenSelector() {
+    var selectEl = document.getElementById('receive-token-select');
+    var btn = document.getElementById('receive-token-btn');
+    var dropdown = document.getElementById('receive-token-dropdown');
+    var searchInput = document.getElementById('receive-token-search');
+    var listEl = document.getElementById('receive-token-list');
+    var iconEl = document.getElementById('receive-token-icon');
+    var labelEl = document.getElementById('receive-token-label');
+    if (!selectEl || !btn || !dropdown || !listEl) return;
+
+    // Build token list: owned tokens first, then the rest of 0-255
+    var ownedSet = new Set();
+    var ownedTokens = (window.carouselState.tokenIds || []).map(function(tid) {
+        var id = parseInt(tid, 10);
+        ownedSet.add(id);
+        return id;
+    });
+    var otherTokens = [];
+    for (var i = 0; i < 256; i++) {
+        if (!ownedSet.has(i)) otherTokens.push(i);
+    }
+
+    var allTokens = ownedTokens.concat(otherTokens);
+    var dividerAfter = ownedTokens.length > 0 ? ownedTokens.length - 1 : -1;
+
+    function renderList(filter) {
+        var html = '';
+        var f = (filter || '').toLowerCase();
+        var insertedDivider = false;
+        for (var j = 0; j < allTokens.length; j++) {
+            var tid = allTokens[j];
+            var info = tokenDisplayInfo(tid);
+            var searchText = (info.icon + ' ' + info.name + ' ' + tid).toLowerCase();
+            if (f && searchText.indexOf(f) === -1) continue;
+
+            if (!insertedDivider && dividerAfter >= 0 && j > dividerAfter) {
+                html += '<div class="receive-token-divider"></div>';
+                insertedDivider = true;
+            }
+
+            var selectedClass = tid === window.receiveState.selectedTokenId ? ' selected' : '';
+            var ownedLabel = ownedSet.has(tid) ? '<span class="tok-owned">owned</span>' : '';
+            html += '<div class="receive-token-option' + selectedClass + '" data-token-id="' + tid + '">'
+                + '<span class="tok-icon">' + info.icon + '</span>'
+                + '<span class="tok-name">' + info.name + '</span>'
+                + ownedLabel
+                + '</div>';
+        }
+        if (!html) {
+            html = '<div style="padding:0.5rem 0.75rem;color:var(--coins-text-muted);font-size:0.75rem;">No tokens found</div>';
+        }
+        listEl.innerHTML = html;
+    }
+
+    function selectToken(tid) {
+        window.receiveState.selectedTokenId = tid;
+        var info = tokenDisplayInfo(tid);
+        if (iconEl) iconEl.textContent = info.icon;
+        if (labelEl) labelEl.textContent = info.name;
+        closeDropdown();
+        onReceiveFieldChange();
+    }
+
+    function openDropdown() {
+        selectEl.classList.add('open');
+        renderList('');
+        if (searchInput) { searchInput.value = ''; searchInput.focus(); }
+    }
+
+    function closeDropdown() {
+        selectEl.classList.remove('open');
+    }
+
+    // Toggle on button click
+    btn.addEventListener('click', function() {
+        if (selectEl.classList.contains('open')) {
+            closeDropdown();
+        } else {
+            openDropdown();
+        }
+    });
+
+    // Search filtering
+    if (searchInput) {
+        searchInput.addEventListener('input', function() {
+            renderList(searchInput.value);
+        });
+    }
+
+    // Delegate clicks on token options
+    listEl.addEventListener('click', function(e) {
+        var option = e.target.closest('.receive-token-option');
+        if (option && option.dataset.tokenId !== undefined) {
+            selectToken(parseInt(option.dataset.tokenId, 10));
+        }
+    });
+
+    // Close on click outside
+    document.addEventListener('click', function(e) {
+        if (!selectEl.contains(e.target)) {
+            closeDropdown();
+        }
+    });
+
+    // Set initial selection — first owned token or token 0
+    var initialToken = ownedTokens.length > 0 ? ownedTokens[0] : 0;
+    selectToken(initialToken);
+}
+
+function onReceiveFieldChange() {
+    clearTimeout(window.receiveState.qrDebounceTimer);
+    window.receiveState.qrDebounceTimer = setTimeout(() => {
+        updateReceiveQR();
+    }, 150);
+}
+
+function buildReceiveUri() {
+    const pk = walletApp.getPublicKey();
+    if (!pk) return null;
+
+    // Amount
+    const amountEl = document.getElementById('receive-amount');
+    const amount = amountEl ? (parseInt(amountEl.value, 10) || null) : null;
+
+    // Token from selector
+    var tokenId = window.receiveState.selectedTokenId;
+
+    // Expiry from drum
+    let expires = null;
+    const expiryTrack = document.getElementById('receive-expiry-drum-track');
+    if (expiryTrack) {
+        const activeItem = expiryTrack.querySelector('.receive-drum-item.active');
+        if (activeItem) {
+            const seconds = activeItem.dataset.seconds;
+            if (seconds === 'custom') {
+                const customInput = document.getElementById('receive-custom-datetime');
+                if (customInput && customInput.value) {
+                    expires = Math.floor(new Date(customInput.value).getTime() / 1000);
+                }
+            } else if (seconds && parseInt(seconds, 10) > 0) {
+                expires = Math.floor(Date.now() / 1000) + parseInt(seconds, 10);
+            }
+        }
+    }
+
+    // Memo
+    const memoEl = document.getElementById('receive-memo');
+    const memo = memoEl ? memoEl.value.trim() || null : null;
+
+    return generateCoinsUri(pk, amount, tokenId, memo, expires);
+}
+
+function updateReceiveQR() {
+    const canvas = document.getElementById('receive-qr-canvas');
+    if (!canvas || typeof QRCode === 'undefined') return;
+
+    const uri = buildReceiveUri();
+    if (!uri) return;
+
+    QRCode.toCanvas(canvas, uri, {
+        width: 200,
+        margin: 2,
+        color: { dark: '#0f172a', light: '#f1f5f9' }
+    });
+}
+
+// ========================================
+// Address Book
+// ========================================
+const ADDRESSBOOK_KEY = 'coins_addressbook';
+
+function getAddressBook() {
+    try {
+        return JSON.parse(localStorage.getItem(ADDRESSBOOK_KEY)) || [];
+    } catch {
+        return [];
+    }
+}
+
+function saveAddressBook(contacts) {
+    localStorage.setItem(ADDRESSBOOK_KEY, JSON.stringify(contacts));
+}
+
+function renderAddressBook(filter = '') {
+    const listEl = document.getElementById('addressbook-list');
+    if (!listEl) return;
+
+    let contacts = getAddressBook();
+    if (filter) {
+        const f = filter.toLowerCase();
+        contacts = contacts.filter(c =>
+            c.label.toLowerCase().includes(f) ||
+            c.address.toLowerCase().includes(f)
+        );
+    }
+
+    if (contacts.length === 0) {
+        listEl.innerHTML = `<div class="addressbook-empty">${filter ? 'No matching contacts' : 'No contacts yet'}</div>`;
+        return;
+    }
+
+    listEl.innerHTML = contacts.map((c, i) => `
+        <div class="addressbook-contact" data-index="${i}" data-address="${c.address}">
+            <div class="addressbook-contact-info">
+                <div class="addressbook-contact-label">${escapeHtml(c.label)}</div>
+                <div class="addressbook-contact-addr">${c.address}</div>
+            </div>
+            <div class="addressbook-contact-actions">
+                <button class="button is-danger is-light is-small addressbook-delete-btn" data-index="${i}" title="Delete">Del</button>
+            </div>
+        </div>
+    `).join('');
+
+    // Wire up select handlers (click on contact info)
+    listEl.querySelectorAll('.addressbook-contact-info').forEach(el => {
+        el.addEventListener('click', () => {
+            const contact = el.closest('.addressbook-contact');
+            const addr = contact.getAttribute('data-address');
+            const recipientInput = document.getElementById('send-recipient');
+            if (recipientInput) recipientInput.value = addr;
+            document.getElementById('addressbook-modal').classList.remove('is-active');
+        });
+    });
+
+    // Wire up delete handlers
+    listEl.querySelectorAll('.addressbook-delete-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const idx = parseInt(btn.getAttribute('data-index'), 10);
+            const contacts = getAddressBook();
+            contacts.splice(idx, 1);
+            saveAddressBook(contacts);
+            renderAddressBook(document.getElementById('addressbook-search')?.value || '');
+        });
+    });
+}
+
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+function initRecipientSuggestions() {
+    const input = document.getElementById('send-recipient');
+    const dropdown = document.getElementById('recipient-suggestions');
+    if (!input || !dropdown) return;
+
+    function buildCandidates(query) {
+        const q = query.toLowerCase();
+        const results = [];
+        const seen = new Set();
+
+        // 1. Saved contacts
+        const contacts = getAddressBook();
+        for (const c of contacts) {
+            if (c.label.toLowerCase().includes(q) || c.address.toLowerCase().includes(q)) {
+                if (!seen.has(c.address)) {
+                    seen.add(c.address);
+                    results.push({ label: c.label, address: c.address });
+                }
+            }
+        }
+
+        // 2. Previous recipients from transaction history
+        const txs = window.currentTransactions || [];
+        for (const tx of txs) {
+            if (tx.direction === 'outgoing' && tx.recipient_pk) {
+                const addr = tx.recipient_pk;
+                if (seen.has(addr)) continue;
+                if (addr.toLowerCase().includes(q)) {
+                    seen.add(addr);
+                    results.push({ label: 'Previous recipient', address: addr });
+                }
+            }
+        }
+
+        return results.slice(0, 5);
+    }
+
+    function renderSuggestions(candidates) {
+        if (candidates.length === 0) {
+            dropdown.classList.remove('open');
+            dropdown.innerHTML = '';
+            return;
+        }
+        dropdown.innerHTML = candidates.map(c => `
+            <div class="recipient-suggestion" data-address="${escapeHtml(c.address)}">
+                <span class="suggestion-label">${escapeHtml(c.label)}</span>
+                <span class="suggestion-address">${c.address.slice(0, 12)}...${c.address.slice(-6)}</span>
+            </div>
+        `).join('');
+        dropdown.classList.add('open');
+
+        dropdown.querySelectorAll('.recipient-suggestion').forEach(el => {
+            el.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                input.value = el.getAttribute('data-address');
+                dropdown.classList.remove('open');
+                dropdown.innerHTML = '';
+            });
+        });
+    }
+
+    input.addEventListener('input', () => {
+        const val = input.value.trim();
+        if (val.length < 1) {
+            dropdown.classList.remove('open');
+            dropdown.innerHTML = '';
+            return;
+        }
+        renderSuggestions(buildCandidates(val));
+    });
+
+    input.addEventListener('blur', () => {
+        // Slight delay so mousedown on suggestion registers
+        setTimeout(() => {
+            dropdown.classList.remove('open');
+            dropdown.innerHTML = '';
+        }, 150);
+    });
+
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            dropdown.classList.remove('open');
+            dropdown.innerHTML = '';
+        }
+    });
+}
+
+function initAddressBook() {
+    // Open button
+    const openBtn = document.getElementById('open-addressbook-btn');
+    if (openBtn) {
+        openBtn.addEventListener('click', () => {
+            document.getElementById('addressbook-modal').classList.add('is-active');
+            renderAddressBook();
+        });
+    }
+
+    // Close buttons
+    const closeModal = document.getElementById('close-addressbook-modal');
+    const closeBtn = document.getElementById('close-addressbook-btn');
+    const modalBg = document.querySelector('#addressbook-modal .modal-background');
+    [closeModal, closeBtn, modalBg].forEach(el => {
+        if (el) el.addEventListener('click', () => {
+            document.getElementById('addressbook-modal').classList.remove('is-active');
+        });
+    });
+
+    // Search
+    const searchInput = document.getElementById('addressbook-search');
+    if (searchInput) {
+        searchInput.addEventListener('input', () => {
+            renderAddressBook(searchInput.value);
+        });
+    }
+
+    // Add contact
+    const addBtn = document.getElementById('addressbook-add-btn');
+    if (addBtn) {
+        addBtn.addEventListener('click', () => {
+            const labelInput = document.getElementById('addressbook-new-label');
+            const addrInput = document.getElementById('addressbook-new-address');
+            const errorEl = document.getElementById('addressbook-error');
+
+            const label = labelInput.value.trim();
+            const address = addrInput.value.trim();
+
+            if (!label || !address) {
+                if (errorEl) {
+                    errorEl.textContent = 'Both label and address are required';
+                    errorEl.style.display = 'block';
+                }
+                return;
+            }
+
+            if (!/^[0-9a-fA-F]+$/.test(address)) {
+                if (errorEl) {
+                    errorEl.textContent = 'Address must be a hex string';
+                    errorEl.style.display = 'block';
+                }
+                return;
+            }
+
+            const contacts = getAddressBook();
+            contacts.push({ label, address });
+            saveAddressBook(contacts);
+
+            labelInput.value = '';
+            addrInput.value = '';
+            if (errorEl) errorEl.style.display = 'none';
+            renderAddressBook();
+        });
     }
 }
 
