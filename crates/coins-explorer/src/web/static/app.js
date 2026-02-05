@@ -509,7 +509,7 @@ class ExplorerApp {
                                 <span class="tx-type-badge ${isIncoming ? 'received' : 'sent'}">${isIncoming ? 'Received' : 'Sent'}</span>
                                 <span class="tx-counterparty-wrapper" onclick="app.showSection('account-detail', {pk: '${counterpartyPk}'})">
                                     <span class="tx-counterparty-pk">${counterpartyPk}</span>
-                                    ${hasId ? `<span class="tx-counterparty-id">#${counterpartyId}</span>` : ''}
+                                    ${hasId ? `<span class="tx-counterparty-divider">|</span><span class="tx-counterparty-id">#${counterpartyId}</span>` : ''}
                                 </span>
                                 <span class="tx-table-amount ${amountClass}">${amountPrefix}${tx.amount}</span>
                                 <span class="tx-table-token">${tx.token_id > 0 ? `Token ${tx.token_id}` : 'Native'}</span>
