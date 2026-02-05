@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use coins_client::resolve_recipient;
 use coins_crypto::{G1, sign, SecretKey, rand_sk};
 use rand::rngs::OsRng;
 use ark_bn254::{Fr, G1Projective};
@@ -54,9 +55,9 @@ enum Commands {
     Balance,
     /// Send a number of coins to an address
     Send {
-        /// The public key of the recipient (hex)
+        /// The recipient: account ID (number) or public key (64 hex chars)
         #[arg(long, required_unless_present = "invoice")]
-        recipient_pk: Option<String>,
+        recipient: Option<String>,
         /// The amount of coins to send
         #[arg(long, required_unless_present = "invoice")]
         amount: Option<u32>,
@@ -176,7 +177,7 @@ async fn main() -> anyhow::Result<()> {
                 eprintln!("Error fetching account: {}", res.status());
             }
         }
-        Commands::Send { recipient_pk, amount, token_id, invoice } => {
+        Commands::Send { recipient, amount, token_id, invoice } => {
             // Resolve parameters: invoice overrides individual fields
             let (resolved_recipient, resolved_amount, resolved_token_id) = if let Some(uri) = invoice {
                 let inv = Invoice::from_uri(&uri)
@@ -186,13 +187,13 @@ async fn main() -> anyhow::Result<()> {
                     eprintln!("Warning: This invoice has expired!");
                 }
 
-                let r = recipient_pk.unwrap_or(inv.addr);
+                let r = recipient.unwrap_or(inv.addr);
                 let a = amount.or(inv.amount).ok_or_else(|| anyhow::anyhow!("Amount required: invoice does not specify one, use --amount"))?;
                 let t = inv.token_id.unwrap_or(token_id);
                 (r, a, t)
             } else {
                 (
-                    recipient_pk.ok_or_else(|| anyhow::anyhow!("--recipient-pk is required"))?,
+                    recipient.ok_or_else(|| anyhow::anyhow!("--recipient is required"))?,
                     amount.ok_or_else(|| anyhow::anyhow!("--amount is required"))?,
                     token_id,
                 )
@@ -209,14 +210,16 @@ async fn main() -> anyhow::Result<()> {
             let fr = Fr::from_le_bytes_mod_order(&sk_bytes);
             let sk = SecretKey(fr);
 
-            let recipient_pk = G1::from_hex(&resolved_recipient)
-                .map_err(|e| anyhow::anyhow!("invalid recipient_pk: {}", e))?;
+            // Resolve recipient (account ID or public key hex)
+            let client = reqwest::Client::new();
+            let recipient_pk = resolve_recipient(&client, &publisher_url, &resolved_recipient)
+                .await
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
             let amount = resolved_amount;
             let token_id = resolved_token_id;
 
             // Fetch sender's account to get ID
             let pk = G1::from_affine(&G1Projective::generator().mul(sk.0).into());
-            let client = reqwest::Client::new();
             let url = format!("{}/account/{}", publisher_url, pk.to_hex());
             let res = client.get(&url).send().await?;
 

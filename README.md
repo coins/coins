@@ -112,7 +112,7 @@ cargo run --bin coins-client balance
 
 # Send tokens
 cargo run --bin coins-client send \
-    --recipient-pk <recipient-hex-public-key> \
+    --recipient <recipient-hex-public-key> \
     --amount 100
 ```
 

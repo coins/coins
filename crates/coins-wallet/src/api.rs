@@ -58,6 +58,7 @@ pub struct AppStateWithWs {
 /// Create the API router for wallet proxy endpoints
 pub fn create_router(state: AppState) -> Router {
     Router::new()
+        .route("/api/account/by-id/:id", get(get_account_by_id))
         .route("/api/account/:pk", get(get_account))
         .route("/api/account/:pk/transactions", get(get_account_transactions))
         .route("/api/tx/submit", post(submit_tx))
@@ -81,6 +82,40 @@ pub fn create_router_with_ws(
         .route("/ws", get(ws_handler))
         .with_state(state_with_ws)
         .merge(create_router(state))
+}
+
+/// Proxy GET /api/account/by-id/:id to indexer /accounts/by-id/:id
+async fn get_account_by_id(
+    State(state): State<AppState>,
+    Path(id): Path<u32>,
+) -> impl IntoResponse {
+    debug!(id = %id, "Proxying account-by-id request to indexer");
+
+    let url = format!("{}/accounts/by-id/{}", state.indexer_url, id);
+
+    match state.client.get(&url).send().await {
+        Ok(response) => {
+            let status = response.status();
+            match response.text().await {
+                Ok(body) => {
+                    (
+                        StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+                        [("content-type", "application/json")],
+                        body,
+                    )
+                        .into_response()
+                }
+                Err(e) => {
+                    error!(error = ?e, "Failed to read indexer response body");
+                    StatusCode::INTERNAL_SERVER_ERROR.into_response()
+                }
+            }
+        }
+        Err(e) => {
+            error!(error = ?e, url = %url, "Failed to connect to indexer");
+            (StatusCode::BAD_GATEWAY, "Failed to connect to indexer").into_response()
+        }
+    }
 }
 
 /// Proxy GET /api/account/:pk to indexer /accounts/:pk

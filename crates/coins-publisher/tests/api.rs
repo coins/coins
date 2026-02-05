@@ -16,6 +16,8 @@ fn create_test_state(indexer_url: &str) -> AppState {
         mempool: Arc::new(Mutex::new(Vec::new())),
         fee_addr: Arc::new(Mutex::new("bc1qtest".to_string())),
         recently_broadcast: Arc::new(Mutex::new(Vec::new())),
+        interval_secs: 60,
+        last_loop_time: Arc::new(Mutex::new(None)),
     }
 }
 

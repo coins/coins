@@ -160,7 +160,7 @@
               esac
 
               # Send the transaction
-              ./target/release/coins-client --keyfile "$sender_keyfile" --publisher-url "$publisher_url" send --recipient-pk "$recipient_pk" --amount "$amount" --token-id "$token_id"
+              ./target/release/coins-client --keyfile "$sender_keyfile" --publisher-url "$publisher_url" send --recipient "$recipient_pk" --amount "$amount" --token-id "$token_id"
             }
 
             # Mine Bitcoin blocks (regtest only)

@@ -21,3 +21,7 @@ ark-bn254 = "0.4"
 ark-ff = "0.4"
 bincode = { version = "2.0.1", features = ["serde"] }
 ark-ec = "0.4"
+thiserror = "1"
+
+[dev-dependencies]
+wiremock = "0.6"

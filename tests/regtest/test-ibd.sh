@@ -259,7 +259,7 @@ echo -e "${GREEN}✓ Node 1 running${NC}\n"
 
 echo -e "${YELLOW}[8/11] Submitting transaction (Genesis -> Alice)...${NC}"
 ./target/release/coins-client --keyfile /tmp/test-keys/genesis_sk.hex --publisher-url http://localhost:8080 \
-    send --recipient-pk "$ALICE_PK" --amount 100 2>&1 | grep -E "success|fail|error" || echo "  Transaction submitted"
+    send --recipient "$ALICE_PK" --amount 100 2>&1 | grep -E "success|fail|error" || echo "  Transaction submitted"
 echo -e "${GREEN}✓ Transaction submitted${NC}\n"
 
 echo -e "${YELLOW}[9/11] Waiting for sub-block broadcast and mining...${NC}"

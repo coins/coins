@@ -129,7 +129,7 @@ cargo run --bin coins-client --publisher-url http://localhost:8081 balance
 cargo run --bin coins-client \
   --keyfile .data/keys/alice_sk.hex \
   --publisher-url http://signet.example.com:8080 \
-  send --recipient-pk abc123... --amount 100
+  send --recipient abc123... --amount 100
 ```
 
 ### Priority Order

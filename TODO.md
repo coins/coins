@@ -1,1 +1,0 @@
-- Recipient address field should accept account ids

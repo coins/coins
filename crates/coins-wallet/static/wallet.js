@@ -670,20 +670,36 @@ class WalletApp {
 
     /**
      * Send a transaction
-     * @param {string} recipientPk - Recipient public key hex (64 chars)
+     * @param {string} recipient - Recipient: account ID (number) or public key hex (64 chars)
      * @param {number} amount - Amount to send
      * @param {number} tokenId - Token ID (default 0 for native)
      * @param {number} fee - Transaction fee
      * @returns {Promise<Object>} Transaction result
      */
-    async sendTransaction(recipientPk, amount, tokenId = 0, fee = 1) {
+    async sendTransaction(recipient, amount, tokenId = 0, fee = 1) {
         if (!currentKey) {
             throw new Error('Wallet is locked');
         }
 
-        // Validate recipient public key (should be 64 hex chars)
-        if (!/^[a-fA-F0-9]{64}$/.test(recipientPk)) {
-            throw new Error('Invalid recipient public key: must be 64 hex characters');
+        // Resolve recipient: can be account ID (number) or public key (64 hex chars)
+        let recipientPk;
+        if (/^\d+$/.test(recipient)) {
+            // It's an account ID - fetch the account to get the public key
+            const accountId = parseInt(recipient, 10);
+            const response = await fetch(`/api/account/by-id/${accountId}`);
+            if (response.ok) {
+                const account = await response.json();
+                recipientPk = account.pk;
+            } else if (response.status === 404) {
+                throw new Error(`Account #${accountId} not found`);
+            } else {
+                throw new Error(`Error fetching account #${accountId}: ${response.status}`);
+            }
+        } else if (/^[a-fA-F0-9]{64}$/.test(recipient)) {
+            // It's a public key
+            recipientPk = recipient;
+        } else {
+            throw new Error('Invalid recipient: must be account ID (number) or 64 hex characters');
         }
 
         // Validate amount

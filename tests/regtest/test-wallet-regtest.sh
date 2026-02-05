@@ -196,7 +196,7 @@ GENESIS_NONCE_BEFORE=$(get_account_nonce "$GENESIS_PK")
 echo -e "  Genesis nonce before: ${GENESIS_NONCE_BEFORE}"
 
 ./target/release/coins-client --keyfile "$GENESIS_SK_FILE" --publisher-url http://localhost:8080 \
-    send --recipient-pk "$NEW_WALLET_PK" --amount 500 2>&1 | grep -E "success|submitted" || echo -e "    Transaction sent"
+    send --recipient "$NEW_WALLET_PK" --amount 500 2>&1 | grep -E "success|submitted" || echo -e "    Transaction sent"
 
 # Wait for sub-block mining
 echo -e "  ${BLUE}→ Waiting 35 seconds for sub-block mining...${NC}"
@@ -243,7 +243,7 @@ echo -e "  New wallet nonce before: ${NEW_WALLET_NONCE_BEFORE}"
 # Send 100 tokens from new wallet to Bob
 echo -e "  ${BLUE}→ Sending 100 tokens to Bob...${NC}"
 ./target/release/coins-client --keyfile .data/regtest/test-keys/test_wallet_sk.hex --publisher-url http://localhost:8080 \
-    send --recipient-pk "$BOB_PK" --amount 100 2>&1 | grep -E "success|submitted" || echo -e "    Transaction sent"
+    send --recipient "$BOB_PK" --amount 100 2>&1 | grep -E "success|submitted" || echo -e "    Transaction sent"
 
 # Wait for sub-block mining
 echo -e "  ${BLUE}→ Waiting 35 seconds for sub-block mining...${NC}"
@@ -281,7 +281,7 @@ echo -e "  New wallet nonce before: ${NEW_WALLET_NONCE_BEFORE}"
 # Send another 50 tokens to Bob
 echo -e "  ${BLUE}→ Sending 50 tokens to Bob...${NC}"
 ./target/release/coins-client --keyfile .data/regtest/test-keys/test_wallet_sk.hex --publisher-url http://localhost:8080 \
-    send --recipient-pk "$BOB_PK" --amount 50 2>&1 | grep -E "success|submitted" || echo -e "    Transaction sent"
+    send --recipient "$BOB_PK" --amount 50 2>&1 | grep -E "success|submitted" || echo -e "    Transaction sent"
 
 # Wait for sub-block mining
 echo -e "  ${BLUE}→ Waiting 35 seconds for sub-block mining...${NC}"
@@ -319,7 +319,7 @@ GENESIS_NONCE_BEFORE=$(get_account_nonce "$GENESIS_PK")
 echo -e "  Genesis nonce before: ${GENESIS_NONCE_BEFORE}"
 
 ./target/release/coins-client --keyfile "$GENESIS_SK_FILE" --publisher-url http://localhost:8080 \
-    send --recipient-pk "$NEW_WALLET_PK" --amount 1000 --token-id 1 2>&1 | grep -E "success|submitted" || echo -e "    Transaction sent"
+    send --recipient "$NEW_WALLET_PK" --amount 1000 --token-id 1 2>&1 | grep -E "success|submitted" || echo -e "    Transaction sent"
 
 # Wait for sub-block mining
 echo -e "  ${BLUE}→ Waiting 35 seconds for sub-block mining...${NC}"
@@ -353,7 +353,7 @@ NEW_WALLET_NONCE_BEFORE=$(get_account_nonce "$NEW_WALLET_PK")
 echo -e "  Test wallet nonce before: ${NEW_WALLET_NONCE_BEFORE}"
 
 ./target/release/coins-client --keyfile .data/regtest/test-keys/test_wallet_sk.hex --publisher-url http://localhost:8080 \
-    send --recipient-pk "$BOB_PK" --amount 100 --token-id 1 2>&1 | grep -E "success|submitted" || echo -e "    Transaction sent"
+    send --recipient "$BOB_PK" --amount 100 --token-id 1 2>&1 | grep -E "success|submitted" || echo -e "    Transaction sent"
 
 # Wait for sub-block mining
 echo -e "  ${BLUE}→ Waiting 35 seconds for sub-block mining...${NC}"

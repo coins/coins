@@ -21,8 +21,8 @@ echo ""
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WASM_DIR="${PROJECT_ROOT}/crates/coins-wallet/wasm"
 WALLET_PORT="${WALLET_PORT:-8085}"
-INDEXER_URL="${INDEXER_URL:-http://localhost:8084}"
-PUBLISHER_URL="${PUBLISHER_URL:-http://localhost:8080}"
+INDEXER_URL="${INDEXER_URL:-http://localhost:8083}"
+PUBLISHER_URL="${PUBLISHER_URL:-http://localhost:8082}"
 
 cd "$PROJECT_ROOT"
 

@@ -323,6 +323,12 @@ echo -e "${YELLOW}[10/10] Funding test accounts from genesis...${NC}"
 # Get Alice and Bob public keys
 ALICE_PK=$(./target/release/examples/get_pk "${KEYS_DIR}/alice_sk.hex")
 BOB_PK=$(./target/release/examples/get_pk "${KEYS_DIR}/bob_sk.hex")
+
+if [ -z "$ALICE_PK" ] || [ -z "$BOB_PK" ]; then
+    echo -e "${RED}✗ Failed to get Alice or Bob public keys${NC}"
+    exit 1
+fi
+
 echo -e "  Alice PK: ${ALICE_PK}"
 echo -e "  Bob PK: ${BOB_PK}"
 
@@ -333,7 +339,15 @@ echo -e "  ${BLUE}→ Sending 10000 tokens from Genesis to Alice...${NC}"
 BROADCAST_COUNT_BEFORE=$(grep "Package broadcasted successfully" "${NETWORK_DIR}/logs/publisher.log" 2>/dev/null | wc -l)
 
 GENESIS_TX_OUTPUT=$(./target/release/coins-client --keyfile "${KEYS_DIR}/genesis_sk.hex" --publisher-url http://localhost:8082 \
-    send --recipient-pk "$ALICE_PK" --amount 10000 2>&1)
+    send --recipient "$ALICE_PK" --amount 10000 2>&1)
+GENESIS_TX_EXIT=$?
+
+if [ $GENESIS_TX_EXIT -ne 0 ]; then
+    echo -e "${RED}✗ Failed to send tokens to Alice:${NC}"
+    echo "$GENESIS_TX_OUTPUT"
+    exit 1
+fi
+
 echo "$GENESIS_TX_OUTPUT" | grep -E "success|fail" || echo "    Transaction submitted"
 
 # Wait for publisher to mine and broadcast (poll every 5s, timeout 2 min)
@@ -352,10 +366,12 @@ for i in {1..24}; do
 done
 
 if [ -z "$GENESIS_TXID" ]; then
-    echo -e "    ${YELLOW}Timeout waiting for broadcast (check publisher logs)${NC}"
+    echo -e "${RED}✗ Timeout waiting for broadcast - step 10 failed${NC}"
+    echo -e "  Check publisher logs: ${NETWORK_DIR}/logs/publisher.log"
+    exit 1
 fi
 
-echo -e "\n${GREEN}✓ Alice funded from Genesis${NC}\n"
+echo -e "${GREEN}✓ Alice funded from Genesis${NC}\n"
 
 echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}   Setup Complete!${NC}"

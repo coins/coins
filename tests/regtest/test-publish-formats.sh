@@ -165,7 +165,7 @@ EOF
     echo -e "  ${BLUE}→ Submitting transaction (Genesis -> Alice)...${NC}"
     ./target/release/coins-client --keyfile /tmp/format_test/genesis_sk.hex \
         --publisher-url "http://localhost:${publisher_port}" \
-        send --recipient-pk "$ALICE_PK" --amount 100 2>&1 | grep -E "success|fail|error" || echo "    Transaction submitted"
+        send --recipient "$ALICE_PK" --amount 100 2>&1 | grep -E "success|fail|error" || echo "    Transaction submitted"
 
     # Wait for broadcast
     echo -n "  Waiting for broadcast"

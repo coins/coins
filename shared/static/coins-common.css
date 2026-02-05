@@ -2597,3 +2597,84 @@ hr {
         height: 200px;
     }
 }
+
+/* ========================================
+   Empty State Component
+   ======================================== */
+
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: var(--coins-spacing-8) var(--coins-spacing-4);
+    text-align: center;
+    margin: var(--coins-spacing-6) 0;
+}
+
+.empty-state-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    background: var(--coins-surface);
+    border: 2px dashed var(--coins-border);
+    margin-bottom: var(--coins-spacing-6);
+    color: var(--coins-text-muted);
+    animation: pulse-subtle 3s ease-in-out infinite;
+}
+
+@keyframes pulse-subtle {
+    0%, 100% {
+        opacity: 0.7;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 1;
+        transform: scale(1.02);
+    }
+}
+
+.empty-state-icon svg {
+    opacity: 0.6;
+}
+
+.empty-state-title {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--coins-text);
+    margin-bottom: var(--coins-spacing-3);
+}
+
+.empty-state-description {
+    font-size: 1rem;
+    color: var(--coins-text-secondary);
+    max-width: 400px;
+    line-height: 1.6;
+    margin-bottom: var(--coins-spacing-6);
+}
+
+.empty-state-hint {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--coins-spacing-2);
+    padding: var(--coins-spacing-3) var(--coins-spacing-4);
+    background: var(--coins-accent-light);
+    background: rgba(45, 212, 191, 0.1);
+    border: 1px solid rgba(45, 212, 191, 0.2);
+    border-radius: var(--coins-radius-lg);
+    color: var(--coins-accent);
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.empty-state-hint .hint-icon {
+    display: flex;
+    align-items: center;
+}
+
+.empty-state-hint .hint-icon svg {
+    stroke: var(--coins-accent);
+}

@@ -210,7 +210,7 @@ echo -e "  Alice nonce before: ${ALICE_NONCE_BEFORE}"
 # Send 100 tokens from Alice to Bob
 echo -e "  ${BLUE}→ Sending 100 tokens to Bob...${NC}"
 ./target/release/coins-client --keyfile "$ALICE_SK_FILE" --publisher-url http://localhost:8082 \
-    send --recipient-pk "$BOB_PK" --amount 100 2>&1 | grep -E "success|submitted" || echo -e "    Transaction sent"
+    send --recipient "$BOB_PK" --amount 100 2>&1 | grep -E "success|submitted" || echo -e "    Transaction sent"
 
 # Wait for publisher to mine and broadcast sub-block (mutinynet mining takes ~30-60s)
 echo -e "  ${BLUE}→ Waiting 60 seconds for publisher to mine sub-block...${NC}"
@@ -252,7 +252,7 @@ echo -e "  Alice nonce before: ${ALICE_NONCE_BEFORE}"
 # Send another 50 tokens to Bob
 echo -e "  ${BLUE}→ Sending 50 tokens to Bob...${NC}"
 ./target/release/coins-client --keyfile "$ALICE_SK_FILE" --publisher-url http://localhost:8082 \
-    send --recipient-pk "$BOB_PK" --amount 50 2>&1 | grep -E "success|submitted" || echo -e "    Transaction sent"
+    send --recipient "$BOB_PK" --amount 50 2>&1 | grep -E "success|submitted" || echo -e "    Transaction sent"
 
 # Wait for publisher to mine and broadcast
 echo -e "  ${BLUE}→ Waiting 60 seconds for publisher to mine sub-block...${NC}"
@@ -309,7 +309,7 @@ if [ "$ALICE_TOKEN1_BEFORE" -lt 500 ]; then
     else
         # Send token_id=1 from Genesis to Alice
         ./target/release/coins-client --keyfile "$GENESIS_SK_FILE" --publisher-url http://localhost:8082 \
-            send --recipient-pk "$ALICE_PK" --amount 1000 --token-id 1 2>&1 | grep -E "success|submitted" || echo -e "    Transaction sent"
+            send --recipient "$ALICE_PK" --amount 1000 --token-id 1 2>&1 | grep -E "success|submitted" || echo -e "    Transaction sent"
 
         # Wait for Bitcoin confirmation on mutinynet
         echo -e "  ${BLUE}→ Waiting 90 seconds for Bitcoin confirmation...${NC}"
@@ -347,7 +347,7 @@ echo -e "  Bob token_id=1 balance before: ${BOB_TOKEN1_BEFORE}"
 
 # Send token_id=1 transaction
 ./target/release/coins-client --keyfile "$ALICE_SK_FILE" --publisher-url http://localhost:8082 \
-    send --recipient-pk "$BOB_PK" --amount 100 --token-id 1 2>&1 | grep -E "success|submitted" || echo -e "    Transaction sent"
+    send --recipient "$BOB_PK" --amount 100 --token-id 1 2>&1 | grep -E "success|submitted" || echo -e "    Transaction sent"
 
 # Wait for Bitcoin confirmation
 echo -e "  ${BLUE}→ Waiting 90 seconds for Bitcoin confirmation...${NC}"

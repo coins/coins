@@ -37,6 +37,14 @@ async fn get_account_by_pk(Path(pk_hex): Path<String>, State(app_state): State<A
     }
 }
 
+async fn get_account_by_id(Path(id): Path<u32>, State(app_state): State<AppState>) -> impl IntoResponse {
+    match app_state.indexer.get_account_by_id(id).await {
+        Ok(Some(acc)) => Json(acc).into_response(),
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct TxSubmission { 
     tx: String, // hex
@@ -411,6 +419,7 @@ pub fn router(state: AppState) -> Router {
         .route("/health", get(health))
         .route("/status", get(get_status))
         .route("/account/:pk", get(get_account_by_pk))
+        .route("/account/by-id/:id", get(get_account_by_id))
         .route("/tx", post(submit_tx))
         .route("/mempool", get(get_mempool))
         .route("/recently-broadcast", get(get_recently_broadcast))

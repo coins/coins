@@ -152,7 +152,7 @@ echo -e "${YELLOW}[Test $((TEST_COUNT + 1))] Submit transaction (Alice -> Bob, 5
 TEST_COUNT=$((TEST_COUNT + 1))
 
 TX_OUTPUT=$(./target/release/coins-client --keyfile .data/regtest/test-keys/alice_sk.hex --publisher-url $PUBLISHER_URL \
-    send --recipient-pk "$BOB_PK" --amount 50 2>&1)
+    send --recipient "$BOB_PK" --amount 50 2>&1)
 
 if echo "$TX_OUTPUT" | grep -qi "success\|sent"; then
     echo -e "${GREEN}  ✓ PASS - Transaction submitted${NC}"
@@ -292,7 +292,7 @@ TEST_COUNT=$((TEST_COUNT + 1))
 
 # Submit a new transaction
 ./target/release/coins-client --keyfile .data/regtest/test-keys/alice_sk.hex --publisher-url $PUBLISHER_URL \
-    send --recipient-pk "$BOB_PK" --amount 10 &>/dev/null || true
+    send --recipient "$BOB_PK" --amount 10 &>/dev/null || true
 
 sleep 2
 
@@ -588,7 +588,7 @@ TEST_COUNT=$((TEST_COUNT + 1))
 
 # Submit a fresh transaction and track it through confirmation
 ./target/release/coins-client --keyfile .data/regtest/test-keys/alice_sk.hex --publisher-url $PUBLISHER_URL \
-    send --recipient-pk "$BOB_PK" --amount 5 &>/dev/null || true
+    send --recipient "$BOB_PK" --amount 5 &>/dev/null || true
 
 echo -e "  Submitted transaction, waiting 35s for broadcast..."
 sleep 35

@@ -593,9 +593,39 @@ class ExplorerApp {
             </div>
 
             <!-- Latest Block - Clickable -->
-            ${latestBlock ? this.renderBlockCardClickable(latestBlock) : '<p class="has-text-grey has-text-centered">No blocks yet</p>'}
+            ${latestBlock ? this.renderBlockCardClickable(latestBlock) : this.renderEmptyState()}
 
             <div id="account-result"></div>
+        `;
+    }
+
+    renderEmptyState() {
+        return `
+            <div class="empty-state">
+                <div class="empty-state-icon">
+                    <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="3" width="7" height="7" rx="1"></rect>
+                        <rect x="14" y="3" width="7" height="7" rx="1"></rect>
+                        <rect x="14" y="14" width="7" height="7" rx="1"></rect>
+                        <rect x="3" y="14" width="7" height="7" rx="1"></rect>
+                    </svg>
+                </div>
+                <h3 class="empty-state-title">No Blocks Yet</h3>
+                <p class="empty-state-description">
+                    This chain is brand new and waiting for its first transaction.
+                    <br>Once a transaction is published, blocks will appear here.
+                </p>
+                <div class="empty-state-hint">
+                    <span class="hint-icon">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <path d="M12 16v-4"></path>
+                            <path d="M12 8h.01"></path>
+                        </svg>
+                    </span>
+                    <span>Use the wallet to send your first transaction</span>
+                </div>
+            </div>
         `;
     }
 
@@ -1350,6 +1380,10 @@ class ExplorerApp {
             const response = await fetch(this.apiBase + endpoint);
 
             if (!response.ok) {
+                // 404 means "not found" - return null so callers can handle gracefully
+                if (response.status === 404) {
+                    return null;
+                }
                 // Check if it's a server error (500+) which usually means indexer is down
                 if (response.status >= 500) {
                     throw new Error('INDEXER_UNAVAILABLE');

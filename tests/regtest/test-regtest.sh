@@ -88,7 +88,7 @@ BOB_BEFORE=$(curl -s "http://localhost:8080/account/${BOB_PK}" | jq -r '.balance
 # Test 2: Submit transaction using coins-client
 echo -e "${YELLOW}[Test 2] Submit transaction (Alice -> Bob, 100 tokens)${NC}"
 TX_OUTPUT=$(./target/release/coins-client --keyfile .data/regtest/test-keys/alice_sk.hex --publisher-url http://localhost:8080 \
-    send --recipient-pk "$BOB_PK" --amount 100 2>&1)
+    send --recipient "$BOB_PK" --amount 100 2>&1)
 
 if echo "$TX_OUTPUT" | grep -qi "success"; then
     echo -e "${GREEN}  ✓ PASS - Transaction submitted${NC}"

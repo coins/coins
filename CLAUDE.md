@@ -60,7 +60,7 @@ cargo run -p coins-client -- init
 cargo run -p coins-client -- balance
 
 # Send tokens
-cargo run -p coins-client -- send --recipient-pk <hex> --amount 100 --token-id 0
+cargo run -p coins-client -- send --recipient <hex> --amount 100 --token-id 0
 
 # Create an invoice
 cargo run -p coins-client -- invoice --amount 100 --memo "Payment"

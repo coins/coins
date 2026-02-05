@@ -346,7 +346,7 @@ echo -e "  Bob PK: ${BOB_PK}"
 # Fund Alice from genesis (10000 tokens)
 echo -e "  ${BLUE}→ Sending 10000 tokens from Genesis to Alice...${NC}"
 ./target/release/coins-client --keyfile .data/regtest/test-keys/genesis_sk.hex --publisher-url http://localhost:8080 \
-    send --recipient-pk "$ALICE_PK" --amount 10000 2>&1 | grep -E "success|fail" || echo -e "    Transaction submitted"
+    send --recipient "$ALICE_PK" --amount 10000 2>&1 | grep -E "success|fail" || echo -e "    Transaction submitted"
 
 # Wait for publisher to mine the transaction
 echo -e "  ${BLUE}→ Waiting 35 seconds for publisher to mine sub-block...${NC}"
@@ -364,7 +364,7 @@ sleep 15
 # Fund Bob from Alice (1000 tokens)
 echo -e "  ${BLUE}→ Sending 1000 tokens from Alice to Bob...${NC}"
 ./target/release/coins-client --keyfile .data/regtest/test-keys/alice_sk.hex --publisher-url http://localhost:8080 \
-    send --recipient-pk "$BOB_PK" --amount 1000 2>&1 | grep -E "success|fail" || echo -e "    Transaction submitted"
+    send --recipient "$BOB_PK" --amount 1000 2>&1 | grep -E "success|fail" || echo -e "    Transaction submitted"
 
 # Wait for another mining cycle
 echo -e "  ${BLUE}→ Waiting 35 seconds for publisher to mine sub-block...${NC}"

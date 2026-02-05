@@ -58,7 +58,7 @@ if [ -z "$ALICE_PK" ] || [ -z "$BOB_PK" ]; then
     TEST_COUNT=$((TEST_COUNT + 1))
 else
     if ./target/release/coins-client --keyfile .data/mutinynet/keys/alice_sk.hex --publisher-url http://localhost:8082 \
-        send --recipient-pk "$BOB_PK" --amount 100 &>/dev/null; then
+        send --recipient "$BOB_PK" --amount 100 &>/dev/null; then
         echo -e "${GREEN}  ✓ PASS${NC}"
         PASS_COUNT=$((PASS_COUNT + 1))
     else
