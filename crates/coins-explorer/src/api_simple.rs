@@ -116,6 +116,7 @@ pub fn simple_router(
         .route("/api/v1/mempool", get(get_mempool))
         .route("/api/v1/recently-broadcast", get(get_recently_broadcast))
         .route("/api/v1/pending-transactions", get(get_pending_transactions))
+        .route("/api/publisher/status", get(get_publisher_status))
         // Serve shared static files
         .nest_service("/shared", ServeDir::new("shared/static"))
         // Serve explorer static files at root
@@ -268,6 +269,28 @@ async fn get_recently_broadcast(
         url.push('?');
         url.push_str(&params.join("&"));
     }
+
+    let response = state.http_client.get(&url).send().await
+        .map_err(|_| StatusCode::BAD_GATEWAY)?;
+
+    if !response.status().is_success() {
+        return Err(StatusCode::BAD_GATEWAY);
+    }
+
+    let body: serde_json::Value = response.json().await
+        .map_err(|_| StatusCode::BAD_GATEWAY)?;
+
+    Ok(Json(body))
+}
+
+/// Proxy to publisher status endpoint
+async fn get_publisher_status(
+    State(state): State<SimpleAppState>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let publisher_url = state.publisher_url.as_ref()
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+
+    let url = format!("{}/status", publisher_url);
 
     let response = state.http_client.get(&url).send().await
         .map_err(|_| StatusCode::BAD_GATEWAY)?;

@@ -6,35 +6,153 @@
     <title>Coins Explorer</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
     <link rel="stylesheet" href="/shared/coins-common.css">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <link rel="stylesheet" href="/explorer.css?v=17">
 </head>
 <body>
-    <!-- Floating status indicator -->
-    <div class="status-indicator" id="status-indicator">
-        <div class="status-dot" id="connection-dot"></div>
-    </div>
-
-    <!-- Global Search Bar -->
-    <div class="explorer-search-bar">
-        <div class="container">
-            <div class="explorer-search-wrapper">
-                <input class="search-input" type="text" id="global-search"
-                       placeholder="Search by address or block height..."
-                       onkeypress="if(event.key==='Enter')app.globalSearch()">
-                <div class="explorer-search-error" id="global-search-error"></div>
-            </div>
-        </div>
-    </div>
-
     <!-- Main Content -->
-    <section class="section" style="padding-top: 1rem;">
-        <div class="container">
-            <div id="content">
-                <!-- Dynamic content loaded here -->
+    <section class="section">
+        <div class="explorer-container">
+            <!-- Header with search -->
+            <div class="explorer-header">
+                <div class="explorer-brand">
+                    <span class="brand-icon">&#9670;</span>
+                    <span class="brand-text">Coins Explorer</span>
+                    <div class="status-indicator" id="status-indicator">
+                        <span class="status-dot" id="connection-dot"></span>
+                        <div class="status-tooltip-content" id="status-tooltip">
+                            <div class="tooltip-row">
+                                <span class="tooltip-service">Indexer</span>
+                                <span class="tooltip-status">
+                                    <span class="tooltip-dot" id="indexer-status-dot"></span>
+                                    <span id="indexer-status-text">Checking...</span>
+                                </span>
+                            </div>
+                            <div class="tooltip-row">
+                                <span class="tooltip-service">Publisher</span>
+                                <span class="tooltip-status">
+                                    <span class="tooltip-dot" id="publisher-status-dot"></span>
+                                    <span id="publisher-status-text">Checking...</span>
+                                </span>
+                            </div>
+                            <div class="tooltip-row">
+                                <span class="tooltip-service">WebSocket</span>
+                                <span class="tooltip-status">
+                                    <span class="tooltip-dot" id="ws-status-dot"></span>
+                                    <span id="ws-status-text">Connecting...</span>
+                                </span>
+                            </div>
+                            <div class="tooltip-divider"></div>
+                            <div class="tooltip-row">
+                                <span class="tooltip-service">Next Block</span>
+                                <span class="tooltip-status">
+                                    <span id="next-block-text">--</span>
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="explorer-search">
+                    <input class="search-input" type="text" id="global-search"
+                           placeholder="Search address or block..."
+                           onkeypress="if(event.key==='Enter')app.globalSearch()">
+                </div>
+            </div>
+
+            <!-- Navigation Pills -->
+            <div class="explorer-pills">
+                <button class="pill active" data-section="overview" onclick="app.showSection('overview')">
+                    <span class="pill-icon">&#9632;</span>
+                    Overview
+                </button>
+                <button class="pill" data-section="blocks" onclick="app.showSection('blocks')">
+                    <span class="pill-icon">&#9633;</span>
+                    Blocks
+                </button>
+                <button class="pill" data-section="mempool" onclick="app.showSection('mempool')">
+                    <span class="pill-icon">&#8634;</span>
+                    Mempool
+                </button>
+            </div>
+
+            <!-- Stats Strip -->
+            <div class="stats-strip" id="stats-strip">
+                <div class="stat-item clickable" onclick="app.showSection('blocks')">
+                    <span class="stat-value" data-stat="total-blocks">--</span>
+                    <span class="stat-label">Blocks</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-value" data-stat="total-accounts">--</span>
+                    <span class="stat-label">Accounts</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-value" data-stat="total-supply">--</span>
+                    <span class="stat-label">Supply</span>
+                </div>
+                <div class="stat-item clickable" onclick="app.showSection('mempool')">
+                    <span class="stat-value" data-stat="pending-txs">--</span>
+                    <span class="stat-label">Pending</span>
+                </div>
+            </div>
+
+            <!-- Main Content Area -->
+            <div class="explorer-content" id="content">
+                <!-- Overview Section -->
+                <div class="explorer-section active" id="section-overview">
+                    <div class="section-inner">
+                        <h2 class="section-title">Latest Block</h2>
+                        <div id="latest-block-card">
+                            <div class="loading-placeholder">Loading...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Blocks Section -->
+                <div class="explorer-section" id="section-blocks">
+                    <div class="section-inner">
+                        <h2 class="section-title">All Blocks</h2>
+                        <div id="blocks-list">
+                            <div class="loading-placeholder">Loading...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Mempool Section -->
+                <div class="explorer-section" id="section-mempool">
+                    <div class="section-inner">
+                        <h2 class="section-title">Pending Transactions</h2>
+                        <div id="mempool-content">
+                            <div class="loading-placeholder">Loading...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Block Detail Section -->
+                <div class="explorer-section" id="section-block-detail">
+                    <div class="section-inner">
+                        <button class="back-btn" onclick="app.goBack()">
+                            <span>&#8592;</span> Back
+                        </button>
+                        <div id="block-detail-content">
+                            <div class="loading-placeholder">Loading...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Account Detail Section -->
+                <div class="explorer-section" id="section-account-detail">
+                    <div class="section-inner">
+                        <button class="back-btn" onclick="app.goBack()">
+                            <span>&#8592;</span> Back
+                        </button>
+                        <div id="account-detail-content">
+                            <div class="loading-placeholder">Loading...</div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </section>
 
-    <script src="/app.js?v=44"></script>
+    <script src="/app.js?v=55"></script>
 </body>
 </html>

@@ -1,28 +1,235 @@
 class ExplorerApp {
     constructor() {
         this.ws = null;
-        this.currentView = 'home';
+        this.currentSection = 'overview';
+        this.previousSection = null;
         this.currentPage = 0;
         this.apiBase = '/api/v1';
-        this.network = 'regtest'; // Default, will be updated from API
-        this.currentAccountPk = null; // Track current account for targeted refreshes
+        this.network = 'regtest';
+        this.currentAccountPk = null;
+        this.secsUntilNextLoop = null;
+        this.intervalSecs = 60;
 
-        // Initialize WebSocket for live updates
+        // Service status
+        this.serviceStatus = {
+            indexer: false,
+            publisher: false,
+            websocket: false
+        };
+
+        // Initialize
         this.initWebSocket();
-
-        // Fetch network info
         this.fetchNetworkInfo();
+        this.loadStats();
+        this.loadOverview();
+        this.checkServiceStatus();
 
-        // Navigate to hash or home
-        this.navigateFromHash();
+        // Handle browser navigation
+        window.addEventListener('popstate', (e) => this.handlePopState(e));
 
-        // Handle browser back/forward and hash changes
-        window.addEventListener('popstate', () => {
-            this.navigateFromHash();
+        // Check initial hash
+        this.handleInitialHash();
+
+        // Periodically check services and update next block timer
+        setInterval(() => this.checkServiceStatus(), 30000);
+        setInterval(() => this.updateNextBlockTimer(), 1000);
+    }
+
+    // ========================================
+    // Navigation
+    // ========================================
+
+    showSection(section, params = {}, pushState = true) {
+        // Hide all sections
+        document.querySelectorAll('.explorer-section').forEach(s => {
+            s.classList.remove('active');
         });
-        window.addEventListener('hashchange', () => {
-            this.navigateFromHash();
+
+        // Update pills
+        document.querySelectorAll('.pill').forEach(p => {
+            p.classList.toggle('active', p.dataset.section === section);
         });
+
+        // Track previous section for back navigation
+        if (['overview', 'blocks', 'mempool'].includes(section)) {
+            this.previousSection = section;
+        }
+
+        // Show target section
+        const sectionEl = document.getElementById(`section-${section}`);
+        if (sectionEl) {
+            sectionEl.classList.add('active');
+        }
+
+        this.currentSection = section;
+
+        // Load content based on section
+        switch (section) {
+            case 'overview':
+                this.loadOverview();
+                break;
+            case 'blocks':
+                this.loadBlocks(params.page || 0);
+                break;
+            case 'mempool':
+                this.loadMempool();
+                break;
+            case 'block-detail':
+                this.loadBlockDetail(params.height);
+                break;
+            case 'account-detail':
+                this.loadAccountDetail(params.pk);
+                break;
+        }
+
+        // Update URL
+        if (pushState) {
+            let hash = section;
+            if (section === 'block-detail' && params.height !== undefined) {
+                hash = `block/${params.height}`;
+            } else if (section === 'account-detail' && params.pk) {
+                hash = `account/${params.pk}`;
+            } else if (section === 'blocks' && params.page) {
+                hash = `blocks/${params.page}`;
+            }
+            history.pushState({ section, params }, '', `#${hash}`);
+        }
+    }
+
+    goBack() {
+        const backTo = this.previousSection || 'overview';
+        this.showSection(backTo);
+    }
+
+    handlePopState(e) {
+        if (e.state) {
+            this.showSection(e.state.section, e.state.params || {}, false);
+        } else {
+            this.handleInitialHash();
+        }
+    }
+
+    handleInitialHash() {
+        const hash = window.location.hash.slice(1);
+        if (!hash) {
+            this.showSection('overview', {}, false);
+            return;
+        }
+
+        const parts = hash.split('/');
+        const section = parts[0];
+
+        if (section === 'block' && parts[1]) {
+            this.showSection('block-detail', { height: parseInt(parts[1]) }, false);
+        } else if (section === 'account' && parts[1]) {
+            this.showSection('account-detail', { pk: parts[1] }, false);
+        } else if (section === 'blocks') {
+            this.showSection('blocks', { page: parseInt(parts[1]) || 0 }, false);
+        } else if (['overview', 'mempool'].includes(section)) {
+            this.showSection(section, {}, false);
+        } else {
+            this.showSection('overview', {}, false);
+        }
+    }
+
+    globalSearch() {
+        const input = document.getElementById('global-search');
+        const query = input.value.trim();
+        if (!query) return;
+
+        if (/^\d+$/.test(query)) {
+            this.showSection('block-detail', { height: parseInt(query) });
+            input.value = '';
+        } else if (/^[0-9a-fA-F]+$/.test(query)) {
+            this.showSection('account-detail', { pk: query });
+            input.value = '';
+        }
+    }
+
+    // ========================================
+    // WebSocket
+    // ========================================
+
+    initWebSocket() {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+        this.ws = new WebSocket(wsUrl);
+
+        this.ws.onopen = () => {
+            console.log('WebSocket connected');
+            this.serviceStatus.websocket = true;
+            this.updateStatusIndicator();
+        };
+
+        this.ws.onmessage = (event) => {
+            const msg = JSON.parse(event.data);
+            this.handleWSMessage(msg);
+        };
+
+        this.ws.onclose = () => {
+            console.log('WebSocket disconnected, reconnecting...');
+            this.serviceStatus.websocket = false;
+            this.updateStatusIndicator();
+            setTimeout(() => this.initWebSocket(), 3000);
+        };
+
+        this.ws.onerror = (error) => {
+            console.error('WebSocket error:', error);
+        };
+    }
+
+    handleWSMessage(msg) {
+        switch (msg.type) {
+            case 'new_block':
+            case 'stats_update':
+                this.loadStats();
+                if (this.currentSection === 'overview') {
+                    this.loadOverview();
+                } else if (this.currentSection === 'blocks') {
+                    this.loadBlocks(this.currentPage);
+                } else if (this.currentSection === 'account-detail' && this.currentAccountPk) {
+                    this.loadAccountDetail(this.currentAccountPk);
+                }
+                break;
+
+            case 'pending_txs_update':
+                this.loadStats();
+                if (this.currentSection === 'mempool') {
+                    this.loadMempool();
+                } else if (this.currentSection === 'account-detail' && this.currentAccountPk) {
+                    this.loadAccountDetail(this.currentAccountPk);
+                }
+                break;
+
+            case 'confirmation_update':
+                if (this.currentSection === 'account-detail' && this.currentAccountPk) {
+                    this.loadAccountDetail(this.currentAccountPk);
+                } else if (this.currentSection === 'mempool') {
+                    this.loadMempool();
+                }
+                break;
+        }
+    }
+
+    // ========================================
+    // API
+    // ========================================
+
+    async fetchAPI(endpoint) {
+        try {
+            const response = await fetch(this.apiBase + endpoint);
+            if (!response.ok) {
+                if (response.status === 404) return null;
+                throw new Error(`API Error: ${response.status}`);
+            }
+            return await response.json();
+        } catch (error) {
+            if (error.message === 'Failed to fetch') {
+                throw new Error('INDEXER_UNAVAILABLE');
+            }
+            throw error;
+        }
     }
 
     async fetchNetworkInfo() {
@@ -36,10 +243,521 @@ class ExplorerApp {
         }
     }
 
-    getBitcoinExplorerUrl(txid) {
-        // Return explorer URL based on network
-        if (!txid) return null;
+    // ========================================
+    // Data Loading
+    // ========================================
 
+    async loadStats() {
+        try {
+            const stats = await this.fetchAPI('/stats');
+            let pendingCount = 0;
+            try {
+                const pending = await this.fetchAPI('/pending-transactions') || [];
+                pendingCount = pending.length;
+            } catch (e) {}
+
+            this.updateStat('total-blocks', stats?.total_blocks || 0);
+            this.updateStat('total-accounts', stats?.total_accounts || 0);
+            this.updateStat('total-supply', stats?.total_supply || 0);
+            this.updateStat('pending-txs', pendingCount);
+        } catch (error) {
+            console.warn('Could not load stats:', error);
+        }
+    }
+
+    updateStat(key, value) {
+        const el = document.querySelector(`[data-stat="${key}"]`);
+        if (el) el.textContent = value;
+    }
+
+    async loadOverview() {
+        const container = document.getElementById('latest-block-card');
+        try {
+            const block = await this.fetchAPI('/blocks/latest');
+            if (block) {
+                container.innerHTML = this.renderBlockCard(block, true);
+            } else {
+                container.innerHTML = this.renderEmptyState();
+            }
+        } catch (error) {
+            container.innerHTML = this.renderError(error);
+        }
+    }
+
+    async loadBlocks(page = 0) {
+        this.currentPage = page;
+        const container = document.getElementById('blocks-list');
+
+        try {
+            const latestBlock = await this.fetchAPI('/blocks/latest');
+            if (!latestBlock) {
+                container.innerHTML = this.renderEmptyState();
+                return;
+            }
+
+            const allBlocks = await this.fetchAPI(`/blocks?from=0&to=${latestBlock.height}`);
+            allBlocks.sort((a, b) => b.height - a.height);
+
+            const blocksPerPage = 15;
+            const totalPages = Math.ceil(allBlocks.length / blocksPerPage);
+            const startIdx = page * blocksPerPage;
+            const blocks = allBlocks.slice(startIdx, startIdx + blocksPerPage);
+
+            let html = blocks.map(b => this.renderBlockCard(b)).join('');
+
+            if (totalPages > 1) {
+                html += this.renderPagination(page, totalPages);
+            }
+
+            container.innerHTML = html || '<div class="empty-state-compact"><p class="empty-desc">No blocks found</p></div>';
+        } catch (error) {
+            container.innerHTML = this.renderError(error);
+        }
+    }
+
+    async loadMempool() {
+        const container = document.getElementById('mempool-content');
+
+        try {
+            const pendingTxs = await this.fetchAPI('/pending-transactions') || [];
+
+            if (pendingTxs.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state-compact">
+                        <div class="empty-icon">&#8634;</div>
+                        <p class="empty-title">Mempool Empty</p>
+                        <p class="empty-desc">No pending transactions at the moment.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const publishing = pendingTxs.filter(tx => tx.status === 'publishing');
+            const broadcasting = pendingTxs.filter(tx => tx.status === 'broadcasting');
+            const unconfirmed = pendingTxs.filter(tx => tx.status === 'unconfirmed');
+
+            let html = '';
+
+            if (unconfirmed.length > 0) {
+                html += this.renderMempoolGroup('Unconfirmed', unconfirmed, 'unconfirmed');
+            }
+            if (broadcasting.length > 0) {
+                html += this.renderMempoolGroup('Broadcasting', broadcasting, 'broadcasting');
+            }
+            if (publishing.length > 0) {
+                html += this.renderMempoolGroup('Publishing', publishing, 'publishing');
+            }
+
+            container.innerHTML = html;
+        } catch (error) {
+            container.innerHTML = this.renderError(error);
+        }
+    }
+
+    async loadBlockDetail(height) {
+        const container = document.getElementById('block-detail-content');
+
+        try {
+            const block = await this.fetchAPI(`/blocks/${height}`);
+            if (!block) {
+                container.innerHTML = '<p class="has-text-grey">Block not found</p>';
+                return;
+            }
+
+            const publisherPk = this.bytesToHex(block.sub_block.publisher_pk);
+            const txCount = block.sub_block?.txs?.length || 0;
+            const explorerUrl = this.getBitcoinExplorerUrl(block.btc_txid);
+
+            let html = `
+                <div class="detail-header">
+                    <span class="block-height-badge">#${block.height}</span>
+                    <span class="detail-title">Block Details</span>
+                </div>
+
+                <div class="detail-grid">
+                    <span class="detail-label">Bitcoin Txid</span>
+                    <span class="detail-value">
+                        <code>${block.btc_txid}</code>
+                        ${explorerUrl ? `<br><a href="${explorerUrl}" target="_blank" style="font-size: 0.75rem;">View on Explorer ↗</a>` : ''}
+                    </span>
+
+                    <span class="detail-label">Publisher</span>
+                    <span class="detail-value"><code>${publisherPk}</code></span>
+
+                    <span class="detail-label">Transactions</span>
+                    <span class="detail-value">${txCount}</span>
+                </div>
+            `;
+
+            if (txCount > 0) {
+                html += `
+                    <div class="tx-history-header">Transactions</div>
+                    <div class="tx-table">
+                        ${block.sub_block.txs.map(tx => {
+                            const recipientPk = this.bytesToHex(tx.recipient_pk);
+                            return `
+                                <div class="tx-row-compact">
+                                    <span class="tx-sender">Account #${tx.sender_id}</span>
+                                    <span class="tx-arrow">→</span>
+                                    <span class="tx-recipient">
+                                        <a onclick="app.showSection('account-detail', {pk: '${recipientPk}'})">${this.formatPk(recipientPk)}</a>
+                                    </span>
+                                    <span class="tx-amount">${tx.amount} sats</span>
+                                    ${tx.token_id > 0 ? `<span class="tx-status-badge publishing">Token ${tx.token_id}</span>` : ''}
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                `;
+            }
+
+            container.innerHTML = html;
+        } catch (error) {
+            container.innerHTML = this.renderError(error);
+        }
+    }
+
+    async loadAccountDetail(pk) {
+        this.currentAccountPk = pk;
+        const container = document.getElementById('account-detail-content');
+
+        try {
+            const account = await this.fetchAPI(`/accounts/${pk}`);
+            if (!account) {
+                container.innerHTML = '<p class="has-text-grey">Account not found</p>';
+                return;
+            }
+
+            const pkHex = this.bytesToHex(account.pk);
+            const balances = account.balances ? Object.entries(account.balances).sort((a, b) => parseInt(a[0]) - parseInt(b[0])) : [];
+
+            let html = `
+                <div class="account-header">
+                    <span class="account-id">Account #${account.id}</span>
+                </div>
+                <div class="account-pk">${pkHex}</div>
+
+                <div class="tx-history-header" style="margin-top: 1.5rem;">Balances</div>
+                <div class="balances-grid">
+                    ${balances.length > 0 ? balances.map(([tokenId, balance]) => `
+                        <div class="balance-item">
+                            <div class="balance-amount">${balance}</div>
+                            <div class="balance-token">${tokenId === '0' ? 'Native' : `Token ${tokenId}`}</div>
+                        </div>
+                    `).join('') : '<p class="has-text-grey" style="grid-column: 1/-1; text-align: center;">No tokens</p>'}
+                </div>
+            `;
+
+            // Load transactions
+            const txs = await this.fetchAPI(`/accounts/${pk}/transactions`) || [];
+
+            // Also get pending
+            let pendingTxs = [];
+            try {
+                const sentPending = await this.fetchAPI(`/pending-transactions?sender_id=${account.id}`) || [];
+                const receivedPending = await this.fetchAPI(`/pending-transactions?recipient_pk=${pk}`) || [];
+
+                pendingTxs = [
+                    ...sentPending.map(tx => ({ ...tx, direction: 'outgoing', isPending: true })),
+                    ...receivedPending.map(tx => ({ ...tx, direction: 'incoming', isPending: true }))
+                ];
+
+                // Filter out already indexed
+                const indexedKeys = new Set(txs.map(tx => `${this.bytesToHex(tx.sender_pk)}-${tx.nonce}`));
+                pendingTxs = pendingTxs.filter(tx => !indexedKeys.has(`${tx.sender_pk}-${tx.nonce}`));
+            } catch (e) {}
+
+            const allTxs = [...txs, ...pendingTxs];
+
+            // Look up account IDs for outgoing transaction recipients
+            const recipientPks = [...new Set(allTxs
+                .filter(tx => tx.direction === 'outgoing')
+                .map(tx => this.bytesToHex(tx.recipient_pk)))];
+
+            const pkToId = {};
+            await Promise.all(recipientPks.map(async (rpk) => {
+                try {
+                    const recipientAccount = await this.fetchAPI(`/accounts/${rpk}`);
+                    if (recipientAccount && recipientAccount.id !== undefined) {
+                        pkToId[rpk] = recipientAccount.id;
+                    }
+                } catch (e) {}
+            }));
+
+            html += `
+                <div class="tx-history-header">Transaction History</div>
+                <div class="tx-table">
+                    ${allTxs.length > 0 ? allTxs.map(tx => {
+                        const isIncoming = tx.direction === 'incoming';
+                        const counterpartyPk = isIncoming ? this.bytesToHex(tx.sender_pk) : this.bytesToHex(tx.recipient_pk);
+                        const counterpartyId = isIncoming ? tx.sender_id : pkToId[counterpartyPk];
+                        const hasId = counterpartyId !== undefined && counterpartyId !== null;
+                        const amountClass = isIncoming ? 'positive' : 'negative';
+                        const amountPrefix = isIncoming ? '+' : '-';
+
+                        let statusBadge = '';
+                        if (tx.isPending) {
+                            statusBadge = `<span class="tx-status-badge ${tx.status}">${tx.status}</span>`;
+                        } else if (tx.finalized) {
+                            statusBadge = '<span class="conf-badge confirmed">Confirmed</span>';
+                        } else {
+                            statusBadge = `<span class="conf-badge pending">${tx.confirmations || 0} conf</span>`;
+                        }
+
+                        return `
+                            <div class="tx-table-row">
+                                <span class="tx-type-badge ${isIncoming ? 'received' : 'sent'}">${isIncoming ? 'Received' : 'Sent'}</span>
+                                <span class="tx-counterparty-wrapper" onclick="app.showSection('account-detail', {pk: '${counterpartyPk}'})">
+                                    <span class="tx-counterparty-pk">${counterpartyPk}</span>
+                                    ${hasId ? `<span class="tx-counterparty-id">#${counterpartyId}</span>` : ''}
+                                </span>
+                                <span class="tx-table-amount ${amountClass}">${amountPrefix}${tx.amount}</span>
+                                <span class="tx-table-token">${tx.token_id > 0 ? `Token ${tx.token_id}` : 'Native'}</span>
+                                ${statusBadge}
+                            </div>
+                        `;
+                    }).join('') : '<p class="has-text-grey" style="text-align: center; padding: 1rem;">No transactions</p>'}
+                </div>
+            `;
+
+            container.innerHTML = html;
+        } catch (error) {
+            container.innerHTML = this.renderError(error);
+        }
+    }
+
+    // ========================================
+    // Renderers
+    // ========================================
+
+    renderBlockCard(block, isLatest = false) {
+        const txCount = block.sub_block?.txs?.length || 0;
+        const confLabel = block.confirmations >= 6 ? 'confirmed' :
+                          block.confirmations >= 1 ? `${block.confirmations} conf` : 'unconfirmed';
+        const confClass = block.confirmations >= 6 ? 'confirmed' : 'pending';
+
+        return `
+            <div class="block-card-compact" onclick="app.showSection('block-detail', {height: ${block.height}})">
+                <div class="block-info">
+                    <span class="block-height-badge">#${block.height}</span>
+                    <div class="block-meta">
+                        <span class="block-txcount">${txCount} transaction${txCount !== 1 ? 's' : ''}</span>
+                        <span class="block-hash">${block.btc_txid}</span>
+                    </div>
+                </div>
+                <div class="block-status">
+                    <span class="conf-badge ${confClass}">${confLabel}</span>
+                </div>
+            </div>
+        `;
+    }
+
+    renderMempoolGroup(title, txs, status) {
+        return `
+            <div class="mempool-group">
+                <div class="mempool-group-header">
+                    <span class="mempool-group-title">${title}</span>
+                    <span class="mempool-group-count">${txs.length}</span>
+                </div>
+                ${txs.map(tx => `
+                    <div class="tx-row-compact">
+                        <span class="tx-sender">Account #${tx.sender_id}</span>
+                        <span class="tx-arrow">→</span>
+                        <span class="tx-recipient">
+                            <a onclick="app.showSection('account-detail', {pk: '${tx.recipient_pk}'})">${this.formatPk(tx.recipient_pk)}</a>
+                        </span>
+                        <span class="tx-amount">${tx.amount} sats</span>
+                        <span class="tx-status-badge ${status}">${status}</span>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    }
+
+    renderEmptyState() {
+        return `
+            <div class="empty-state-compact">
+                <div class="empty-icon">&#9633;</div>
+                <p class="empty-title">No Blocks Yet</p>
+                <p class="empty-desc">This chain is brand new. Send a transaction to create the first block.</p>
+            </div>
+        `;
+    }
+
+    renderError(error) {
+        if (error.message === 'INDEXER_UNAVAILABLE') {
+            return `
+                <div class="empty-state-compact">
+                    <div class="empty-icon" style="border-color: var(--coins-danger);">&#9888;</div>
+                    <p class="empty-title">Indexer Unavailable</p>
+                    <p class="empty-desc">Cannot connect to the indexer service. Please check that it's running.</p>
+                </div>
+            `;
+        }
+        return `
+            <div class="empty-state-compact">
+                <div class="empty-icon" style="border-color: var(--coins-danger);">&#9888;</div>
+                <p class="empty-title">Error</p>
+                <p class="empty-desc">${error.message}</p>
+            </div>
+        `;
+    }
+
+    renderPagination(currentPage, totalPages) {
+        let buttons = '';
+
+        // Previous button
+        buttons += `<button class="page-btn" onclick="app.loadBlocks(${currentPage - 1})" ${currentPage === 0 ? 'disabled' : ''}>← Prev</button>`;
+
+        // Page numbers
+        const maxVisible = 5;
+        let start = Math.max(0, currentPage - Math.floor(maxVisible / 2));
+        let end = Math.min(totalPages, start + maxVisible);
+        if (end - start < maxVisible) start = Math.max(0, end - maxVisible);
+
+        for (let i = start; i < end; i++) {
+            buttons += `<button class="page-btn ${i === currentPage ? 'active' : ''}" onclick="app.loadBlocks(${i})">${i + 1}</button>`;
+        }
+
+        // Next button
+        buttons += `<button class="page-btn" onclick="app.loadBlocks(${currentPage + 1})" ${currentPage >= totalPages - 1 ? 'disabled' : ''}>Next →</button>`;
+
+        return `<div class="pagination-compact">${buttons}</div>`;
+    }
+
+    // ========================================
+    // Service Status
+    // ========================================
+
+    async checkServiceStatus() {
+        // Check indexer
+        try {
+            const response = await fetch(this.apiBase + '/stats');
+            this.serviceStatus.indexer = response.ok;
+        } catch (e) {
+            this.serviceStatus.indexer = false;
+        }
+
+        // Check publisher and get loop timing
+        try {
+            const response = await fetch('/api/publisher/status');
+            if (response.ok) {
+                const data = await response.json();
+                this.serviceStatus.publisher = true;
+                this.secsUntilNextLoop = data.secs_until_next_loop;
+                this.intervalSecs = data.interval_secs || 60;
+            } else {
+                this.serviceStatus.publisher = false;
+                this.secsUntilNextLoop = null;
+            }
+        } catch (e) {
+            this.serviceStatus.publisher = false;
+            this.secsUntilNextLoop = null;
+        }
+
+        this.updateStatusIndicator();
+    }
+
+    updateStatusIndicator() {
+        const mainDot = document.getElementById('connection-dot');
+        const indexerDot = document.getElementById('indexer-status-dot');
+        const indexerText = document.getElementById('indexer-status-text');
+        const publisherDot = document.getElementById('publisher-status-dot');
+        const publisherText = document.getElementById('publisher-status-text');
+        const wsDot = document.getElementById('ws-status-dot');
+        const wsText = document.getElementById('ws-status-text');
+
+        // Update individual service indicators
+        if (indexerDot) {
+            indexerDot.classList.toggle('connected', this.serviceStatus.indexer);
+            indexerDot.classList.toggle('disconnected', !this.serviceStatus.indexer);
+        }
+        if (indexerText) {
+            indexerText.textContent = this.serviceStatus.indexer ? 'Connected' : 'Offline';
+        }
+
+        if (publisherDot) {
+            publisherDot.classList.toggle('connected', this.serviceStatus.publisher);
+            publisherDot.classList.toggle('disconnected', !this.serviceStatus.publisher);
+        }
+        if (publisherText) {
+            publisherText.textContent = this.serviceStatus.publisher ? 'Connected' : 'Offline';
+        }
+
+        if (wsDot) {
+            wsDot.classList.toggle('connected', this.serviceStatus.websocket);
+            wsDot.classList.toggle('disconnected', !this.serviceStatus.websocket);
+        }
+        if (wsText) {
+            wsText.textContent = this.serviceStatus.websocket ? 'Connected' : 'Disconnected';
+        }
+
+        // Update main status dot
+        if (mainDot) {
+            const allConnected = this.serviceStatus.indexer &&
+                                 this.serviceStatus.publisher &&
+                                 this.serviceStatus.websocket;
+            const someConnected = this.serviceStatus.indexer ||
+                                  this.serviceStatus.publisher ||
+                                  this.serviceStatus.websocket;
+
+            mainDot.classList.remove('disconnected', 'partial');
+            if (!someConnected) {
+                mainDot.classList.add('disconnected');
+            } else if (!allConnected) {
+                mainDot.classList.add('partial');
+            }
+        }
+
+        this.updateNextBlockTimer();
+    }
+
+    updateNextBlockTimer() {
+        const nextBlockText = document.getElementById('next-block-text');
+        if (!nextBlockText) return;
+
+        if (!this.serviceStatus.publisher || this.secsUntilNextLoop == null) {
+            nextBlockText.textContent = '--';
+            return;
+        }
+
+        const secs = this.secsUntilNextLoop;
+
+        if (secs <= 0) {
+            nextBlockText.textContent = 'Any moment...';
+        } else if (secs >= 60) {
+            const mins = Math.floor(secs / 60);
+            const remSecs = secs % 60;
+            nextBlockText.textContent = `~${mins}m ${remSecs}s`;
+        } else {
+            nextBlockText.textContent = `~${secs}s`;
+        }
+
+        // Decrement locally between status checks
+        if (this.secsUntilNextLoop > 0) {
+            this.secsUntilNextLoop--;
+        }
+    }
+
+    // ========================================
+    // Helpers
+    // ========================================
+
+    bytesToHex(bytes) {
+        if (typeof bytes === 'string') return bytes;
+        if (Array.isArray(bytes)) {
+            return bytes.map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+        return bytes;
+    }
+
+    formatPk(pk) {
+        if (!pk || pk.length < 16) return pk;
+        return pk.slice(0, 8) + '...' + pk.slice(-8);
+    }
+
+    getBitcoinExplorerUrl(txid) {
+        if (!txid) return null;
         switch (this.network.toLowerCase()) {
             case 'mutinynet':
                 return `https://mutinynet.com/tx/${txid}`;
@@ -50,1358 +768,11 @@ class ExplorerApp {
             case 'mainnet':
             case 'bitcoin':
                 return `https://mempool.space/tx/${txid}`;
-            case 'regtest':
             default:
-                return null; // No public explorer for regtest
-        }
-    }
-
-    bytesToHex(bytes) {
-        // Convert byte array to hex string
-        if (Array.isArray(bytes)) {
-            return bytes.map(b => b.toString(16).padStart(2, '0')).join('');
-        }
-        return bytes;
-    }
-
-    formatPublicKey(pk) {
-        // Format long public keys by showing first 8 and last 8 characters
-        if (typeof pk === 'string' && pk.length > 16) {
-            return pk.slice(0, 8) + '...' + pk.slice(-8);
-        }
-        return pk;
-    }
-
-    navigateFromHash() {
-        const hash = window.location.hash.slice(1); // Remove #
-        if (!hash) {
-            this.navigate('home', {}, false);
-            return;
-        }
-
-        const parts = hash.split('/');
-        const view = parts[0];
-        const params = {};
-
-        // Parse parameters based on view type
-        if (view === 'block' && parts[1]) {
-            params.height = parseInt(parts[1]);
-        } else if (view === 'account' && parts[1]) {
-            params.pk = parts[1];
-        } else if (view === 'blocks' && parts[1]) {
-            params.page = parseInt(parts[1]) || 0;
-        }
-
-        this.navigate(view, params, false);
-    }
-
-    initWebSocket() {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/ws`;
-
-        this.ws = new WebSocket(wsUrl);
-
-        this.ws.onopen = () => {
-            console.log('WebSocket connected');
-            const dot = document.getElementById('connection-dot');
-            if (dot) dot.classList.remove('disconnected');
-        };
-
-        this.ws.onmessage = (event) => {
-            const msg = JSON.parse(event.data);
-            this.handleWSMessage(msg);
-        };
-
-        this.ws.onclose = () => {
-            console.log('WebSocket disconnected, reconnecting...');
-            const dot = document.getElementById('connection-dot');
-            if (dot) dot.classList.add('disconnected');
-            setTimeout(() => this.initWebSocket(), 3000);
-        };
-
-        this.ws.onerror = (error) => {
-            console.error('WebSocket error:', error);
-        };
-    }
-
-    handleWSMessage(msg) {
-        console.log('WebSocket message:', msg);
-
-        switch (msg.type) {
-            case 'new_block':
-            case 'stats_update':
-                // Targeted update for home page stats
-                if (this.currentView === 'home') {
-                    this.updateHomeStats();
-                } else if (this.currentView === 'blocks') {
-                    // For blocks list, need full re-render to show new block
-                    this.navigate(this.currentView, {}, false);
-                }
-                // Update account balance if viewing an account
-                if (this.currentView === 'account' && this.currentAccountPk) {
-                    this.updateAccountBalance(this.currentAccountPk);
-                    this.updateTransactionStatuses(this.currentAccountPk);
-                }
-                break;
-
-            case 'pending_txs_update':
-                // Targeted update for home page stats
-                if (this.currentView === 'home') {
-                    this.updateHomeStats();
-                } else if (this.currentView === 'mempool') {
-                    // Mempool view needs full re-render for new/removed txs
-                    this.navigate('mempool', {}, false);
-                }
-                // Update transaction statuses in account view
-                if (this.currentView === 'account' && this.currentAccountPk) {
-                    this.updateTransactionStatuses(this.currentAccountPk);
-                }
-                break;
-
-            case 'confirmation_update':
-                // Refresh account view and mempool view for confirmation status updates
-                if (this.currentView === 'account' && this.currentAccountPk) {
-                    this.updateTransactionStatuses(this.currentAccountPk);
-                } else if (this.currentView === 'mempool') {
-                    this.navigate('mempool', {}, false);
-                }
-                break;
-        }
-    }
-
-    // Targeted update: refresh only stats on home page
-    async updateHomeStats() {
-        try {
-            const stats = await this.fetchAPI('/stats');
-            let pendingCount = 0;
-            try {
-                const pending = await this.fetchAPI('/pending-transactions') || [];
-                pendingCount = pending.length;
-            } catch (e) {
-                console.warn('Could not fetch pending transactions:', e);
-            }
-
-            const blocksEl = document.querySelector('[data-stat="total-blocks"]');
-            const accountsEl = document.querySelector('[data-stat="total-accounts"]');
-            const supplyEl = document.querySelector('[data-stat="total-supply"]');
-            const pendingEl = document.querySelector('[data-stat="pending-txs"]');
-
-            if (blocksEl) blocksEl.textContent = stats.total_blocks || 0;
-            if (accountsEl) accountsEl.textContent = stats.total_accounts || 0;
-            if (supplyEl) supplyEl.textContent = stats.total_supply || 0;
-            if (pendingEl) pendingEl.textContent = pendingCount;
-        } catch (error) {
-            console.warn('Could not update home stats:', error);
-        }
-    }
-
-    // Targeted update: refresh account balances table
-    async updateAccountBalance(pk) {
-        try {
-            const account = await this.fetchAPI(`/accounts/${pk}`);
-            const balancesEl = document.querySelector('[data-account-balances]');
-            if (balancesEl && account) {
-                balancesEl.innerHTML = this.renderBalancesTable(account.balances);
-            }
-        } catch (error) {
-            console.warn('Could not update account balance:', error);
-        }
-    }
-
-    // Helper to ensure pk is hex string
-    ensureHex(pk) {
-        if (typeof pk === 'string') return pk;
-        return this.bytesToHex(pk);
-    }
-
-    // Generate unique transaction key from sender_pk + nonce + direction
-    // This is consistent across the tx lifecycle (publishing -> broadcasting -> indexed)
-    // Direction is included to ensure self-send transactions appear as two separate entries
-    // (one outgoing, one incoming) rather than being deduplicated incorrectly
-    getTxKey(tx) {
-        const senderPk = tx.sender_pk ? this.ensureHex(tx.sender_pk) : null;
-        const nonce = tx.nonce;
-        const direction = tx.direction || 'unknown';
-
-        if (!senderPk || nonce === undefined || nonce === null) {
-            console.error('getTxKey: invalid transaction - missing sender_pk or nonce', {
-                sender_pk: senderPk,
-                nonce: nonce,
-                direction: direction,
-                tx: tx
-            });
-            // Return a unique but identifiable key for debugging
-            return `tx-invalid-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-        }
-        return `tx-${senderPk}-${nonce}-${direction}`;
-    }
-
-    // Generate token badge HTML
-    renderTokenBadge(tokenId) {
-        if (tokenId === undefined || tokenId === null || tokenId === 0) {
-            return '';
-        }
-        return `<span class="tag is-link is-light">Token ${tokenId}</span>`;
-    }
-
-    // Generate balances table HTML for account page
-    renderBalancesTable(balances) {
-        const entries = balances ? Object.entries(balances) : [];
-        if (entries.length === 0) {
-            return '<p class="has-text-grey">No tokens</p>';
-        }
-
-        // Sort by token ID numerically
-        entries.sort((a, b) => parseInt(a[0]) - parseInt(b[0]));
-
-        return `
-            <table class="table is-fullwidth is-striped">
-                <thead>
-                    <tr>
-                        <th>Token ID</th>
-                        <th>Balance</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${entries.map(([tokenId, balance]) => {
-                        const label = parseInt(tokenId) === 0 ? ' <span class="tag is-light">(native)</span>' : '';
-                        return `
-                            <tr>
-                                <td>${tokenId}${label}</td>
-                                <td><strong style="color: var(--coins-success);">${balance} sats</strong></td>
-                            </tr>
-                        `;
-                    }).join('')}
-                </tbody>
-            </table>
-        `;
-    }
-
-    // Generate HTML for a single transaction row
-    renderTransactionRow(tx) {
-        const isIncoming = tx.direction === 'incoming';
-        const typeBadge = isIncoming
-            ? '<span class="tag is-success">Received</span>'
-            : '<span class="tag is-danger">Sent</span>';
-
-        const isPending = tx.is_mempool || tx.is_broadcasting || tx.is_unconfirmed;
-        let counterparty;
-        if (isPending && isIncoming) {
-            counterparty = `<span class="has-text-grey">From Account #${tx.sender_id}</span>`;
-        } else if (isIncoming) {
-            const senderPkHex = this.ensureHex(tx.sender_pk);
-            counterparty = `<a onclick="app.navigate('account', {pk: '${senderPkHex}'})" style="cursor: pointer;">
-                <code style="font-size: 0.85em;">${senderPkHex.substring(0, 16)}...${senderPkHex.substring(56)}</code>
-            </a>`;
-        } else {
-            const recipientPkHex = this.ensureHex(tx.recipient_pk);
-            counterparty = `<a onclick="app.navigate('account', {pk: '${recipientPkHex}'})" style="cursor: pointer;">
-                <code style="font-size: 0.85em;">${recipientPkHex.substring(0, 16)}...${recipientPkHex.substring(56)}</code>
-            </a>`;
-        }
-
-        const amountColor = isIncoming ? 'var(--coins-success)' : 'var(--coins-danger)';
-        const statusBadge = this.renderStatusBadge(tx);
-        const txKey = this.getTxKey(tx);
-
-        const tokenBadge = this.renderTokenBadge(tx.token_id);
-
-        return `
-            <tr data-tx-key="${txKey}">
-                <td>${typeBadge}</td>
-                <td>${counterparty}</td>
-                <td><strong style="color: ${amountColor};">${isIncoming ? '+' : '-'}${tx.amount} sats</strong></td>
-                <td>${tx.fee} sats</td>
-                <td>${tokenBadge}</td>
-                <td class="tx-status-cell">${statusBadge}</td>
-            </tr>
-        `;
-    }
-
-    // Generate status badge HTML for a transaction
-    renderStatusBadge(tx) {
-        const explorerUrl = tx.btc_txid ? this.getBitcoinExplorerUrl(tx.btc_txid) : null;
-        const isClickable = explorerUrl !== null;
-        const clickableStyle = isClickable ? 'cursor: pointer;' : '';
-        const onclickAttr = isClickable ? `onclick="window.open('${explorerUrl}', '_blank')"` : '';
-        const hoverAttrs = isClickable ? `onmouseover="this.style.filter='brightness(0.85)'" onmouseout="this.style.filter=''"` : '';
-
-        if (tx.is_mempool) {
-            return `<span class="status-tooltip">
-                <span class="tag is-info" style="cursor: help;">Publishing</span>
-                <span class="tooltip-text">In publisher mempool</span>
-            </span>`;
-        } else if (tx.is_broadcasting) {
-            return `<span class="status-tooltip">
-                <span class="tag is-link" style="cursor: help;">Broadcasting</span>
-                <span class="tooltip-text">Broadcast to Bitcoin, waiting for indexer</span>
-            </span>`;
-        } else if (tx.finalized) {
-            return `<span class="tag is-success" style="${clickableStyle}" ${onclickAttr} ${hoverAttrs} title="${isClickable ? 'View on Bitcoin explorer' : ''}">Confirmed</span>`;
-        } else {
-            const confText = tx.confirmations > 0
-                ? `${tx.confirmations} confirmation${tx.confirmations !== 1 ? 's' : ''}, ${tx.confirmations_remaining} remaining`
-                : 'In Bitcoin mempool';
-            return `<span class="status-tooltip">
-                <span class="tag is-warning" style="cursor: help; ${clickableStyle}" ${onclickAttr} ${hoverAttrs}>Unconfirmed</span>
-                <span class="tooltip-text">${confText}${isClickable ? ' (click to view on Bitcoin explorer)' : ''}</span>
-            </span>`;
-        }
-    }
-
-    // Targeted update: refresh status badges and append new transactions
-    async updateTransactionStatuses(pk) {
-        console.log('updateTransactionStatuses called for pk:', pk.substring(0, 16));
-        try {
-            // Fetch account first (needed for sender_id)
-            const account = await this.fetchAPI(`/accounts/${pk}`);
-            if (!account) return;
-
-            // Fetch all data in parallel for speed
-            const [indexedTxs, sentPending, receivedPending] = await Promise.all([
-                this.fetchAPI(`/accounts/${pk}/transactions`).then(r => r || []),
-                this.fetchAPI(`/pending-transactions?sender_id=${account.id}`).then(r => r || []),
-                this.fetchAPI(`/pending-transactions?recipient_pk=${pk}`).then(r => r || [])
-            ]);
-
-            console.log('Fetched:', { indexedTxs: indexedTxs.length, sentPending: sentPending.length, receivedPending: receivedPending.length });
-            console.log('Raw sentPending:', sentPending);
-            console.log('Raw receivedPending:', receivedPending);
-
-            // Format pending transactions
-            let pendingTxs = [
-                ...sentPending.map(tx => this.formatPendingTx(tx, 'outgoing', pk)),
-                ...receivedPending.map(tx => this.formatPendingTx(tx, 'incoming', pk))
-            ];
-            console.log('Formatted pendingTxs:', pendingTxs.length, pendingTxs);
-
-            // Filter out pending txs already indexed (by sender_pk + nonce)
-            const indexedKeys = new Set(indexedTxs.map(tx => this.getTxKey(tx)));
-            console.log('indexedKeys:', [...indexedKeys]);
-
-            const beforeFilter = pendingTxs.length;
-            pendingTxs = pendingTxs.filter(tx => {
-                const key = this.getTxKey(tx);
-                const isIndexed = indexedKeys.has(key);
-                console.log('Checking pending tx:', { key, isIndexed, sender_pk: tx.sender_pk, nonce: tx.nonce });
-                return !isIndexed;
-            });
-            console.log('After indexed filter:', beforeFilter, '->', pendingTxs.length);
-
-            // All transactions
-            const allTxs = [...indexedTxs, ...pendingTxs];
-
-            // Build set of valid tx keys (what SHOULD be in the table)
-            const validKeys = new Set();
-            for (const tx of allTxs) {
-                validKeys.add(this.getTxKey(tx));
-            }
-
-            const tbody = document.querySelector('#account-txs tbody');
-            if (!tbody) return;
-
-            // Remove rows that are no longer in the valid set (e.g., tx was indexed and key changed)
-            const existingRows = tbody.querySelectorAll('[data-tx-key]');
-            for (const row of existingRows) {
-                const key = row.getAttribute('data-tx-key');
-                if (!validKeys.has(key)) {
-                    row.remove();
-                }
-            }
-
-            // Update existing rows and append new ones
-            for (const tx of allTxs) {
-                const txKey = this.getTxKey(tx);
-                const existingRow = tbody.querySelector(`[data-tx-key="${txKey}"]`);
-
-                if (existingRow) {
-                    // Update status badge only
-                    console.log('Updating existing row:', txKey, { confirmations: tx.confirmations, finalized: tx.finalized });
-                    const statusCell = existingRow.querySelector('.tx-status-cell');
-                    if (statusCell) {
-                        statusCell.innerHTML = this.renderStatusBadge(tx);
-                    }
-                } else {
-                    // New transaction - append to table
-                    console.log('Appending new row:', txKey, { confirmations: tx.confirmations, finalized: tx.finalized });
-                    tbody.insertAdjacentHTML('beforeend', this.renderTransactionRow(tx));
-                    const actualRow = tbody.lastElementChild;
-                    if (actualRow) {
-                        // Highlight new row briefly
-                        actualRow.style.backgroundColor = 'var(--coins-surface-elevated)';
-                        setTimeout(() => {
-                            actualRow.style.transition = 'background-color 1s';
-                            actualRow.style.backgroundColor = '';
-                        }, 100);
-                    }
-                }
-            }
-        } catch (error) {
-            console.warn('Could not update transaction statuses:', error);
-        }
-    }
-
-    showNewBlockNotification(block) {
-        const notification = document.createElement('div');
-        notification.className = 'notification is-success is-light is-new-block';
-        notification.innerHTML = `
-            <button class="delete" onclick="this.parentElement.remove()"></button>
-            <strong>New Block!</strong><br>
-            Height: ${block.btc_height} | Transactions: ${block.tx_count}
-        `;
-
-        document.body.appendChild(notification);
-
-        setTimeout(() => {
-            notification.remove();
-        }, 5000);
-    }
-
-    async navigate(view, params = {}, pushState = true) {
-        this.currentView = view;
-
-        // Clear account tracking when leaving account view
-        if (view !== 'account') {
-            this.currentAccountPk = null;
-        }
-
-        if (pushState) {
-            // Build hash URL with parameters
-            let hash = view;
-            if (view === 'block' && params.height !== undefined) {
-                hash = `block/${params.height}`;
-            } else if (view === 'account' && params.pk) {
-                hash = `account/${params.pk}`;
-            } else if (view === 'blocks' && params.page) {
-                hash = `blocks/${params.page}`;
-            }
-            history.pushState({ view, params }, '', `#${hash}`);
-        }
-
-        const content = document.getElementById('content');
-        content.innerHTML = '<div class="loading"></div>';
-
-        try {
-            switch (view) {
-                case 'home':
-                    await this.renderHome();
-                    break;
-                case 'blocks':
-                    await this.renderBlocks(params.page || 0);
-                    break;
-                case 'block':
-                    await this.renderBlock(params.height);
-                    break;
-                case 'account':
-                    await this.renderAccount(params.pk);
-                    break;
-                case 'mempool':
-                    await this.renderMempool();
-                    break;
-                default:
-                    await this.renderHome();
-            }
-        } catch (error) {
-            if (error.message === 'INDEXER_UNAVAILABLE') {
-                content.innerHTML = `
-                    <div class="modal is-active">
-                        <div class="modal-background"></div>
-                        <div class="modal-content">
-                            <div class="box" style="max-width: 600px; margin: 0 auto;">
-                                <article class="message is-warning">
-                                    <div class="message-header">
-                                        <p>⚠️ Indexer Service Unavailable</p>
-                                    </div>
-                                    <div class="message-body">
-                                        <p><strong>The Coins indexer service is not reachable.</strong></p>
-                                        <br>
-                                        <p>This could mean:</p>
-                                        <ul style="margin-left: 1.5rem; margin-top: 0.5rem;">
-                                            <li>The indexer service is not running</li>
-                                            <li>The indexer is starting up</li>
-                                            <li>There's a network connectivity issue</li>
-                                        </ul>
-                                        <br>
-                                        <p><strong>To fix this:</strong></p>
-                                        <ol style="margin-left: 1.5rem; margin-top: 0.5rem;">
-                                            <li>Check if the indexer is running on port 8083</li>
-                                            <li>Start the indexer with: <code>./target/release/coins-indexer --config config/indexer-regtest.toml</code></li>
-                                            <li>Or run the setup script: <code>./scripts/setup-regtest.sh</code></li>
-                                        </ol>
-                                        <br>
-                                        <div style="text-align: center;">
-                                            <button class="button is-primary" onclick="location.reload()">
-                                                🔄 Retry Connection
-                                            </button>
-                                        </div>
-                                    </div>
-                                </article>
-                            </div>
-                        </div>
-                    </div>
-                `;
-            } else {
-                content.innerHTML = `
-                    <div class="notification is-danger">
-                        <strong>Error:</strong> ${error.message}
-                    </div>
-                `;
-            }
-        }
-    }
-
-    async renderHome() {
-        const stats = await this.fetchAPI('/stats');
-        const latestBlock = await this.fetchAPI('/blocks/latest');
-        const content = document.getElementById('content');
-
-        // Fetch pending transaction counts
-        let pendingCount = 0;
-        try {
-            const pending = await this.fetchAPI('/pending-transactions') || [];
-            pendingCount = pending.length;
-        } catch (e) {
-            console.warn('Could not fetch pending transactions:', e);
-        }
-
-        content.innerHTML = `
-            <!-- Clickable breadcrumb/nav -->
-            <div class="explorer-nav mb-5">
-                <span class="nav-item active" onclick="app.navigate('home')">Overview</span>
-                <span class="nav-item" onclick="app.navigate('blocks')">Blocks</span>
-                <span class="nav-item" onclick="app.navigate('mempool')">Mempool</span>
-            </div>
-
-            <!-- Stats Grid - All clickable -->
-            <div class="stats-grid">
-                <div class="stat-card clickable" onclick="app.navigate('blocks')">
-                    <div class="stat-value" data-stat="total-blocks">${stats.total_blocks || 0}</div>
-                    <div class="stat-label">Blocks</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" data-stat="total-accounts">${stats.total_accounts || 0}</div>
-                    <div class="stat-label">Accounts</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" data-stat="total-supply">${stats.total_supply || 0}</div>
-                    <div class="stat-label">Supply</div>
-                </div>
-                <div class="stat-card clickable" onclick="app.navigate('mempool')">
-                    <div class="stat-value" data-stat="pending-txs">${pendingCount}</div>
-                    <div class="stat-label">Pending</div>
-                </div>
-            </div>
-
-            <!-- Latest Block - Clickable -->
-            ${latestBlock ? this.renderBlockCardClickable(latestBlock) : this.renderEmptyState()}
-
-            <div id="account-result"></div>
-        `;
-    }
-
-    renderEmptyState() {
-        return `
-            <div class="empty-state">
-                <div class="empty-state-icon">
-                    <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                        <rect x="3" y="3" width="7" height="7" rx="1"></rect>
-                        <rect x="14" y="3" width="7" height="7" rx="1"></rect>
-                        <rect x="14" y="14" width="7" height="7" rx="1"></rect>
-                        <rect x="3" y="14" width="7" height="7" rx="1"></rect>
-                    </svg>
-                </div>
-                <h3 class="empty-state-title">No Blocks Yet</h3>
-                <p class="empty-state-description">
-                    This chain is brand new and waiting for its first transaction.
-                    <br>Once a transaction is published, blocks will appear here.
-                </p>
-                <div class="empty-state-hint">
-                    <span class="hint-icon">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <circle cx="12" cy="12" r="10"></circle>
-                            <path d="M12 16v-4"></path>
-                            <path d="M12 8h.01"></path>
-                        </svg>
-                    </span>
-                    <span>Use the wallet to send your first transaction</span>
-                </div>
-            </div>
-        `;
-    }
-
-    renderBlockCardClickable(block) {
-        const txCount = block.sub_block && block.sub_block.txs ? block.sub_block.txs.length : 0;
-        return `
-            <div class="block-card clickable" onclick="app.navigate('block', {height: ${block.height}})">
-                <div class="block-card-header">
-                    <span class="block-height">#${block.height}</span>
-                    <span class="block-txcount">${txCount} tx${txCount !== 1 ? 's' : ''}</span>
-                </div>
-                <div class="block-card-hash">${block.btc_txid}</div>
-            </div>
-        `;
-    }
-
-    renderBlockCard(block) {
-        const txCount = block.sub_block && block.sub_block.txs ? block.sub_block.txs.length : 0;
-        return `
-            <div class="box">
-                <table class="table is-fullwidth">
-                    <tr>
-                        <th>Height</th>
-                        <td>
-                            <a onclick="app.navigate('block', {height: ${block.height}})" style="cursor: pointer;">
-                                <strong>${block.height}</strong>
-                            </a>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th>Bitcoin Txid</th>
-                        <td><code>${block.btc_txid}</code></td>
-                    </tr>
-                    <tr>
-                        <th>Transactions</th>
-                        <td>${txCount}</td>
-                    </tr>
-                </table>
-                <a onclick="app.navigate('block', {height: ${block.height}})" class="button is-primary is-fullwidth" style="margin-top: 1rem;">
-                    View Block Details
-                </a>
-            </div>
-        `;
-    }
-
-    async searchAccount() {
-        const input = document.getElementById('account-search');
-        const pk = input.value.trim();
-
-        if (!pk) {
-            alert('Please enter a public key');
-            return;
-        }
-
-        const resultDiv = document.getElementById('account-result');
-        resultDiv.innerHTML = '<div class="loading"></div>';
-
-        try {
-            const account = await this.fetchAPI(`/accounts/${pk}`);
-            const pk_hex = this.ensureHex(account.pk);
-            const balanceEntries = account.balances ? Object.entries(account.balances) : [];
-            const balanceSummary = balanceEntries.length === 0
-                ? '<em class="has-text-grey">No tokens</em>'
-                : balanceEntries
-                    .sort((a, b) => parseInt(a[0]) - parseInt(b[0]))
-                    .map(([tokenId, balance]) => {
-                        const label = parseInt(tokenId) === 0 ? ' (native)' : '';
-                        return `Token ${tokenId}${label}: <strong style="color: var(--coins-success);">${balance} sats</strong>`;
-                    }).join('<br>');
-
-            resultDiv.innerHTML = `
-                <div class="box">
-                    <h3 class="title is-5">Account Details</h3>
-                    <table class="table is-fullwidth">
-                        <tr>
-                            <th>Account ID</th>
-                            <td><strong>${account.id.toString()}</strong></td>
-                        </tr>
-                        <tr>
-                            <th>Public Key</th>
-                            <td><code style="font-size: 0.85em; word-break: break-all;">${pk_hex}</code></td>
-                        </tr>
-                        <tr>
-                            <th>Balances</th>
-                            <td>${balanceSummary}</td>
-                        </tr>
-                        <tr>
-                            <th>Nonce</th>
-                            <td>${account.nonce}</td>
-                        </tr>
-                    </table>
-                    <a onclick="app.navigate('account', {pk: '${pk_hex}'})" class="button is-link is-fullwidth">
-                        View Full Account Page
-                    </a>
-                </div>
-            `;
-        } catch (error) {
-            resultDiv.innerHTML = `
-                <div class="notification is-danger">
-                    Account not found or error: ${error.message}
-                </div>
-            `;
-        }
-    }
-
-    async renderBlocks(page = 0) {
-        const content = document.getElementById('content');
-        const latestBlock = await this.fetchAPI('/blocks/latest');
-
-        if (!latestBlock) {
-            content.innerHTML = `
-                <div class="explorer-nav mb-5">
-                    <span class="nav-item" onclick="app.navigate('home')">Overview</span>
-                    <span class="nav-item active">Blocks</span>
-                    <span class="nav-item" onclick="app.navigate('mempool')">Mempool</span>
-                </div>
-                <p class="has-text-grey">No blocks yet</p>`;
-            return;
-        }
-
-        // Fetch ALL blocks (from 0 to latest height) - the API filters out non-existent ones
-        const allBlocks = await this.fetchAPI(`/blocks?from=0&to=${latestBlock.height}`);
-
-        // Sort descending by height
-        allBlocks.sort((a, b) => b.height - a.height);
-
-        // Paginate the actual blocks
-        const blocksPerPage = 20;
-        const totalBlocks = allBlocks.length;
-        const totalPages = Math.ceil(totalBlocks / blocksPerPage);
-        const startIdx = page * blocksPerPage;
-        const endIdx = startIdx + blocksPerPage;
-        const blocks = allBlocks.slice(startIdx, endIdx);
-
-        let html = `
-            <div class="explorer-nav mb-5">
-                <span class="nav-item" onclick="app.navigate('home')">Overview</span>
-                <span class="nav-item active">Blocks</span>
-                <span class="nav-item" onclick="app.navigate('mempool')">Mempool</span>
-            </div>
-        `;
-
-        if (blocks.length > 0) {
-            html += blocks.map(block => {
-                const txCount = block.sub_block && block.sub_block.txs ? block.sub_block.txs.length : 0;
-                const confirmLabel = block.confirmations >= 6 ? 'confirmed' :
-                                     block.confirmations >= 1 ? `${block.confirmations} conf` : 'unconfirmed';
-                return `
-                    <div class="block-card clickable" onclick="app.navigate('block', {height: ${block.height}})">
-                        <div class="block-card-header">
-                            <span class="block-height">#${block.height}</span>
-                            <span class="block-txcount">${txCount} tx · ${confirmLabel}</span>
-                        </div>
-                        <div class="block-card-hash">${block.btc_txid}</div>
-                    </div>`;
-            }).join('');
-
-            if (totalPages > 1) {
-                html += this.renderPagination(page, totalPages);
-            }
-        } else {
-            html += `<p class="has-text-grey">No blocks found</p>`;
-        }
-
-        content.innerHTML = html;
-    }
-
-    async renderMempool() {
-        const content = document.getElementById('content');
-
-        // Fetch all pending transactions from the unified endpoint
-        let pendingTxs = [];
-        try {
-            pendingTxs = await this.fetchAPI('/pending-transactions') || [];
-        } catch (e) {
-            console.warn('Could not fetch pending transactions:', e);
-        }
-
-        // Group by status
-        const publishingTxs = pendingTxs.filter(tx => tx.status === 'publishing');
-        const broadcastingTxs = pendingTxs.filter(tx => tx.status === 'broadcasting');
-        const unconfirmedTxs = pendingTxs.filter(tx => tx.status === 'unconfirmed');
-
-        const totalPending = pendingTxs.length;
-
-        let html = `
-            <div class="explorer-nav mb-5">
-                <span class="nav-item" onclick="app.navigate('home')">Overview</span>
-                <span class="nav-item" onclick="app.navigate('blocks')">Blocks</span>
-                <span class="nav-item active">Mempool</span>
-            </div>
-
-            <p class="has-text-grey-dark mb-4">${totalPending} pending</p>
-        `;
-
-        if (unconfirmedTxs.length > 0) {
-            html += `
-                <div class="coins-card-header"><h2 class="coins-card-title">Unconfirmed</h2></div>
-                ${this.renderPendingTxTable(unconfirmedTxs)}
-            `;
-        }
-
-        if (broadcastingTxs.length > 0) {
-            html += `
-                <div class="coins-card-header mt-4"><h2 class="coins-card-title">Broadcasting</h2></div>
-                ${this.renderPendingTxTable(broadcastingTxs)}
-            `;
-        }
-
-        if (publishingTxs.length > 0) {
-            html += `
-                <div class="coins-card-header mt-4"><h2 class="coins-card-title">Publishing</h2></div>
-                ${this.renderPendingTxTable(publishingTxs)}
-            `;
-        }
-
-        if (totalPending === 0) {
-            html += `<p class="has-text-grey has-text-centered py-5">No pending transactions</p>`;
-        }
-
-        content.innerHTML = html;
-    }
-
-    renderMempoolTable(txs, status) {
-        if (txs.length === 0) {
-            return '<div class="notification is-light">No transactions</div>';
-        }
-
-        return `
-            <div class="box">
-                <table class="table is-fullwidth is-striped is-hoverable">
-                    <thead>
-                        <tr>
-                            <th>Sender</th>
-                            <th>Recipient</th>
-                            <th>Amount</th>
-                            <th>Fee</th>
-                            <th>Token</th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${txs.map(tx => {
-                            const recipientPk = tx.recipient_pk;
-                            const tokenBadge = this.renderTokenBadge(tx.token_id);
-                            const explorerUrl = status === 'broadcasting' && tx.btc_txid
-                                ? this.getBitcoinExplorerUrl(tx.btc_txid)
-                                : null;
-                            const statusBadge = status === 'broadcasting'
-                                ? (explorerUrl
-                                    ? `<a href="${explorerUrl}" target="_blank" rel="noopener"><span class="tag is-link" style="cursor: pointer;">Broadcasting ↗</span></a>`
-                                    : '<span class="tag is-link">Broadcasting</span>')
-                                : '<span class="tag is-info">Publishing</span>';
-                            return `
-                                <tr>
-                                    <td>Account #${tx.sender_id}</td>
-                                    <td>
-                                        <a onclick="app.navigate('account', {pk: '${recipientPk}'})" style="cursor: pointer;">
-                                            <code style="font-size: 0.85em;">${recipientPk.substring(0, 12)}...${recipientPk.substring(56)}</code>
-                                        </a>
-                                    </td>
-                                    <td><strong>${tx.amount} sats</strong></td>
-                                    <td>${tx.fee} sats</td>
-                                    <td>${tokenBadge}</td>
-                                    <td>${statusBadge}</td>
-                                </tr>
-                            `;
-                        }).join('')}
-                    </tbody>
-                </table>
-            </div>
-        `;
-    }
-
-    renderPendingTxTable(txs) {
-        if (txs.length === 0) {
-            return '<div class="notification is-light">No transactions</div>';
-        }
-
-        return `
-            <div class="box">
-                <table class="table is-fullwidth is-striped is-hoverable">
-                    <thead>
-                        <tr>
-                            <th>Sender</th>
-                            <th>Recipient</th>
-                            <th>Amount</th>
-                            <th>Fee</th>
-                            <th>Token</th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${txs.map(tx => {
-                            const recipientPk = tx.recipient_pk;
-                            const tokenBadge = this.renderTokenBadge(tx.token_id);
-                            const explorerUrl = tx.btc_txid ? this.getBitcoinExplorerUrl(tx.btc_txid) : null;
-
-                            let statusBadge;
-                            switch (tx.status) {
-                                case 'unconfirmed':
-                                    statusBadge = explorerUrl
-                                        ? `<a href="${explorerUrl}" target="_blank" rel="noopener"><span class="tag is-warning" style="cursor: pointer;">Unconfirmed ↗</span></a>`
-                                        : '<span class="tag is-warning">Unconfirmed</span>';
-                                    break;
-                                case 'broadcasting':
-                                    statusBadge = explorerUrl
-                                        ? `<a href="${explorerUrl}" target="_blank" rel="noopener"><span class="tag is-link" style="cursor: pointer;">Broadcasting ↗</span></a>`
-                                        : '<span class="tag is-link">Broadcasting</span>';
-                                    break;
-                                case 'publishing':
-                                default:
-                                    statusBadge = '<span class="tag is-info">Publishing</span>';
-                                    break;
-                            }
-
-                            return `
-                                <tr>
-                                    <td>Account #${tx.sender_id}</td>
-                                    <td>
-                                        <a onclick="app.navigate('account', {pk: '${recipientPk}'})" style="cursor: pointer;">
-                                            <code style="font-size: 0.85em;">${recipientPk.substring(0, 12)}...${recipientPk.substring(56)}</code>
-                                        </a>
-                                    </td>
-                                    <td><strong>${tx.amount} sats</strong></td>
-                                    <td>${tx.fee} sats</td>
-                                    <td>${tokenBadge}</td>
-                                    <td>${statusBadge}</td>
-                                </tr>
-                            `;
-                        }).join('')}
-                    </tbody>
-                </table>
-            </div>
-        `;
-    }
-
-    async renderBlock(height) {
-        const block = await this.fetchAPI(`/blocks/${height}`);
-        const content = document.getElementById('content');
-
-        // Convert byte arrays to hex
-        const publisher_pk_hex = this.ensureHex(block.sub_block.publisher_pk);
-        const txCount = block.sub_block && block.sub_block.txs ? block.sub_block.txs.length : 0;
-
-        content.innerHTML = `
-            <nav class="breadcrumb">
-                <ul>
-                    <li><a onclick="app.navigate('home')">Home</a></li>
-                    <li><a onclick="app.navigate('blocks')">Blocks</a></li>
-                    <li class="is-active"><a>Block ${height}</a></li>
-                </ul>
-            </nav>
-
-            <h1 class="title">Block #${height}</h1>
-
-            <div class="box">
-                <table class="table is-fullwidth">
-                    <tr>
-                        <th>Height</th>
-                        <td>${block.height}</td>
-                    </tr>
-                    <tr>
-                        <th>Bitcoin Txid</th>
-                        <td>
-                            <code>${block.btc_txid}</code>
-                            <div style="margin-top: 0.5rem;">
-                                <a href="https://mutinynet.com/tx/${block.btc_txid}" target="_blank" class="button is-small is-link">
-                                    View on Mutinynet Explorer
-                                </a>
-                            </div>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th>Publisher</th>
-                        <td><code style="font-size: 0.85em;">${publisher_pk_hex}</code></td>
-                    </tr>
-                    <tr>
-                        <th>Transactions</th>
-                        <td>${txCount}</td>
-                    </tr>
-                </table>
-            </div>
-
-            <h2 class="title is-4">Transactions (${txCount})</h2>
-
-            ${txCount > 0 ? `
-                <table class="table is-fullwidth is-striped is-hoverable">
-                    <thead>
-                        <tr>
-                            <th>Sender ID</th>
-                            <th>Recipient PK</th>
-                            <th>Amount</th>
-                            <th>Fee</th>
-                            <th>Token</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${block.sub_block.txs.map(tx => {
-                            const recipient_pk_hex = this.ensureHex(tx.recipient_pk);
-                            const tokenBadge = this.renderTokenBadge(tx.token_id);
-                            return `
-                                <tr>
-                                    <td><strong>${tx.sender_id}</strong></td>
-                                    <td>
-                                        <a onclick="app.navigate('account', {pk: '${recipient_pk_hex}'})" style="cursor: pointer;">
-                                            <code style="font-size: 0.85em;">${recipient_pk_hex.substring(0, 16)}...${recipient_pk_hex.substring(56)}</code>
-                                        </a>
-                                    </td>
-                                    <td>${tx.amount}</td>
-                                    <td>${tx.fee}</td>
-                                    <td>${tokenBadge}</td>
-                                </tr>
-                            `;
-                        }).join('')}
-                    </tbody>
-                </table>
-            ` : '<p>No transactions in this block</p>'}
-        `;
-    }
-
-    bytesToHex(bytes) {
-        return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
-    }
-
-    async renderAccount(pk) {
-        // Track current account for WebSocket refreshes
-        this.currentAccountPk = pk;
-
-        const account = await this.fetchAPI(`/accounts/${pk}`);
-        const content = document.getElementById('content');
-
-        if (!account) {
-            content.innerHTML = `
-                <div class="notification is-warning">
-                    <strong>Account Not Found</strong><br>
-                    No account exists with public key: <code>${pk}</code>
-                </div>
-            `;
-            return;
-        }
-
-        const pk_hex = this.ensureHex(account.pk);
-
-        content.innerHTML = `
-            <nav class="breadcrumb">
-                <ul>
-                    <li><a onclick="app.navigate('home')">Home</a></li>
-                    <li class="is-active"><a>Account #${account.id.toString()}</a></li>
-                </ul>
-            </nav>
-
-            <h1 class="title">Account #${account.id.toString()}</h1>
-
-            <div class="box">
-                <table class="table is-fullwidth">
-                    <tr>
-                        <th style="width: 150px;">Account ID</th>
-                        <td><strong>${account.id.toString()}</strong></td>
-                    </tr>
-                    <tr>
-                        <th>Public Key</th>
-                        <td><code style="font-size: 0.85em; word-break: break-all;">${pk_hex}</code></td>
-                    </tr>
-                    <tr>
-                        <th>Nonce</th>
-                        <td>${account.nonce}</td>
-                    </tr>
-                </table>
-            </div>
-
-            <h2 class="title is-4" style="margin-top: 2rem;">Balances</h2>
-            <div class="box" data-account-balances>
-                ${this.renderBalancesTable(account.balances)}
-            </div>
-
-            <h2 class="title is-4" style="margin-top: 2rem;">Transaction History</h2>
-            <div id="account-txs">
-                <div class="loading"></div>
-            </div>
-        `;
-
-        // Load transaction history
-        this.loadAccountTransactions(pk_hex);
-    }
-
-    formatMempoolTx(tx, direction, currentPk) {
-        return {
-            sender_id: tx.sender_id,
-            recipient_pk: tx.recipient_pk,  // Already hex from publisher API
-            amount: tx.amount,
-            fee: tx.fee,
-            token_id: tx.token_id || 0,
-            btc_height: 0,
-            btc_txid: null,
-            confirmations: 0,
-            finalized: false,
-            confirmations_remaining: 6,
-            direction: direction,
-            sender_pk: direction === 'outgoing' ? currentPk : null,
-            is_mempool: true
-        };
-    }
-
-    formatBroadcastingTx(tx, direction, currentPk) {
-        return {
-            sender_id: tx.sender_id,
-            recipient_pk: tx.recipient_pk,  // Already hex from publisher API
-            amount: tx.amount,
-            fee: tx.fee,
-            token_id: tx.token_id || 0,
-            btc_height: 0,
-            btc_txid: tx.btc_txid,  // Now available from publisher API
-            confirmations: 0,
-            finalized: false,
-            confirmations_remaining: 6,
-            direction: direction,
-            sender_pk: direction === 'outgoing' ? currentPk : null,
-            is_broadcasting: true  // In-flight to Bitcoin
-        };
-    }
-
-    formatPendingTx(tx, direction, currentPk) {
-        // Map backend status to frontend display flags
-        const isMempool = tx.status === 'publishing';
-        const isBroadcasting = tx.status === 'broadcasting';
-        const isUnconfirmed = tx.status === 'unconfirmed';
-
-        // Use actual confirmation data from backend
-        const btcHeight = tx.btc_height || 0;
-        const confirmations = tx.confirmations || 0;
-        const finalized = tx.finalized || false;
-        const confirmationsRemaining = finalized ? 0 : Math.max(0, 6 - confirmations);
-
-        return {
-            sender_id: tx.sender_id,
-            sender_pk: tx.sender_pk,
-            recipient_pk: tx.recipient_pk,
-            amount: tx.amount,
-            fee: tx.fee,
-            token_id: tx.token_id || 0,
-            nonce: tx.nonce,
-            btc_height: btcHeight,
-            btc_txid: tx.btc_txid || null,
-            confirmations: confirmations,
-            finalized: finalized,
-            confirmations_remaining: confirmationsRemaining,
-            direction: direction,
-            is_mempool: isMempool,
-            is_broadcasting: isBroadcasting,
-            is_unconfirmed: isUnconfirmed,
-            status: tx.status
-        };
-    }
-
-    async loadAccountTransactions(pk) {
-        try {
-            // Fetch indexed transactions
-            const indexedTxs = await this.fetchAPI(`/accounts/${pk}/transactions`) || [];
-            const container = document.getElementById('account-txs');
-
-            // Save scroll position before updating
-            const scrollY = window.scrollY;
-
-            // Fetch pending transactions for this account (already deduplicated by backend)
-            let pendingTxs = [];
-            try {
-                // Get account to find sender_id for outgoing tx lookup
-                const account = await this.fetchAPI(`/accounts/${pk}`);
-
-                if (account) {
-                    // Fetch pending transactions - backend handles deduplication
-                    const sentPending = await this.fetchAPI(`/pending-transactions?sender_id=${account.id}`) || [];
-                    const receivedPending = await this.fetchAPI(`/pending-transactions?recipient_pk=${pk}`) || [];
-
-                    // Format pending txs for display
-                    pendingTxs = [
-                        ...sentPending.map(tx => this.formatPendingTx(tx, 'outgoing', pk)),
-                        ...receivedPending.map(tx => this.formatPendingTx(tx, 'incoming', pk))
-                    ];
-
-                    // Deduplicate pending transactions by unique key (sender_pk + nonce + direction)
-                    // Self-send transactions will appear as two entries: one outgoing and one incoming
-                    // because getTxKey includes direction, making their keys different
-                    const seenKeys = new Set();
-                    pendingTxs = pendingTxs.filter(tx => {
-                        const key = this.getTxKey(tx);
-                        if (seenKeys.has(key)) return false;
-                        seenKeys.add(key);
-                        return true;
-                    });
-
-                    // Filter out pending txs that are already indexed (by sender_pk + nonce)
-                    const indexedKeys = new Set(indexedTxs.map(tx => this.getTxKey(tx)));
-                    pendingTxs = pendingTxs.filter(tx => !indexedKeys.has(this.getTxKey(tx)));
-                }
-            } catch (pendingError) {
-                console.warn('Could not fetch pending transactions:', pendingError);
-                // Continue with just indexed txs
-            }
-
-            // Combine: indexed first, then pending txs at the bottom
-            const transactions = [...indexedTxs, ...pendingTxs];
-
-            if (!transactions || transactions.length === 0) {
-                container.innerHTML = `
-                    <div class="notification is-info">
-                        <p>No transaction history found for this account.</p>
-                        <p class="help">This shows all transactions involving this account (both sent and received).</p>
-                    </div>
-                `;
-                window.scrollTo(0, scrollY);
-                return;
-            }
-
-            container.innerHTML = `
-                <div class="box">
-                    <table class="table is-fullwidth is-striped is-hoverable">
-                        <thead>
-                            <tr>
-                                <th>Type</th>
-                                <th>Counterparty</th>
-                                <th>Amount</th>
-                                <th>Fee</th>
-                                <th>Token</th>
-                                <th>Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${transactions.map(tx => this.renderTransactionRow(tx)).join('')}
-                        </tbody>
-                    </table>
-                    <p class="help">
-                        Showing ${transactions.length} transaction${transactions.length !== 1 ? 's' : ''}
-                        (${transactions.filter(tx => tx.direction === 'incoming').length} received,
-                        ${transactions.filter(tx => tx.direction === 'outgoing').length} sent)
-                        ${transactions.filter(tx => tx.is_mempool).length > 0
-                            ? ` — ${transactions.filter(tx => tx.is_mempool).length} publishing`
-                            : ''}
-                        ${transactions.filter(tx => tx.is_broadcasting).length > 0
-                            ? ` — ${transactions.filter(tx => tx.is_broadcasting).length} broadcasting`
-                            : ''}
-                        ${transactions.filter(tx => !tx.finalized && !tx.is_mempool && !tx.is_broadcasting).length > 0
-                            ? ` — ${transactions.filter(tx => !tx.finalized && !tx.is_mempool && !tx.is_broadcasting).length} pending finalization`
-                            : ''}
-                    </p>
-                </div>
-            `;
-
-            // Restore scroll position after content update
-            window.scrollTo(0, scrollY);
-        } catch (error) {
-            const container = document.getElementById('account-txs');
-            container.innerHTML = `
-                <div class="notification is-warning">
-                    Error loading transactions: ${error.message}
-                </div>
-            `;
-        }
-    }
-
-    renderPagination(currentPage, totalPages, callback = null) {
-        if (totalPages <= 1) return '';
-
-        const pages = [];
-        const maxVisible = 5;
-        let start = Math.max(0, currentPage - Math.floor(maxVisible / 2));
-        let end = Math.min(totalPages, start + maxVisible);
-
-        if (end - start < maxVisible) {
-            start = Math.max(0, end - maxVisible);
-        }
-
-        for (let i = start; i < end; i++) {
-            pages.push(i);
-        }
-
-        return `
-            <nav class="pagination is-centered pagination-wrapper" role="navigation">
-                <a class="pagination-previous"
-                   ${currentPage === 0 ? 'disabled' : ''}
-                   onclick="${callback ? `(${callback})(${currentPage - 1})` : `app.navigate('${this.currentView}', {page: ${currentPage - 1}})`}">
-                    Previous
-                </a>
-                <a class="pagination-next"
-                   ${currentPage >= totalPages - 1 ? 'disabled' : ''}
-                   onclick="${callback ? `(${callback})(${currentPage + 1})` : `app.navigate('${this.currentView}', {page: ${currentPage + 1}})`}">
-                    Next
-                </a>
-                <ul class="pagination-list">
-                    ${pages.map(page => `
-                        <li>
-                            <a class="pagination-link ${page === currentPage ? 'is-current' : ''}"
-                               onclick="${callback ? `(${callback})(${page})` : `app.navigate('${this.currentView}', {page: ${page}})`}">
-                                ${page + 1}
-                            </a>
-                        </li>
-                    `).join('')}
-                </ul>
-            </nav>
-        `;
-    }
-
-    globalSearch() {
-        const input = document.getElementById('global-search');
-        const errorEl = document.getElementById('global-search-error');
-        const query = input.value.trim();
-
-        if (errorEl) errorEl.textContent = '';
-
-        if (!query) return;
-
-        // Check if it's a block height (all digits)
-        if (/^\d+$/.test(query)) {
-            const height = parseInt(query, 10);
-            this.navigate('block', { height });
-            input.value = '';
-            return;
-        }
-
-        // Check if it's a hex string (public key)
-        if (/^[0-9a-fA-F]+$/.test(query)) {
-            this.navigate('account', { pk: query });
-            input.value = '';
-            return;
-        }
-
-        // Invalid input
-        if (errorEl) errorEl.textContent = 'Enter a block height (number) or public key (hex)';
-    }
-
-    async search() {
-        const input = document.getElementById('search-input');
-        const pk = input.value.trim();
-
-        if (!pk) {
-            alert('Please enter an account public key');
-            return;
-        }
-
-        if (!/^[0-9a-fA-F]{64}$/.test(pk)) {
-            alert('Invalid public key format. Must be 64 hex characters (32 bytes).');
-            return;
-        }
-
-        this.navigate('account', { pk });
-        input.value = '';
-    }
-
-    async fetchAPI(endpoint) {
-        try {
-            const response = await fetch(this.apiBase + endpoint);
-
-            if (!response.ok) {
-                // 404 means "not found" - return null so callers can handle gracefully
-                if (response.status === 404) {
-                    return null;
-                }
-                // Check if it's a server error (500+) which usually means indexer is down
-                if (response.status >= 500) {
-                    throw new Error('INDEXER_UNAVAILABLE');
-                }
-                const text = await response.text();
-                throw new Error(`API Error: ${response.status} - ${text}`);
-            }
-
-            return await response.json();
-        } catch (error) {
-            // Network errors (indexer completely unreachable)
-            if (error.message === 'Failed to fetch' || error.name === 'TypeError') {
-                throw new Error('INDEXER_UNAVAILABLE');
-            }
-            throw error;
+                return null;
         }
     }
 }
 
-// Initialize app when DOM is ready
+// Initialize
 const app = new ExplorerApp();

@@ -1,0 +1,952 @@
+/* Coins Explorer - Single Page App Styles
+ * Matches wallet visual language with smooth rounded boxes
+ */
+
+/* Prevent white flash on overscroll */
+html, body {
+    background-color: var(--coins-bg);
+}
+
+/* ========================================
+   Layout Container
+   ======================================== */
+.explorer-container {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 0 1rem;
+}
+
+/* ========================================
+   Header
+   ======================================== */
+.explorer-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+}
+
+.explorer-brand {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.brand-icon {
+    font-size: 1.5rem;
+    color: var(--coins-accent);
+    line-height: 1;
+}
+
+.brand-text {
+    font-size: 1.125rem;
+    font-weight: 700;
+    color: var(--coins-text);
+    letter-spacing: -0.025em;
+}
+
+/* ========================================
+   Status Indicator with Tooltip
+   ======================================== */
+.status-indicator {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    padding: 0.25rem;
+    cursor: pointer;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--coins-success);
+    animation: pulse 2s infinite;
+}
+
+.status-dot.disconnected {
+    background: var(--coins-danger);
+    animation: none;
+}
+
+.status-dot.partial {
+    background: var(--coins-warning);
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.status-tooltip-content {
+    position: absolute;
+    top: calc(100% + 0.5rem);
+    right: 0;
+    background: var(--coins-surface-elevated);
+    border: 1px solid var(--coins-border);
+    border-radius: var(--coins-radius);
+    padding: 0.75rem 1rem;
+    min-width: 200px;
+    box-shadow: var(--coins-shadow-lg);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity var(--coins-transition), visibility var(--coins-transition);
+    pointer-events: none;
+    z-index: 100;
+}
+
+.status-indicator:hover .status-tooltip-content {
+    opacity: 1;
+    visibility: visible;
+}
+
+.tooltip-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.25rem 0;
+}
+
+.tooltip-row:first-child {
+    padding-top: 0;
+}
+
+.tooltip-row:last-child {
+    padding-bottom: 0;
+}
+
+.tooltip-service {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--coins-text-secondary);
+}
+
+.tooltip-status {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-size: 0.75rem;
+    color: var(--coins-text);
+}
+
+.tooltip-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--coins-text-muted);
+}
+
+.tooltip-dot.connected {
+    background: var(--coins-success);
+}
+
+.tooltip-dot.disconnected {
+    background: var(--coins-danger);
+}
+
+.tooltip-divider {
+    height: 1px;
+    background: var(--coins-border);
+    margin: 0.5rem 0;
+}
+
+.explorer-search {
+    flex: 1;
+    min-width: 200px;
+    max-width: 400px;
+}
+
+.explorer-search .search-input {
+    width: 100%;
+    background: var(--coins-surface);
+    border: 1px solid var(--coins-border);
+    border-radius: var(--coins-radius-lg);
+    padding: 0.625rem 1rem;
+    font-size: 0.875rem;
+    color: var(--coins-text);
+    transition: all var(--coins-transition);
+}
+
+.explorer-search .search-input:focus {
+    outline: none;
+    border-color: var(--coins-accent);
+    box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.15);
+}
+
+.explorer-search .search-input::placeholder {
+    color: var(--coins-text-muted);
+}
+
+/* ========================================
+   Navigation Pills
+   ======================================== */
+.explorer-pills {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1.25rem;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    padding-bottom: 0.25rem;
+}
+
+.explorer-pills::-webkit-scrollbar {
+    display: none;
+}
+
+.pill {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.5rem 1rem;
+    background: var(--coins-surface);
+    border: 1px solid var(--coins-border);
+    border-radius: var(--coins-radius-lg);
+    color: var(--coins-text-secondary);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--coins-transition);
+    white-space: nowrap;
+    font-family: inherit;
+}
+
+.pill:hover {
+    border-color: var(--coins-text-muted);
+    color: var(--coins-text);
+}
+
+.pill.active {
+    background: var(--coins-accent);
+    border-color: var(--coins-accent);
+    color: var(--coins-bg);
+}
+
+.pill-icon {
+    font-size: 0.875rem;
+    line-height: 1;
+}
+
+/* ========================================
+   Stats Strip
+   ======================================== */
+.stats-strip {
+    display: flex;
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+    padding: 1rem;
+    background: var(--coins-surface);
+    border: 1px solid var(--coins-border);
+    border-radius: var(--coins-radius-xl);
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.stats-strip::-webkit-scrollbar {
+    display: none;
+}
+
+.stat-item {
+    flex: 1;
+    min-width: 80px;
+    text-align: center;
+    padding: 0.5rem;
+    border-radius: var(--coins-radius);
+    transition: all var(--coins-transition);
+}
+
+.stat-item.clickable {
+    cursor: pointer;
+}
+
+.stat-item.clickable:hover {
+    background: var(--coins-bg-secondary);
+}
+
+.stat-value {
+    display: block;
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--coins-text);
+    letter-spacing: -0.025em;
+    line-height: 1.2;
+}
+
+.stat-label {
+    display: block;
+    font-size: 0.6875rem;
+    color: var(--coins-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-top: 0.25rem;
+}
+
+/* ========================================
+   Content Sections
+   ======================================== */
+.explorer-content {
+    position: relative;
+    min-height: 300px;
+}
+
+.explorer-section {
+    display: none;
+    animation: sectionFadeIn 0.25s ease-out;
+}
+
+.explorer-section.active {
+    display: block;
+}
+
+@keyframes sectionFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.section-inner {
+    background: var(--coins-surface);
+    border: 1px solid var(--coins-border);
+    border-radius: var(--coins-radius-xl);
+    padding: 1.5rem;
+}
+
+.section-title {
+    font-size: 0.6875rem;
+    font-weight: 500;
+    color: var(--coins-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 1rem;
+}
+
+.loading-placeholder {
+    text-align: center;
+    padding: 2rem;
+    color: var(--coins-text-muted);
+}
+
+/* ========================================
+   Back Button
+   ======================================== */
+.back-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    margin-bottom: 1rem;
+    background: transparent;
+    border: 1px solid var(--coins-border);
+    border-radius: var(--coins-radius);
+    color: var(--coins-text-secondary);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--coins-transition);
+    font-family: inherit;
+}
+
+.back-btn:hover {
+    border-color: var(--coins-text-muted);
+    color: var(--coins-text);
+}
+
+/* ========================================
+   Block Cards
+   ======================================== */
+.block-card-compact {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem;
+    background: var(--coins-bg-secondary);
+    border-radius: var(--coins-radius-lg);
+    margin-bottom: 0.75rem;
+    cursor: pointer;
+    transition: all var(--coins-transition);
+    border: 1px solid transparent;
+}
+
+.block-card-compact:hover {
+    border-color: var(--coins-accent);
+    background: var(--coins-surface-elevated);
+}
+
+.block-card-compact:last-child {
+    margin-bottom: 0;
+}
+
+.block-info {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.block-height-badge {
+    background: var(--coins-accent);
+    color: var(--coins-bg);
+    font-weight: 700;
+    font-size: 0.875rem;
+    padding: 0.375rem 0.75rem;
+    border-radius: var(--coins-radius);
+    min-width: 70px;
+    text-align: center;
+}
+
+.block-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+}
+
+.block-txcount {
+    font-size: 0.875rem;
+    color: var(--coins-text);
+    font-weight: 500;
+}
+
+.block-hash {
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 0.6875rem;
+    color: var(--coins-text-muted);
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.block-status {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.conf-badge {
+    font-size: 0.6875rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 999px;
+    font-weight: 500;
+}
+
+.conf-badge.confirmed {
+    background: var(--coins-success-light);
+    color: var(--coins-success);
+}
+
+.conf-badge.pending {
+    background: var(--coins-warning-light);
+    color: var(--coins-warning);
+}
+
+/* ========================================
+   Empty State
+   ======================================== */
+.empty-state-compact {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 3rem 1.5rem;
+    text-align: center;
+}
+
+.empty-icon {
+    width: 80px;
+    height: 80px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--coins-bg-secondary);
+    border: 2px dashed var(--coins-border);
+    border-radius: 50%;
+    margin-bottom: 1.25rem;
+    color: var(--coins-text-muted);
+    font-size: 2rem;
+}
+
+.empty-title {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: var(--coins-text);
+    margin-bottom: 0.5rem;
+}
+
+.empty-desc {
+    font-size: 0.875rem;
+    color: var(--coins-text-secondary);
+    max-width: 280px;
+    line-height: 1.5;
+}
+
+/* ========================================
+   Mempool Transactions
+   ======================================== */
+.mempool-group {
+    margin-bottom: 1.5rem;
+}
+
+.mempool-group:last-child {
+    margin-bottom: 0;
+}
+
+.mempool-group-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--coins-border-light);
+}
+
+.mempool-group-title {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--coins-text);
+}
+
+.mempool-group-count {
+    font-size: 0.75rem;
+    color: var(--coins-text-muted);
+    background: var(--coins-bg-secondary);
+    padding: 0.25rem 0.5rem;
+    border-radius: 999px;
+}
+
+.tx-row-compact {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem;
+    background: var(--coins-bg-secondary);
+    border-radius: var(--coins-radius);
+    margin-bottom: 0.5rem;
+    transition: background var(--coins-transition);
+}
+
+.tx-row-compact:hover {
+    background: var(--coins-surface-elevated);
+}
+
+.tx-row-compact:last-child {
+    margin-bottom: 0;
+}
+
+.tx-sender {
+    font-size: 0.8125rem;
+    color: var(--coins-text);
+    font-weight: 500;
+    min-width: 100px;
+}
+
+.tx-arrow {
+    color: var(--coins-text-muted);
+    font-size: 0.75rem;
+}
+
+.tx-recipient {
+    flex: 1;
+    min-width: 0;
+}
+
+.tx-recipient a {
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 0.75rem;
+    color: var(--coins-accent);
+    cursor: pointer;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: block;
+}
+
+.tx-amount {
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: var(--coins-text);
+    white-space: nowrap;
+}
+
+.tx-status-badge {
+    font-size: 0.6875rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 999px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.tx-status-badge.publishing {
+    background: var(--coins-info-light);
+    color: var(--coins-info);
+}
+
+.tx-status-badge.broadcasting {
+    background: rgba(139, 92, 246, 0.15);
+    color: #a78bfa;
+}
+
+.tx-status-badge.unconfirmed {
+    background: var(--coins-warning-light);
+    color: var(--coins-warning);
+}
+
+/* ========================================
+   Block Detail
+   ======================================== */
+.detail-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--coins-border-light);
+}
+
+.detail-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--coins-text);
+}
+
+.detail-grid {
+    display: grid;
+    grid-template-columns: 140px 1fr;
+    gap: 0.75rem 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.detail-label {
+    font-size: 0.8125rem;
+    color: var(--coins-text-muted);
+    font-weight: 500;
+}
+
+.detail-value {
+    font-size: 0.8125rem;
+    color: var(--coins-text);
+    word-break: break-all;
+}
+
+.detail-value code {
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 0.75rem;
+    background: var(--coins-bg-secondary);
+    padding: 0.25rem 0.5rem;
+    border-radius: var(--coins-radius-sm);
+    color: var(--coins-accent);
+}
+
+.detail-value a {
+    color: var(--coins-accent);
+}
+
+/* ========================================
+   Account Detail
+   ======================================== */
+.account-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--coins-border-light);
+    flex-wrap: wrap;
+}
+
+.account-id {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--coins-text);
+}
+
+.account-pk {
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 0.75rem;
+    color: var(--coins-accent);
+    background: var(--coins-bg-secondary);
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--coins-radius);
+    word-break: break-all;
+    max-width: 100%;
+}
+
+.balances-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+}
+
+.balance-item {
+    background: var(--coins-bg-secondary);
+    border-radius: var(--coins-radius);
+    padding: 0.875rem;
+    text-align: center;
+}
+
+.balance-amount {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--coins-success);
+    margin-bottom: 0.25rem;
+}
+
+.balance-token {
+    font-size: 0.6875rem;
+    color: var(--coins-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.tx-history-header {
+    font-size: 0.6875rem;
+    font-weight: 500;
+    color: var(--coins-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.75rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--coins-border-light);
+}
+
+/* ========================================
+   Transaction Table
+   ======================================== */
+.tx-table {
+    width: 100%;
+}
+
+.tx-table-row {
+    display: grid;
+    grid-template-columns: 120px 1fr auto 70px auto;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    align-items: center;
+    border-radius: var(--coins-radius);
+    transition: background var(--coins-transition);
+}
+
+.tx-table-row:hover {
+    background: var(--coins-bg-secondary);
+}
+
+.tx-table-row.header {
+    font-size: 0.6875rem;
+    color: var(--coins-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 500;
+}
+
+.tx-table-row.header:hover {
+    background: transparent;
+}
+
+span.tx-type-badge {
+    display: inline-block !important;
+    font-size: 0.7rem !important;
+    padding: 0.35rem 0.75rem !important;
+    margin-right: 0.75rem !important;
+    border-radius: 999px !important;
+    font-weight: 500 !important;
+    text-align: center !important;
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+    box-sizing: border-box !important;
+    line-height: 1.2 !important;
+    background-color: #1e3a3a !important;
+    border: 1px solid #2dd4bf !important;
+}
+
+span.tx-type-badge.received {
+    background-color: #134e4a !important;
+    color: #2dd4bf !important;
+    border: 1px solid #2dd4bf !important;
+}
+
+span.tx-type-badge.sent {
+    background-color: #4a1e1e !important;
+    color: #f87171 !important;
+    border: 1px solid #f87171 !important;
+}
+
+.tx-counterparty-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    padding: 0.25rem 0.5rem;
+    border-radius: 999px;
+    transition: background-color var(--coins-transition);
+    min-width: 0;
+    overflow: hidden;
+}
+
+.tx-counterparty-wrapper:hover {
+    background-color: rgba(45, 212, 191, 0.15);
+}
+
+.tx-counterparty-pk {
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 0.75rem;
+    color: var(--coins-accent);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+}
+
+.tx-counterparty-id {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--coins-text-secondary);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.tx-table-amount {
+    font-weight: 600;
+    font-size: 0.875rem;
+    text-align: right;
+}
+
+.tx-table-amount.positive {
+    color: var(--coins-success);
+}
+
+.tx-table-amount.negative {
+    color: var(--coins-danger);
+}
+
+.tx-table-token {
+    font-size: 0.75rem;
+    color: var(--coins-text-muted);
+    text-align: right;
+}
+
+/* ========================================
+   Pagination
+   ======================================== */
+.pagination-compact {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--coins-border-light);
+}
+
+.page-btn {
+    padding: 0.5rem 1rem;
+    background: var(--coins-bg-secondary);
+    border: 1px solid var(--coins-border);
+    border-radius: var(--coins-radius);
+    color: var(--coins-text-secondary);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--coins-transition);
+    font-family: inherit;
+}
+
+.page-btn:hover:not(:disabled) {
+    border-color: var(--coins-accent);
+    color: var(--coins-text);
+}
+
+.page-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.page-btn.active {
+    background: var(--coins-accent);
+    border-color: var(--coins-accent);
+    color: var(--coins-bg);
+}
+
+.page-info {
+    font-size: 0.8125rem;
+    color: var(--coins-text-muted);
+    padding: 0 0.5rem;
+}
+
+/* ========================================
+   Responsive
+   ======================================== */
+@media screen and (max-width: 640px) {
+    .explorer-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .explorer-search {
+        max-width: none;
+    }
+
+    .stats-strip {
+        padding: 0.75rem;
+    }
+
+    .stat-value {
+        font-size: 1.25rem;
+    }
+
+    .section-inner {
+        padding: 1rem;
+    }
+
+    .block-card-compact {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.75rem;
+    }
+
+    .block-info {
+        width: 100%;
+    }
+
+    .block-hash {
+        max-width: none;
+    }
+
+    .tx-row-compact {
+        flex-wrap: wrap;
+    }
+
+    .tx-recipient {
+        order: 3;
+        flex-basis: 100%;
+    }
+
+    .detail-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .tx-table-row {
+        grid-template-columns: 80px 1fr auto;
+    }
+
+    .tx-table-row .tx-table-token,
+    .tx-table-row .conf-badge,
+    .tx-table-row .tx-status-badge {
+        display: none;
+    }
+
+    .tx-counterparty-id {
+        display: none;
+    }
+
+    .account-header {
+        flex-direction: column;
+    }
+}
