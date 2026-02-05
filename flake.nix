@@ -77,8 +77,10 @@
 
             # Send tokens between accounts
             # Usage: send <network> <from> <to> [amount] [token_id]
+            #    OR: send <network> <from> <invoice_uri> [amount]
             # Examples: send regtest alice bob 100
             #           send mutinynet genesis alice 1000 1
+            #           send regtest alice "coins://pay?addr=abc&amount=100"
             send() {
               local network="$1"
               local from="$2"
@@ -88,16 +90,18 @@
 
               if [ -z "$from" ] || [ -z "$to" ]; then
                 echo "Usage: send <network> <from> <to> [amount] [token_id]"
+                echo "   OR: send <network> <from> <invoice_uri> [amount]"
                 echo "  network: regtest | mutinynet"
                 echo "  from: genesis | alice | bob"
-                echo "  to: genesis | alice | bob | <64-char pubkey>"
-                echo "  amount: tokens to send (default: 100)"
-                echo "  token_id: token ID to send (default: 0 for native)"
+                echo "  to: genesis | alice | bob | <64-char pubkey> | coins://pay?..."
+                echo "  amount: tokens to send (default: 100, overridden by invoice)"
+                echo "  token_id: token ID to send (default: 0, overridden by invoice)"
                 echo ""
                 echo "Examples:"
                 echo "  send regtest alice bob 100           # Alice sends 100 native tokens to Bob"
                 echo "  send mutinynet genesis alice 1000 1  # Genesis sends 1000 token_id=1 to Alice"
                 echo "  send regtest bob abc123...def 50     # Bob sends to specific pubkey"
+                echo "  send regtest alice 'coins://pay?addr=abc&amount=100'  # Pay invoice"
                 return 1
               fi
 
@@ -136,31 +140,37 @@
                   ;;
               esac
 
-              # Get recipient's public key
-              local recipient_pk
-              case "$to" in
-                genesis)
-                  recipient_pk=$(./target/release/examples/get_pk "$keydir/genesis_sk.hex")
-                  ;;
-                alice)
-                  recipient_pk=$(./target/release/examples/get_pk "$keydir/alice_sk.hex")
-                  ;;
-                bob)
-                  recipient_pk=$(./target/release/examples/get_pk "$keydir/bob_sk.hex")
-                  ;;
-                *)
-                  # Assume it's a public key
-                  if [[ "$to" =~ ^[a-fA-F0-9]{64}$ ]]; then
-                    recipient_pk="$to"
-                  else
-                    echo "Error: Invalid recipient '$to'. Use 'genesis', 'alice', 'bob', or a 64-char hex pubkey."
-                    return 1
-                  fi
-                  ;;
-              esac
+              # Check if it's an invoice URI
+              if [[ "$to" == coins://* ]]; then
+                # Send using invoice
+                ./target/release/coins-client --keyfile "$sender_keyfile" --publisher-url "$publisher_url" send --invoice "$to" --amount "$amount"
+              else
+                # Get recipient's public key
+                local recipient_pk
+                case "$to" in
+                  genesis)
+                    recipient_pk=$(./target/release/examples/get_pk "$keydir/genesis_sk.hex")
+                    ;;
+                  alice)
+                    recipient_pk=$(./target/release/examples/get_pk "$keydir/alice_sk.hex")
+                    ;;
+                  bob)
+                    recipient_pk=$(./target/release/examples/get_pk "$keydir/bob_sk.hex")
+                    ;;
+                  *)
+                    # Assume it's a public key or account ID
+                    if [[ "$to" =~ ^[a-fA-F0-9]{64}$ ]] || [[ "$to" =~ ^[0-9]+$ ]]; then
+                      recipient_pk="$to"
+                    else
+                      echo "Error: Invalid recipient '$to'. Use 'genesis', 'alice', 'bob', account ID, 64-char hex pubkey, or coins:// invoice URI."
+                      return 1
+                    fi
+                    ;;
+                esac
 
-              # Send the transaction
-              ./target/release/coins-client --keyfile "$sender_keyfile" --publisher-url "$publisher_url" send --recipient "$recipient_pk" --amount "$amount" --token-id "$token_id"
+                # Send the transaction
+                ./target/release/coins-client --keyfile "$sender_keyfile" --publisher-url "$publisher_url" send --recipient "$recipient_pk" --amount "$amount" --token-id "$token_id"
+              fi
             }
 
             # Mine Bitcoin blocks (regtest only)
@@ -223,9 +233,10 @@
             echo ""
             echo "Transactions:"
             echo "  send <net> <from> <to> [amt] [tkn]   - Send tokens between accounts"
-            echo "    from/to: genesis, alice, bob, or pubkey (64 hex chars)"
+            echo "    from: genesis, alice, bob"
+            echo "    to: genesis, alice, bob, account ID, pubkey, or coins:// invoice"
             echo "    Examples: send regtest alice bob 100"
-            echo "              send mutinynet genesis alice 1000 1"
+            echo "              send regtest alice 'coins://pay?addr=abc&amount=50'"
             echo ""
             echo "Mining (regtest only):"
             echo "  mine [count]                         - Mine Bitcoin blocks"

@@ -5,7 +5,6 @@ use anyhow::Result;
 use std::sync::Arc;
 use coins_core::State;
 use coins_crypto::G1;
-use coins_types::NATIVE_TOKEN_ID;
 use coins_indexer::Indexer;
 use config::IndexerConfig;
 use api::{AppState, create_router};
