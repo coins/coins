@@ -107,6 +107,7 @@ pub fn simple_router(
     Router::new()
         .route("/health", get(health))
         .route("/ws", get(ws_handler))
+        .route("/api/v1/accounts/by-id/:id", get(get_account_by_id))
         .route("/api/v1/accounts/:pk", get(get_account))
         .route("/api/v1/accounts/:pk/transactions", get(get_account_transactions))
         .route("/api/v1/blocks/latest", get(get_latest_block))
@@ -135,6 +136,21 @@ async fn get_account(
     let pk = coins_crypto::G1::from_hex(&pk_hex).map_err(|_| StatusCode::BAD_REQUEST)?;
 
     match state.indexer_client.get_account(&pk).await {
+        Ok(Some(account)) => {
+            serde_json::to_value(account)
+                .map(Json)
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+        }
+        Ok(None) => Err(StatusCode::NOT_FOUND),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+async fn get_account_by_id(
+    State(state): State<SimpleAppState>,
+    Path(id): Path<u32>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    match state.indexer_client.get_account_by_id(id).await {
         Ok(Some(account)) => {
             serde_json::to_value(account)
                 .map(Json)

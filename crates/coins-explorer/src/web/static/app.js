@@ -7,6 +7,7 @@ class ExplorerApp {
         this.apiBase = '/api/v1';
         this.network = 'regtest';
         this.currentAccountPk = null;
+        this.balancesExpanded = false;
         this.secsUntilNextLoop = null;
         this.intervalSecs = 60;
 
@@ -420,7 +421,9 @@ class ExplorerApp {
                         if (senderAccount && senderAccount.pk) {
                             senderIdToPk[sid] = this.bytesToHex(senderAccount.pk);
                         }
-                    } catch (e) {}
+                    } catch (e) {
+                        console.warn(`Failed to fetch sender account ${sid}:`, e);
+                    }
                 }));
 
                 html += `
@@ -462,8 +465,16 @@ class ExplorerApp {
     }
 
     async loadAccountDetail(pk) {
+        // Reset UI state when navigating to a different account
+        if (this.currentAccountPk !== pk) {
+            this.balancesExpanded = false;
+            this.scrollState = null;
+        }
         this.currentAccountPk = pk;
         const container = document.getElementById('account-detail-content');
+
+        // Save scroll state before re-render (for WebSocket updates)
+        this.saveScrollState();
 
         try {
             const account = await this.fetchAPI(`/accounts/${pk}`);
@@ -481,15 +492,7 @@ class ExplorerApp {
                 </div>
                 <div class="account-pk">${this.renderTruncatablePk(pkHex, 12)}</div>
 
-                <div class="tx-history-header" style="margin-top: 1.5rem;">Balances</div>
-                <div class="balances-grid">
-                    ${balances.length > 0 ? balances.map(([tokenId, balance]) => `
-                        <div class="balance-item">
-                            <div class="balance-amount">${balance}</div>
-                            <div class="balance-token">${tokenId === '0' ? 'Native' : `Token ${tokenId}`}</div>
-                        </div>
-                    `).join('') : '<p class="has-text-grey" style="grid-column: 1/-1; text-align: center;">No tokens</p>'}
-                </div>
+                ${this.renderBalances(balances)}
             `;
 
             // Load transactions
@@ -563,6 +566,9 @@ class ExplorerApp {
             `;
 
             container.innerHTML = html;
+
+            // Restore scroll state after re-render
+            this.restoreScrollState();
         } catch (error) {
             container.innerHTML = this.renderError(error);
         }
@@ -824,6 +830,148 @@ class ExplorerApp {
             default:
                 return null;
         }
+    }
+
+    // Format large numbers compactly (e.g., 1000000000000 -> "1T")
+    formatLargeNumber(num) {
+        if (num >= 1e12) return (num / 1e12).toFixed(num % 1e12 === 0 ? 0 : 1) + 'T';
+        if (num >= 1e9) return (num / 1e9).toFixed(num % 1e9 === 0 ? 0 : 1) + 'B';
+        if (num >= 1e6) return (num / 1e6).toFixed(num % 1e6 === 0 ? 0 : 1) + 'M';
+        if (num >= 1e3) return (num / 1e3).toFixed(num % 1e3 === 0 ? 0 : 1) + 'K';
+        return num.toString();
+    }
+
+    // Render balances with adaptive display based on token count
+    renderBalances(balances) {
+        if (balances.length === 0) {
+            return `
+                <div class="tx-history-header" style="margin-top: 1.5rem;">Balances</div>
+                <p class="has-text-grey" style="text-align: center; padding: 1rem;">No tokens</p>
+            `;
+        }
+
+        // Few tokens (1-4): simple grid
+        if (balances.length <= 4) {
+            return `
+                <div class="tx-history-header" style="margin-top: 1.5rem;">Balances</div>
+                <div class="balances-grid">
+                    ${balances.map(([tokenId, balance]) => `
+                        <div class="balance-item${tokenId === '0' ? ' native' : ''}">
+                            <div class="balance-amount">${this.formatLargeNumber(balance)}</div>
+                            <div class="balance-token">${tokenId === '0' ? 'Native' : `Token ${tokenId}`}</div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        // Many tokens (5+): summary + horizontal scroll
+        const totalBalance = balances.reduce((sum, [_, bal]) => sum + bal, 0);
+        const tokenCount = balances.length;
+        const showSummary = tokenCount > 10;
+
+        let html = `<div class="balances-header">
+            <span class="tx-history-header" style="margin: 0; padding: 0; border: none;">Balances</span>
+            ${tokenCount > 15 ? `<button class="balances-toggle${this.balancesExpanded ? ' expanded' : ''}" onclick="app.toggleBalancesExpanded()">
+                <span>${this.balancesExpanded ? 'Hide' : 'Show All'}</span>
+                <span class="balances-toggle-icon">▼</span>
+            </button>` : ''}
+        </div>`;
+
+        // Summary bar for many tokens
+        if (showSummary) {
+            const previewTokens = balances.slice(0, 4);
+            const moreCount = tokenCount - 4;
+            html += `
+                <div class="balances-summary">
+                    <div class="summary-stat">
+                        <span class="summary-stat-value">${tokenCount}</span>
+                        <span class="summary-stat-label">Token Types</span>
+                    </div>
+                    <div class="summary-divider"></div>
+                    <div class="summary-stat">
+                        <span class="summary-stat-value">~${this.formatLargeNumber(totalBalance)}</span>
+                        <span class="summary-stat-label">Total Balance</span>
+                    </div>
+                    <div class="summary-divider"></div>
+                    <div class="summary-tokens-preview">
+                        ${previewTokens.map(([tokenId]) => `
+                            <span class="token-id-chip${tokenId === '0' ? ' native' : ''}">${tokenId === '0' ? 'Native' : `#${tokenId}`}</span>
+                        `).join('')}
+                        <span class="tokens-more">+${moreCount} more</span>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Horizontal scroll strip
+        html += `
+            <div class="balances-scroll-container">
+                <div class="balances-strip">
+                    ${balances.map(([tokenId, balance]) => `
+                        <div class="balance-chip${tokenId === '0' ? ' native' : ''}">
+                            <span class="balance-chip-amount">${this.formatLargeNumber(balance)}</span>
+                            <span class="balance-chip-token">${tokenId === '0' ? 'Native' : `Token ${tokenId}`}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+
+        // Expanded grid (hidden by default, preserves state across re-renders)
+        if (tokenCount > 15) {
+            html += `
+                <div class="balances-grid-expanded${this.balancesExpanded ? ' visible' : ''}" id="balances-expanded">
+                    ${balances.map(([tokenId, balance]) => `
+                        <div class="balance-item-compact">
+                            <span class="token-label${tokenId === '0' ? ' native' : ''}">${tokenId === '0' ? 'Native' : `#${tokenId}`}</span>
+                            <span class="token-amount">${this.formatLargeNumber(balance)}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        return html;
+    }
+
+    toggleBalancesExpanded() {
+        const grid = document.getElementById('balances-expanded');
+        const btn = document.querySelector('.balances-toggle');
+        if (!grid || !btn) return;
+
+        this.balancesExpanded = !this.balancesExpanded;
+        grid.classList.toggle('visible', this.balancesExpanded);
+        btn.classList.toggle('expanded', this.balancesExpanded);
+        btn.querySelector('span:first-child').textContent = this.balancesExpanded ? 'Hide' : 'Show All';
+    }
+
+    // Save scroll position before re-render
+    saveScrollState() {
+        const strip = document.querySelector('.balances-strip');
+        const expandedGrid = document.getElementById('balances-expanded');
+        const txTable = document.querySelector('.tx-table');
+
+        this.scrollState = {
+            balancesStrip: strip?.scrollLeft || 0,
+            expandedGrid: expandedGrid?.scrollTop || 0,
+            txTable: txTable?.parentElement?.scrollTop || 0
+        };
+    }
+
+    // Restore scroll position after re-render
+    restoreScrollState() {
+        if (!this.scrollState) return;
+
+        requestAnimationFrame(() => {
+            const strip = document.querySelector('.balances-strip');
+            const expandedGrid = document.getElementById('balances-expanded');
+            const txTable = document.querySelector('.tx-table');
+
+            if (strip) strip.scrollLeft = this.scrollState.balancesStrip;
+            if (expandedGrid) expandedGrid.scrollTop = this.scrollState.expandedGrid;
+            if (txTable?.parentElement) txTable.parentElement.scrollTop = this.scrollState.txTable;
+        });
     }
 }
 
