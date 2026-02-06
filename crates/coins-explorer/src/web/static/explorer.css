@@ -268,10 +268,13 @@ html, body {
 
 .stat-item.clickable {
     cursor: pointer;
+    border-radius: var(--coins-radius-lg);
+    border: 1px solid transparent;
 }
 
 .stat-item.clickable:hover {
-    background: var(--coins-bg-secondary);
+    background: rgba(45, 212, 191, 0.1);
+    border-color: rgba(45, 212, 191, 0.3);
 }
 
 .stat-value {
@@ -442,6 +445,7 @@ html, body {
     padding: 0.25rem 0.5rem;
     border-radius: 999px;
     font-weight: 500;
+    white-space: nowrap;
 }
 
 .conf-badge.confirmed {
@@ -569,9 +573,8 @@ html, body {
     color: var(--coins-accent);
     cursor: pointer;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
     display: block;
+    min-width: 0;
 }
 
 .tx-amount {
@@ -681,13 +684,124 @@ html, body {
     background: var(--coins-bg-secondary);
     padding: 0.5rem 0.75rem;
     border-radius: var(--coins-radius);
-    word-break: break-all;
-    max-width: 100%;
+    cursor: pointer;
+    transition: background-color var(--coins-transition);
+    overflow: hidden;
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.account-pk:hover {
+    background: rgba(45, 212, 191, 0.1);
+}
+
+/* Middle-truncatable public key */
+.pk-truncate {
+    display: flex;
+    min-width: 0;
+    width: 100%;
+    gap: 0;
+}
+
+.pk-truncate .pk-start {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 0 1 auto;
+    min-width: 0;
+}
+
+.pk-truncate .pk-end {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
+.pk-truncate .pk-full {
+    white-space: nowrap;
+}
+
+.explorer-link {
+    display: inline-block;
+    margin-left: 1rem;
+    font-size: 0.75rem;
+    color: var(--coins-text-muted);
+    text-decoration: none;
+    transition: color var(--coins-transition);
+}
+
+.explorer-link:hover {
+    color: var(--coins-accent);
+}
+
+/* Block Transaction Rows */
+.block-tx-row {
+    display: grid;
+    grid-template-columns: 40px 1fr auto auto auto;
+    gap: 1rem;
+    padding: 0.75rem;
+    align-items: center;
+    border-radius: var(--coins-radius);
+    transition: background var(--coins-transition);
+}
+
+.block-tx-index {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--coins-text-muted);
+    text-align: center;
+}
+
+.block-tx-fee {
+    font-size: 0.75rem;
+    color: var(--coins-text-muted);
+    text-align: right;
+}
+
+.block-tx-row:hover {
+    background: var(--coins-bg-secondary);
+}
+
+.block-tx-flow {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.block-tx-account {
+    font-weight: 600;
+    color: var(--coins-accent);
+    cursor: pointer;
+    padding: 0.25rem 0.5rem;
+    border-radius: 999px;
+    transition: background-color var(--coins-transition);
+}
+
+.block-tx-account:hover {
+    background: rgba(45, 212, 191, 0.15);
+}
+
+.block-tx-arrow {
+    color: var(--coins-text-muted);
+    font-size: 0.875rem;
+}
+
+.block-tx-amount {
+    font-weight: 600;
+    color: var(--coins-text);
+    text-align: right;
+}
+
+.block-tx-token {
+    font-size: 0.75rem;
+    color: var(--coins-text-muted);
+    min-width: 60px;
+    text-align: right;
 }
 
 .balances-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
     gap: 0.75rem;
     margin-bottom: 1.5rem;
 }
@@ -733,7 +847,7 @@ html, body {
 
 .tx-table-row {
     display: grid;
-    grid-template-columns: 120px 1fr auto 70px auto;
+    grid-template-columns: 120px 1fr auto auto auto;
     gap: 0.75rem;
     padding: 0.75rem;
     align-items: center;
@@ -771,6 +885,7 @@ span.tx-type-badge {
     line-height: 1.2 !important;
     background-color: #1e3a3a !important;
     border: 1px solid #2dd4bf !important;
+    min-width: 80px !important;
 }
 
 span.tx-type-badge.received {
@@ -785,17 +900,22 @@ span.tx-type-badge.sent {
     border: 1px solid #f87171 !important;
 }
 
+.tx-counterparty-cell {
+    display: flex;
+    min-width: 0;
+    overflow: hidden;
+}
+
 .tx-counterparty-wrapper {
-    display: inline-flex;
+    display: flex;
     align-items: center;
     cursor: pointer;
     padding: 0.25rem 0.5rem;
     border-radius: 999px;
     transition: background-color var(--coins-transition);
     min-width: 0;
-    overflow: hidden;
     max-width: 100%;
-    width: fit-content;
+    gap: 0;
 }
 
 .tx-counterparty-wrapper:hover {
@@ -807,9 +927,7 @@ span.tx-type-badge.sent {
     font-size: 0.75rem;
     color: var(--coins-accent);
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    flex: 0 1 auto;
+    flex: 1 1 0;
     min-width: 0;
 }
 
@@ -825,7 +943,8 @@ span.tx-type-badge.sent {
 .tx-counterparty-divider {
     color: var(--coins-border);
     flex-shrink: 0;
-    margin: 0 0.25rem;
+    margin: 0;
+    padding: 0 0.25rem;
     font-size: 0.75rem;
 }
 
@@ -950,16 +1069,14 @@ span.tx-type-badge.sent {
     }
 
     .tx-table-row {
-        grid-template-columns: 80px 1fr auto;
+        grid-template-columns: 80px minmax(0, 1fr) auto auto auto;
     }
 
-    .tx-table-row .tx-table-token,
-    .tx-table-row .conf-badge,
-    .tx-table-row .tx-status-badge {
+    .tx-counterparty-pk {
         display: none;
     }
 
-    .tx-counterparty-id {
+    .tx-counterparty-divider {
         display: none;
     }
 

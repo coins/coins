@@ -6,7 +6,7 @@
     <title>Coins Explorer</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
     <link rel="stylesheet" href="/shared/coins-common.css">
-    <link rel="stylesheet" href="/explorer.css?v=24">
+    <link rel="stylesheet" href="/explorer.css?v=37">
 </head>
 <body>
     <!-- Main Content -->
@@ -14,7 +14,7 @@
         <div class="explorer-container">
             <!-- Header with search -->
             <div class="explorer-header">
-                <div class="explorer-brand">
+                <div class="explorer-brand" onclick="app.showSection('overview')" style="cursor: pointer;">
                     <span class="brand-icon">&#9670;</span>
                     <span class="brand-text">Coins Explorer</span>
                     <div class="status-indicator" id="status-indicator">
@@ -58,22 +58,6 @@
                 </div>
             </div>
 
-            <!-- Navigation Pills -->
-            <div class="explorer-pills">
-                <button class="pill active" data-section="overview" onclick="app.showSection('overview')">
-                    <span class="pill-icon">&#9632;</span>
-                    Overview
-                </button>
-                <button class="pill" data-section="blocks" onclick="app.showSection('blocks')">
-                    <span class="pill-icon">&#9633;</span>
-                    Blocks
-                </button>
-                <button class="pill" data-section="mempool" onclick="app.showSection('mempool')">
-                    <span class="pill-icon">&#8634;</span>
-                    Mempool
-                </button>
-            </div>
-
             <!-- Stats Strip -->
             <div class="stats-strip" id="stats-strip">
                 <div class="stat-item clickable" onclick="app.showSection('blocks')">
@@ -83,10 +67,6 @@
                 <div class="stat-item">
                     <span class="stat-value" data-stat="total-accounts">--</span>
                     <span class="stat-label">Accounts</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-value" data-stat="total-supply">--</span>
-                    <span class="stat-label">Supply</span>
                 </div>
                 <div class="stat-item clickable" onclick="app.showSection('mempool')">
                     <span class="stat-value" data-stat="pending-txs">--</span>
@@ -153,6 +133,6 @@
         </div>
     </section>
 
-    <script src="/app.js?v=56"></script>
+    <script src="/app.js?v=64"></script>
 </body>
 </html>

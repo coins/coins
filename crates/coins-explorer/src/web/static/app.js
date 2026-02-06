@@ -368,46 +368,91 @@ class ExplorerApp {
             const txCount = block.sub_block?.txs?.length || 0;
             const explorerUrl = this.getBitcoinExplorerUrl(block.btc_txid);
 
+            // Determine confirmation status
+            const confirmations = block.confirmations || 0;
+            const isFinalized = confirmations >= 6;
+            const confLabel = isFinalized ? 'Confirmed' : `${confirmations} Confirmation${confirmations !== 1 ? 's' : ''}`;
+            const confClass = isFinalized ? 'confirmed' : 'pending';
+
             let html = `
-                <div class="detail-header">
-                    <span class="block-height-badge">#${block.height}</span>
-                    <span class="detail-title">Block Details</span>
+                <div class="account-header">
+                    <span class="account-id">Block #${block.height}</span>
+                </div>
+                <div class="account-pk">
+                    ${block.btc_txid}
+                    ${explorerUrl ? `<a href="${explorerUrl}" target="_blank" class="explorer-link">View on Explorer ↗</a>` : ''}
                 </div>
 
-                <div class="detail-grid">
-                    <span class="detail-label">Bitcoin Txid</span>
-                    <span class="detail-value">
-                        <code>${block.btc_txid}</code>
-                        ${explorerUrl ? `<br><a href="${explorerUrl}" target="_blank" style="font-size: 0.75rem;">View on Explorer ↗</a>` : ''}
-                    </span>
-
-                    <span class="detail-label">Publisher</span>
-                    <span class="detail-value"><code>${publisherPk}</code></span>
-
-                    <span class="detail-label">Transactions</span>
-                    <span class="detail-value">${txCount}</span>
+                <div class="tx-history-header" style="margin-top: 1.5rem;">Block Info</div>
+                <div class="balances-grid">
+                    <div class="balance-item">
+                        <div class="balance-amount">${txCount}</div>
+                        <div class="balance-token">Transactions</div>
+                    </div>
+                    <div class="balance-item">
+                        <div class="balance-amount"><span class="conf-badge ${confClass}" style="font-size: 1rem;">${confLabel}</span></div>
+                        <div class="balance-token">Status</div>
+                    </div>
                 </div>
+
+                <div class="tx-history-header" style="margin-top: 1.5rem;">Publisher</div>
+                <div class="account-pk" style="margin-bottom: 1.5rem;" onclick="app.showSection('account-detail', {pk: '${publisherPk}'})">${this.renderTruncatablePk(publisherPk, 12)}</div>
             `;
 
             if (txCount > 0) {
+                // Look up recipient account IDs
+                const recipientPks = [...new Set(block.sub_block.txs.map(tx => this.bytesToHex(tx.recipient_pk)))];
+                const pkToId = {};
+                await Promise.all(recipientPks.map(async (rpk) => {
+                    try {
+                        const recipientAccount = await this.fetchAPI(`/accounts/${rpk}`);
+                        if (recipientAccount && recipientAccount.id !== undefined) {
+                            pkToId[rpk] = recipientAccount.id;
+                        }
+                    } catch (e) {}
+                }));
+
+                // Look up sender PKs for clickable links
+                const senderIds = [...new Set(block.sub_block.txs.map(tx => tx.sender_id))];
+                const senderIdToPk = {};
+                await Promise.all(senderIds.map(async (sid) => {
+                    try {
+                        const senderAccount = await this.fetchAPI(`/accounts/by-id/${sid}`);
+                        if (senderAccount && senderAccount.pk) {
+                            senderIdToPk[sid] = this.bytesToHex(senderAccount.pk);
+                        }
+                    } catch (e) {}
+                }));
+
                 html += `
                     <div class="tx-history-header">Transactions</div>
                     <div class="tx-table">
-                        ${block.sub_block.txs.map(tx => {
+                        ${block.sub_block.txs.map((tx, index) => {
                             const recipientPk = this.bytesToHex(tx.recipient_pk);
+                            const recipientId = pkToId[recipientPk];
+                            const hasRecipientId = recipientId !== undefined && recipientId !== null;
+                            const senderPk = senderIdToPk[tx.sender_id];
+
                             return `
-                                <div class="tx-row-compact">
-                                    <span class="tx-sender">Account #${tx.sender_id}</span>
-                                    <span class="tx-arrow">→</span>
-                                    <span class="tx-recipient">
-                                        <a onclick="app.showSection('account-detail', {pk: '${recipientPk}'})">${this.formatPk(recipientPk)}</a>
+                                <div class="block-tx-row">
+                                    <span class="block-tx-index">${index + 1}</span>
+                                    <span class="block-tx-flow">
+                                        <span class="block-tx-account" ${senderPk ? `onclick="app.showSection('account-detail', {pk: '${senderPk}'})"` : ''}>#${tx.sender_id}</span>
+                                        <span class="block-tx-arrow">→</span>
+                                        <span class="block-tx-account" onclick="app.showSection('account-detail', {pk: '${recipientPk}'})">${hasRecipientId ? `#${recipientId}` : 'New'}</span>
                                     </span>
-                                    <span class="tx-amount">${tx.amount} sats</span>
-                                    ${tx.token_id > 0 ? `<span class="tx-status-badge publishing">Token ${tx.token_id}</span>` : ''}
+                                    <span class="block-tx-amount">${tx.amount}</span>
+                                    <span class="block-tx-fee">${tx.fee} fee</span>
+                                    <span class="block-tx-token">${tx.token_id > 0 ? `Token ${tx.token_id}` : 'Native'}</span>
                                 </div>
                             `;
                         }).join('')}
                     </div>
+                `;
+            } else {
+                html += `
+                    <div class="tx-history-header">Transactions</div>
+                    <p class="has-text-grey" style="text-align: center; padding: 1rem;">No transactions in this block</p>
                 `;
             }
 
@@ -435,7 +480,7 @@ class ExplorerApp {
                 <div class="account-header">
                     <span class="account-id">Account #${account.id}</span>
                 </div>
-                <div class="account-pk">${pkHex}</div>
+                <div class="account-pk">${this.renderTruncatablePk(pkHex, 12)}</div>
 
                 <div class="tx-history-header" style="margin-top: 1.5rem;">Balances</div>
                 <div class="balances-grid">
@@ -501,16 +546,14 @@ class ExplorerApp {
                         } else if (tx.finalized) {
                             statusBadge = '<span class="conf-badge confirmed">Confirmed</span>';
                         } else {
-                            statusBadge = `<span class="conf-badge pending">${tx.confirmations || 0} conf</span>`;
+                            const conf = tx.confirmations || 0;
+                            statusBadge = `<span class="conf-badge pending">${conf} Confirmation${conf !== 1 ? 's' : ''}</span>`;
                         }
 
                         return `
                             <div class="tx-table-row">
                                 <span class="tx-type-badge ${isIncoming ? 'received' : 'sent'}">${isIncoming ? 'Received' : 'Sent'}</span>
-                                <span class="tx-counterparty-wrapper" onclick="app.showSection('account-detail', {pk: '${counterpartyPk}'})">
-                                    <span class="tx-counterparty-pk">${counterpartyPk}</span>
-                                    ${hasId ? `<span class="tx-counterparty-divider">|</span><span class="tx-counterparty-id">#${counterpartyId}</span>` : ''}
-                                </span>
+                                <span class="tx-counterparty-cell"><span class="tx-counterparty-wrapper" onclick="app.showSection('account-detail', {pk: '${counterpartyPk}'})"><span class="tx-counterparty-pk">${this.renderTruncatablePk(counterpartyPk, 8)}</span>${hasId ? `<span class="tx-counterparty-divider">|</span><span class="tx-counterparty-id">#${counterpartyId}</span>` : ''}</span></span>
                                 <span class="tx-table-amount ${amountClass}">${amountPrefix}${tx.amount}</span>
                                 <span class="tx-table-token">${tx.token_id > 0 ? `Token ${tx.token_id}` : 'Native'}</span>
                                 ${statusBadge}
@@ -532,9 +575,10 @@ class ExplorerApp {
 
     renderBlockCard(block, isLatest = false) {
         const txCount = block.sub_block?.txs?.length || 0;
-        const confLabel = block.confirmations >= 6 ? 'confirmed' :
-                          block.confirmations >= 1 ? `${block.confirmations} conf` : 'unconfirmed';
-        const confClass = block.confirmations >= 6 ? 'confirmed' : 'pending';
+        const confirmations = block.confirmations || 0;
+        const confLabel = confirmations >= 6 ? 'Confirmed' :
+                          confirmations >= 1 ? `${confirmations} Confirmation${confirmations !== 1 ? 's' : ''}` : 'Unconfirmed';
+        const confClass = confirmations >= 6 ? 'confirmed' : 'pending';
 
         return `
             <div class="block-card-compact" onclick="app.showSection('block-detail', {height: ${block.height}})">
@@ -564,7 +608,7 @@ class ExplorerApp {
                         <span class="tx-sender">Account #${tx.sender_id}</span>
                         <span class="tx-arrow">→</span>
                         <span class="tx-recipient">
-                            <a onclick="app.showSection('account-detail', {pk: '${tx.recipient_pk}'})">${this.formatPk(tx.recipient_pk)}</a>
+                            <a onclick="app.showSection('account-detail', {pk: '${tx.recipient_pk}'})">${this.renderTruncatablePk(tx.recipient_pk, 8)}</a>
                         </span>
                         <span class="tx-amount">${tx.amount} sats</span>
                         <span class="tx-status-badge ${status}">${status}</span>
@@ -754,6 +798,16 @@ class ExplorerApp {
     formatPk(pk) {
         if (!pk || pk.length < 16) return pk;
         return pk.slice(0, 8) + '...' + pk.slice(-8);
+    }
+
+    // Render a public key with middle truncation that shows as much as possible
+    renderTruncatablePk(pk, endChars = 8) {
+        if (!pk || pk.length <= endChars * 2) {
+            return `<span class="pk-truncate"><span class="pk-full">${pk}</span></span>`;
+        }
+        const start = pk.slice(0, -endChars);
+        const end = pk.slice(-endChars);
+        return `<span class="pk-truncate"><span class="pk-start">${start}</span><span class="pk-end">${end}</span></span>`;
     }
 
     getBitcoinExplorerUrl(txid) {
