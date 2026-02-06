@@ -18,6 +18,12 @@ class ExplorerApp {
             websocket: false
         };
 
+        // Data cache for instant navigation (invalidated on new block)
+        this.cache = {
+            accounts: new Map(),      // pk -> { account, allTxs, pkToId }
+            blocks: new Map()         // height -> { block }
+        };
+
         // Initialize
         this.initWebSocket();
         this.fetchNetworkInfo();
@@ -182,6 +188,10 @@ class ExplorerApp {
     handleWSMessage(msg) {
         switch (msg.type) {
             case 'new_block':
+                // Invalidate cache when new block is mined
+                this.cache.accounts.clear();
+                this.cache.blocks.clear();
+                // Fall through to stats_update
             case 'stats_update':
                 this.loadStats();
                 if (this.currentSection === 'overview') {
@@ -465,35 +475,35 @@ class ExplorerApp {
     }
 
     async loadAccountDetail(pk) {
+        const container = document.getElementById('account-detail-content');
+        const isNewAccount = this.currentAccountPk !== pk;
+        const cached = this.cache.accounts.get(pk);
+
         // Reset UI state when navigating to a different account
-        if (this.currentAccountPk !== pk) {
+        if (isNewAccount) {
             this.balancesExpanded = false;
             this.scrollState = null;
-        }
-        this.currentAccountPk = pk;
-        const container = document.getElementById('account-detail-content');
 
-        // Save scroll state before re-render (for WebSocket updates)
-        this.saveScrollState();
+            // Show cached data immediately if available, otherwise show loading
+            if (cached) {
+                container.innerHTML = this.renderAccountHTML(cached.account, cached.allTxs, cached.pkToId);
+            } else {
+                container.innerHTML = '<div class="loading-placeholder">Loading...</div>';
+            }
+        } else {
+            // Save scroll state before re-render (for WebSocket updates)
+            this.saveScrollState();
+        }
+
+        this.currentAccountPk = pk;
 
         try {
             const account = await this.fetchAPI(`/accounts/${pk}`);
             if (!account) {
                 container.innerHTML = '<p class="has-text-grey">Account not found</p>';
+                this.cache.accounts.delete(pk);
                 return;
             }
-
-            const pkHex = this.bytesToHex(account.pk);
-            const balances = account.balances ? Object.entries(account.balances).sort((a, b) => parseInt(a[0]) - parseInt(b[0])) : [];
-
-            let html = `
-                <div class="account-header">
-                    <span class="account-id">Account #${account.id}</span>
-                </div>
-                <div class="account-pk">${this.renderTruncatablePk(pkHex, 12)}</div>
-
-                ${this.renderBalances(balances)}
-            `;
 
             // Load transactions
             const txs = await this.fetchAPI(`/accounts/${pk}/transactions`) || [];
@@ -531,47 +541,68 @@ class ExplorerApp {
                 } catch (e) {}
             }));
 
-            html += `
-                <div class="tx-history-header">Transaction History</div>
-                <div class="tx-table">
-                    ${allTxs.length > 0 ? allTxs.map(tx => {
-                        const isIncoming = tx.direction === 'incoming';
-                        const counterpartyPk = isIncoming ? this.bytesToHex(tx.sender_pk) : this.bytesToHex(tx.recipient_pk);
-                        const counterpartyId = isIncoming ? tx.sender_id : pkToId[counterpartyPk];
-                        const hasId = counterpartyId !== undefined && counterpartyId !== null;
-                        const amountClass = isIncoming ? 'positive' : 'negative';
-                        const amountPrefix = isIncoming ? '+' : '-';
+            // Update cache
+            this.cache.accounts.set(pk, { account, allTxs, pkToId });
 
-                        let statusBadge = '';
-                        if (tx.isPending) {
-                            statusBadge = `<span class="tx-status-badge ${tx.status}">${tx.status}</span>`;
-                        } else if (tx.finalized) {
-                            statusBadge = '<span class="conf-badge confirmed">Confirmed</span>';
-                        } else {
-                            const conf = tx.confirmations || 0;
-                            statusBadge = `<span class="conf-badge pending">${conf} Confirmation${conf !== 1 ? 's' : ''}</span>`;
-                        }
-
-                        return `
-                            <div class="tx-table-row">
-                                <span class="tx-type-badge ${isIncoming ? 'received' : 'sent'}">${isIncoming ? 'Received' : 'Sent'}</span>
-                                <span class="tx-counterparty-cell"><span class="tx-counterparty-wrapper" onclick="app.showSection('account-detail', {pk: '${counterpartyPk}'})"><span class="tx-counterparty-pk">${this.renderTruncatablePk(counterpartyPk, 8)}</span>${hasId ? `<span class="tx-counterparty-divider">|</span><span class="tx-counterparty-id">#${counterpartyId}</span>` : ''}</span></span>
-                                <span class="tx-table-amount ${amountClass}">${amountPrefix}${tx.amount}</span>
-                                <span class="tx-table-token">${tx.token_id > 0 ? `Token ${tx.token_id}` : 'Native'}</span>
-                                ${statusBadge}
-                            </div>
-                        `;
-                    }).join('') : '<p class="has-text-grey" style="text-align: center; padding: 1rem;">No transactions</p>'}
-                </div>
-            `;
-
-            container.innerHTML = html;
-
-            // Restore scroll state after re-render
-            this.restoreScrollState();
+            // Only update DOM if still viewing this account
+            if (this.currentAccountPk === pk) {
+                const html = this.renderAccountHTML(account, allTxs, pkToId);
+                container.innerHTML = html;
+                this.restoreScrollState();
+            }
         } catch (error) {
             container.innerHTML = this.renderError(error);
         }
+    }
+
+    renderAccountHTML(account, allTxs, pkToId) {
+        const pkHex = this.bytesToHex(account.pk);
+        const balances = account.balances ? Object.entries(account.balances).sort((a, b) => parseInt(a[0]) - parseInt(b[0])) : [];
+
+        let html = `
+            <div class="account-header">
+                <span class="account-id">Account #${account.id}</span>
+            </div>
+            <div class="account-pk">${this.renderTruncatablePk(pkHex, 12)}</div>
+
+            ${this.renderBalances(balances)}
+        `;
+
+        html += `
+            <div class="tx-history-header">Transaction History</div>
+            <div class="tx-table">
+                ${allTxs.length > 0 ? allTxs.map(tx => {
+                    const isIncoming = tx.direction === 'incoming';
+                    const counterpartyPk = isIncoming ? this.bytesToHex(tx.sender_pk) : this.bytesToHex(tx.recipient_pk);
+                    const counterpartyId = isIncoming ? tx.sender_id : pkToId[counterpartyPk];
+                    const hasId = counterpartyId !== undefined && counterpartyId !== null;
+                    const amountClass = isIncoming ? 'positive' : 'negative';
+                    const amountPrefix = isIncoming ? '+' : '-';
+
+                    let statusBadge = '';
+                    if (tx.isPending) {
+                        statusBadge = `<span class="tx-status-badge ${tx.status}">${tx.status}</span>`;
+                    } else if (tx.finalized) {
+                        statusBadge = '<span class="conf-badge confirmed">Confirmed</span>';
+                    } else {
+                        const conf = tx.confirmations || 0;
+                        statusBadge = `<span class="conf-badge pending">${conf} Confirmation${conf !== 1 ? 's' : ''}</span>`;
+                    }
+
+                    return `
+                        <div class="tx-table-row">
+                            <span class="tx-type-badge ${isIncoming ? 'received' : 'sent'}">${isIncoming ? 'Received' : 'Sent'}</span>
+                            <span class="tx-counterparty-cell"><span class="tx-counterparty-wrapper" onclick="app.showSection('account-detail', {pk: '${counterpartyPk}'})"><span class="tx-counterparty-pk">${this.renderTruncatablePk(counterpartyPk, 8)}</span>${hasId ? `<span class="tx-counterparty-divider">|</span><span class="tx-counterparty-id">#${counterpartyId}</span>` : ''}</span></span>
+                            <span class="tx-table-amount ${amountClass}">${amountPrefix}${tx.amount}</span>
+                            <span class="tx-table-token">${tx.token_id > 0 ? `Token ${tx.token_id}` : 'Native'}</span>
+                            ${statusBadge}
+                        </div>
+                    `;
+                }).join('') : '<p class="has-text-grey" style="text-align: center; padding: 1rem;">No transactions</p>'}
+            </div>
+        `;
+
+        return html;
     }
 
     // ========================================
