@@ -30,6 +30,7 @@ class ExplorerApp {
 
         // Initialize
         this.initWebSocket();
+        this.initSearch();
         this.fetchNetworkInfo();
         this.loadStats();
         this.loadOverview();
@@ -185,17 +186,505 @@ class ExplorerApp {
         }
     }
 
+    // ========================================
+    // Enhanced Search
+    // ========================================
+
+    initSearch() {
+        const container = document.getElementById('search-container');
+        const input = document.getElementById('global-search');
+        const resultsEl = document.getElementById('search-results');
+
+        this.searchState = {
+            selectedIndex: 0,
+            results: [],
+            debounceTimer: null,
+            isOpen: false,
+            currentQuery: null  // Track current query to avoid stale results
+        };
+
+        // Focus handling
+        input.addEventListener('focus', () => {
+            container.classList.add('focused');
+            const query = input.value.trim();
+            if (query.length > 0) {
+                this.updateSearchResults(query);
+            }
+        });
+
+        input.addEventListener('blur', () => {
+            container.classList.remove('focused');
+            // Delay hiding to allow click events on results
+            setTimeout(() => {
+                if (!container.contains(document.activeElement)) {
+                    this.hideSearchResults();
+                }
+            }, 150);
+        });
+
+        // Input handling with debounce
+        input.addEventListener('input', () => {
+            const query = input.value.trim();
+            container.classList.toggle('has-value', query.length > 0);
+
+            clearTimeout(this.searchState.debounceTimer);
+
+            if (query.length === 0) {
+                this.hideSearchResults();
+                this.searchState.currentQuery = null;
+                return;
+            }
+
+            // Show immediate type detection feedback
+            const searchType = this.detectSearchType(query);
+            this.renderSearchLoading(searchType);
+            this.showSearchResults();
+
+            // Debounce API calls (longer delay for network requests)
+            this.searchState.debounceTimer = setTimeout(() => {
+                this.searchState.currentQuery = query;
+                this.updateSearchResults(query);
+            }, 250);
+        });
+
+        // Keyboard navigation
+        input.addEventListener('keydown', (e) => {
+            // Escape always exits the search
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                this.hideSearchResults();
+                input.blur();
+                return;
+            }
+
+            if (!this.searchState.isOpen) {
+                if (e.key === 'Enter') {
+                    const query = input.value.trim();
+                    if (query.length > 0) {
+                        this.executeSearch(query);
+                    }
+                }
+                return;
+            }
+
+            switch (e.key) {
+                case 'ArrowDown':
+                    e.preventDefault();
+                    this.navigateSearchResults(1);
+                    break;
+                case 'ArrowUp':
+                    e.preventDefault();
+                    this.navigateSearchResults(-1);
+                    break;
+                case 'Enter':
+                    e.preventDefault();
+                    this.selectSearchResult();
+                    break;
+            }
+        });
+
+        // Global keyboard shortcut
+        document.addEventListener('keydown', (e) => {
+            if (e.key === '/' && !this.isInputFocused()) {
+                e.preventDefault();
+                input.focus();
+            }
+        });
+    }
+
+    isInputFocused() {
+        const active = document.activeElement;
+        return active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA');
+    }
+
+    detectSearchType(query) {
+        // Pure number - could be block height or account ID
+        if (/^\d+$/.test(query)) {
+            return { type: 'block-height', label: 'Block/Account', icon: '⛃' };
+        }
+
+        // Transaction format: blockHeight:txIndex (e.g., "123:0" or "123/0")
+        const txMatch = query.match(/^(\d+)[:\/](\d+)$/);
+        if (txMatch) {
+            return {
+                type: 'transaction',
+                label: 'Transaction',
+                icon: 'TX',
+                blockHeight: parseInt(txMatch[1]),
+                txIndex: parseInt(txMatch[2])
+            };
+        }
+
+        // Account by ID (prefixed with # or "account" or "acc")
+        const accIdMatch = query.match(/^(?:#|account\s*|acc\s*)(\d+)$/i);
+        if (accIdMatch) {
+            return { type: 'account-id', label: 'Account ID', icon: '@', id: parseInt(accIdMatch[1]) };
+        }
+
+        // Hex string - could be Bitcoin tx hash (64 chars) or public key
+        if (/^[0-9a-fA-F]+$/.test(query)) {
+            const len = query.length;
+            if (len === 64) {
+                return { type: 'btc-txid', label: 'Bitcoin TX / Block', icon: '₿' };
+            } else if (len >= 32) {
+                return { type: 'public-key', label: 'Public Key', icon: '@' };
+            } else {
+                return { type: 'hex-partial', label: 'Partial Hex', icon: '?' };
+            }
+        }
+
+        return { type: 'unknown', label: 'Search', icon: '?' };
+    }
+
+    async updateSearchResults(query) {
+        const resultsEl = document.getElementById('search-results');
+        const searchType = this.detectSearchType(query);
+        const searchId = query; // Track this search to prevent stale results
+
+        // Build results based on detected type with actual API validation
+        const results = [];
+
+        try {
+            switch (searchType.type) {
+                case 'block-height': {
+                    const num = parseInt(query);
+                    // Check both block and account in parallel
+                    const [block, account] = await Promise.all([
+                        this.fetchAPI(`/blocks/${num}`).catch(() => null),
+                        this.fetchAPI(`/accounts/by-id/${num}`).catch(() => null)
+                    ]);
+                    if (block) {
+                        const txCount = block.sub_block?.txs?.length || 0;
+                        results.push({
+                            type: 'block',
+                            title: `Block #${num}`,
+                            subtitle: `${txCount} transaction${txCount !== 1 ? 's' : ''} · ${block.btc_txid ? block.btc_txid.slice(0, 12) + '...' : 'No BTC txid'}`,
+                            action: () => this.showSection('block-detail', { height: num })
+                        });
+                    }
+                    if (account && account.pk) {
+                        const pk = this.bytesToHex(account.pk);
+                        const balanceCount = account.balances ? Object.keys(account.balances).length : 0;
+                        results.push({
+                            type: 'account',
+                            title: `Account #${num}`,
+                            subtitle: `${balanceCount} token${balanceCount !== 1 ? 's' : ''} · ${pk.slice(0, 8)}...${pk.slice(-6)}`,
+                            action: () => this.showSection('account-detail', { pk })
+                        });
+                    }
+                    break;
+                }
+
+                case 'transaction': {
+                    const block = await this.fetchAPI(`/blocks/${searchType.blockHeight}`);
+                    if (block && block.sub_block?.txs?.[searchType.txIndex]) {
+                        const tx = block.sub_block.txs[searchType.txIndex];
+                        results.push({
+                            type: 'tx',
+                            title: `Transaction ${searchType.blockHeight}:${searchType.txIndex}`,
+                            subtitle: `${tx.amount} sats · ${tx.token_id > 0 ? 'Token ' + tx.token_id : 'Native'}`,
+                            action: () => this.showSection('tx-detail', {
+                                blockHeight: searchType.blockHeight,
+                                txIndex: searchType.txIndex
+                            })
+                        });
+                    }
+                    break;
+                }
+
+                case 'account-id': {
+                    const account = await this.fetchAPI(`/accounts/by-id/${searchType.id}`);
+                    if (account && account.pk) {
+                        const pk = this.bytesToHex(account.pk);
+                        const balanceCount = account.balances ? Object.keys(account.balances).length : 0;
+                        results.push({
+                            type: 'account',
+                            title: `Account #${searchType.id}`,
+                            subtitle: `${balanceCount} token${balanceCount !== 1 ? 's' : ''} · ${pk.slice(0, 8)}...${pk.slice(-6)}`,
+                            action: () => this.showSection('account-detail', { pk })
+                        });
+                    }
+                    break;
+                }
+
+                case 'btc-txid': {
+                    // Search for block by Bitcoin txid
+                    const latest = await this.fetchAPI('/blocks/latest');
+                    if (latest) {
+                        const blocks = await this.fetchAPI(`/blocks?from=0&to=${latest.height}`);
+                        const foundBlock = blocks?.find(b => b.btc_txid?.toLowerCase() === query.toLowerCase());
+                        if (foundBlock) {
+                            const txCount = foundBlock.sub_block?.txs?.length || 0;
+                            results.push({
+                                type: 'block',
+                                title: `Block #${foundBlock.height}`,
+                                subtitle: `${txCount} transaction${txCount !== 1 ? 's' : ''} · Found by BTC txid`,
+                                action: () => this.showSection('block-detail', { height: foundBlock.height })
+                            });
+                        }
+                    }
+                    // Also check if it's a valid account public key
+                    const account = await this.fetchAPI(`/accounts/${query}`);
+                    if (account) {
+                        const balanceCount = account.balances ? Object.keys(account.balances).length : 0;
+                        results.push({
+                            type: 'account',
+                            title: `Account #${account.id}`,
+                            subtitle: `${balanceCount} token${balanceCount !== 1 ? 's' : ''} · ${query.slice(0, 8)}...${query.slice(-6)}`,
+                            action: () => this.showSection('account-detail', { pk: query })
+                        });
+                    }
+                    break;
+                }
+
+                case 'public-key':
+                case 'hex-partial': {
+                    // Check if it's a valid account
+                    const account = await this.fetchAPI(`/accounts/${query}`);
+                    if (account) {
+                        const balanceCount = account.balances ? Object.keys(account.balances).length : 0;
+                        results.push({
+                            type: 'account',
+                            title: `Account #${account.id}`,
+                            subtitle: `${balanceCount} token${balanceCount !== 1 ? 's' : ''} · ${query.slice(0, 8)}...${query.slice(-6)}`,
+                            action: () => this.showSection('account-detail', { pk: query })
+                        });
+                    }
+                    // For 64-char hex, also check if it's a Bitcoin txid
+                    if (query.length === 64) {
+                        const latest = await this.fetchAPI('/blocks/latest');
+                        if (latest) {
+                            const blocks = await this.fetchAPI(`/blocks?from=0&to=${latest.height}`);
+                            const foundBlock = blocks?.find(b => b.btc_txid?.toLowerCase() === query.toLowerCase());
+                            if (foundBlock) {
+                                const txCount = foundBlock.sub_block?.txs?.length || 0;
+                                results.push({
+                                    type: 'block',
+                                    title: `Block #${foundBlock.height}`,
+                                    subtitle: `${txCount} transaction${txCount !== 1 ? 's' : ''} · Found by BTC txid`,
+                                    action: () => this.showSection('block-detail', { height: foundBlock.height })
+                                });
+                            }
+                        }
+                    }
+                    break;
+                }
+            }
+        } catch (error) {
+            console.warn('Search error:', error);
+        }
+
+        // Check if this is still the current search (prevent stale results)
+        if (this.searchState.currentQuery !== searchId) {
+            return;
+        }
+
+        this.searchState.results = results;
+        this.searchState.selectedIndex = 0;
+
+        // Render results
+        this.renderSearchResults(searchType, results);
+    }
+
+    renderSearchLoading(searchType) {
+        const resultsEl = document.getElementById('search-results');
+        const iconClass = searchType.type === 'block-height' ? 'block' :
+                          searchType.type === 'transaction' ? 'tx' :
+                          searchType.type.includes('account') || searchType.type.includes('key') ? 'account' : 'unknown';
+
+        resultsEl.innerHTML = `
+            <div class="search-type-header">
+                <span class="search-type-icon ${iconClass}">${searchType.icon}</span>
+                <span class="search-type-label">${searchType.label}</span>
+            </div>
+            <div class="search-loading">
+                <span class="search-loading-spinner"></span>
+                <span>Searching...</span>
+            </div>
+        `;
+    }
+
+    renderSearchResults(searchType, results) {
+        const resultsEl = document.getElementById('search-results');
+
+        if (results.length === 0) {
+            resultsEl.innerHTML = `
+                <div class="search-type-header">
+                    <span class="search-type-icon unknown">?</span>
+                    <span class="search-type-label">No matches</span>
+                </div>
+                <div class="search-no-results">
+                    <div class="search-no-results-icon">∅</div>
+                    <div class="search-no-results-text">No results found</div>
+                    <div class="search-no-results-hint">Try a block number, account ID, or hex address</div>
+                </div>
+                <div class="search-help">
+                    <span class="search-help-item"><code>123</code> Block height</span>
+                    <span class="search-help-item"><code>#5</code> Account ID</span>
+                    <span class="search-help-item"><code>10:0</code> Transaction</span>
+                </div>
+            `;
+        } else {
+            const iconClass = searchType.type === 'block-height' ? 'block' :
+                              searchType.type === 'transaction' ? 'tx' :
+                              searchType.type.includes('account') || searchType.type.includes('key') ? 'account' : 'unknown';
+
+            resultsEl.innerHTML = `
+                <div class="search-type-header">
+                    <span class="search-type-icon ${iconClass}">${searchType.icon}</span>
+                    <span class="search-type-label">${searchType.label}</span>
+                    <span class="search-type-hint">↵ to select</span>
+                </div>
+                ${results.map((result, i) => `<div class="search-result-item${i === this.searchState.selectedIndex ? ' selected' : ''}" data-index="${i}"><span class="search-result-icon ${result.type}">${result.type === 'block' ? '⛃' : result.type === 'account' ? '@' : result.type === 'tx' ? '↔' : '?'}</span><div class="search-result-content"><div class="search-result-title">${result.title}</div><div class="search-result-subtitle">${result.subtitle}</div></div><span class="search-result-action"><kbd style="${i === 0 ? '' : 'visibility:hidden'}">↵</kbd></span></div>`).join('')}
+                <div class="search-help">
+                    <span class="search-help-item"><kbd>↑↓</kbd> Navigate</span>
+                    <span class="search-help-item"><kbd>↵</kbd> Select</span>
+                    <span class="search-help-item"><kbd>esc</kbd> Close</span>
+                </div>
+            `;
+
+            // Add click handlers
+            resultsEl.querySelectorAll('.search-result-item').forEach(item => {
+                item.addEventListener('click', () => {
+                    const index = parseInt(item.dataset.index);
+                    this.searchState.selectedIndex = index;
+                    this.selectSearchResult();
+                });
+                item.addEventListener('mouseenter', () => {
+                    const index = parseInt(item.dataset.index);
+                    this.searchState.selectedIndex = index;
+                    this.updateSelectedResult();
+                });
+            });
+        }
+
+        this.showSearchResults();
+    }
+
+    showSearchResults() {
+        const resultsEl = document.getElementById('search-results');
+        resultsEl.classList.add('visible');
+        this.searchState.isOpen = true;
+    }
+
+    hideSearchResults() {
+        const resultsEl = document.getElementById('search-results');
+        resultsEl.classList.remove('visible');
+        this.searchState.isOpen = false;
+    }
+
+    navigateSearchResults(direction) {
+        const newIndex = this.searchState.selectedIndex + direction;
+        if (newIndex >= 0 && newIndex < this.searchState.results.length) {
+            this.searchState.selectedIndex = newIndex;
+            this.updateSelectedResult();
+        }
+    }
+
+    updateSelectedResult() {
+        const resultsEl = document.getElementById('search-results');
+        resultsEl.querySelectorAll('.search-result-item').forEach((item, i) => {
+            item.classList.toggle('selected', i === this.searchState.selectedIndex);
+            const action = item.querySelector('.search-result-action');
+            if (action) {
+                action.innerHTML = i === this.searchState.selectedIndex ? '<kbd>↵</kbd>' : '';
+            }
+        });
+    }
+
+    selectSearchResult() {
+        const result = this.searchState.results[this.searchState.selectedIndex];
+        if (result && result.action) {
+            result.action();
+            this.clearSearch();
+        }
+    }
+
+    clearSearch() {
+        const input = document.getElementById('global-search');
+        const container = document.getElementById('search-container');
+        input.value = '';
+        container.classList.remove('has-value');
+        this.hideSearchResults();
+    }
+
+    async executeSearch(query) {
+        // Direct search without dropdown - try to find first matching result
+        const searchType = this.detectSearchType(query);
+
+        switch (searchType.type) {
+            case 'block-height': {
+                // For numbers, prefer block if it exists, otherwise try account
+                const num = parseInt(query);
+                const block = await this.fetchAPI(`/blocks/${num}`).catch(() => null);
+                if (block) {
+                    this.showSection('block-detail', { height: num });
+                } else {
+                    this.lookupAccountById(num);
+                }
+                break;
+            }
+            case 'transaction':
+                this.showSection('tx-detail', {
+                    blockHeight: searchType.blockHeight,
+                    txIndex: searchType.txIndex
+                });
+                break;
+            case 'account-id':
+                this.lookupAccountById(searchType.id);
+                break;
+            case 'btc-txid':
+                this.searchBlockByBtcTxid(query);
+                break;
+            default:
+                if (/^[0-9a-fA-F]+$/.test(query)) {
+                    this.showSection('account-detail', { pk: query });
+                }
+                break;
+        }
+        this.clearSearch();
+    }
+
+    async lookupAccountById(id) {
+        try {
+            const account = await this.fetchAPI(`/accounts/by-id/${id}`);
+            if (account && account.pk) {
+                const pk = this.bytesToHex(account.pk);
+                this.showSection('account-detail', { pk });
+            } else {
+                console.warn('Account not found:', id);
+            }
+        } catch (error) {
+            console.error('Error looking up account:', error);
+        }
+    }
+
+    async searchBlockByBtcTxid(txid) {
+        try {
+            // Get latest block to know the range
+            const latest = await this.fetchAPI('/blocks/latest');
+            if (!latest) return;
+
+            // Search through recent blocks
+            const blocks = await this.fetchAPI(`/blocks?from=0&to=${latest.height}`);
+            const found = blocks.find(b => b.btc_txid && b.btc_txid.toLowerCase() === txid.toLowerCase());
+
+            if (found) {
+                this.showSection('block-detail', { height: found.height });
+            } else {
+                console.warn('Block not found with txid:', txid);
+            }
+        } catch (error) {
+            console.error('Error searching block:', error);
+        }
+    }
+
     globalSearch() {
+        // Legacy method - now handled by initSearch
         const input = document.getElementById('global-search');
         const query = input.value.trim();
-        if (!query) return;
-
-        if (/^\d+$/.test(query)) {
-            this.showSection('block-detail', { height: parseInt(query) });
-            input.value = '';
-        } else if (/^[0-9a-fA-F]+$/.test(query)) {
-            this.showSection('account-detail', { pk: query });
-            input.value = '';
+        if (query) {
+            this.executeSearch(query);
         }
     }
 
@@ -494,7 +983,7 @@ class ExplorerApp {
 
                             return `
                                 <div class="block-tx-row" onclick="app.showSection('tx-detail', {blockHeight: ${height}, txIndex: ${index}})">
-                                    <span class="block-tx-index">${index + 1}</span>
+                                    <span class="block-tx-index">${index}</span>
                                     <span class="block-tx-flow">
                                         <span class="block-tx-account" ${senderPk ? `onclick="event.stopPropagation(); app.showSection('account-detail', {pk: '${senderPk}'})"` : ''}>#${tx.sender_id}</span>
                                         <span class="block-tx-arrow">→</span>
@@ -572,7 +1061,7 @@ class ExplorerApp {
                 <div class="tx-detail-card">
                     <div class="tx-detail-header">
                         <span class="tx-detail-title">Transaction Details</span>
-                        <span class="tx-detail-index">Block #${blockHeight} · Tx ${txIndex + 1}</span>
+                        <span class="tx-detail-index">Block #${blockHeight} · Tx ${txIndex}</span>
                     </div>
 
                     <div class="tx-detail-grid">
@@ -733,7 +1222,9 @@ class ExplorerApp {
             <div class="account-header">
                 <span class="account-id">Account #${account.id}</span>
             </div>
-            <div class="account-pk">${this.renderTruncatablePk(pkHex, 12)}</div>
+            <div class="account-pk copyable" onclick="app.copyToClipboard('${pkHex}', this)">
+                ${this.renderTruncatablePk(pkHex, 12)}
+            </div>
 
             ${this.renderBalances(balances)}
         `;
@@ -1018,6 +1509,18 @@ class ExplorerApp {
         const start = pk.slice(0, -endChars);
         const end = pk.slice(-endChars);
         return `<span class="pk-truncate"><span class="pk-start">${start}</span><span class="pk-end">${end}</span></span>`;
+    }
+
+    async copyToClipboard(text, element) {
+        try {
+            await navigator.clipboard.writeText(text);
+            if (element) {
+                element.classList.add('copied');
+                setTimeout(() => element.classList.remove('copied'), 1000);
+            }
+        } catch (err) {
+            console.error('Failed to copy:', err);
+        }
     }
 
     getBitcoinExplorerUrl(txid) {

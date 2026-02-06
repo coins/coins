@@ -161,10 +161,41 @@ html, body {
     margin: 0.5rem 0;
 }
 
+/* ========================================
+   Search Command Palette
+   ======================================== */
 .explorer-search {
     flex: 1;
     min-width: 200px;
-    max-width: 400px;
+    max-width: 480px;
+    position: relative;
+}
+
+.search-container {
+    position: relative;
+    width: 100%;
+}
+
+.search-input-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.search-prefix {
+    position: absolute;
+    left: 0.875rem;
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--coins-text-muted);
+    pointer-events: none;
+    z-index: 2;
+    transition: color var(--coins-transition);
+}
+
+.search-container.focused .search-prefix {
+    color: var(--coins-accent);
 }
 
 .explorer-search .search-input {
@@ -172,20 +203,327 @@ html, body {
     background: var(--coins-surface);
     border: 1px solid var(--coins-border);
     border-radius: var(--coins-radius-lg);
-    padding: 0.625rem 1rem;
+    padding: 0.75rem 1rem 0.75rem 2rem;
     font-size: 0.875rem;
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
     color: var(--coins-text);
     transition: all var(--coins-transition);
+    letter-spacing: -0.01em;
 }
 
 .explorer-search .search-input:focus {
     outline: none;
     border-color: var(--coins-accent);
-    box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.15);
+    box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.15), 0 4px 20px rgba(45, 212, 191, 0.1);
+    background: var(--coins-surface-elevated);
 }
 
 .explorer-search .search-input::placeholder {
     color: var(--coins-text-muted);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.search-shortcut {
+    position: absolute;
+    right: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    pointer-events: none;
+    transition: opacity var(--coins-transition);
+}
+
+.search-container.focused .search-shortcut,
+.search-container.has-value .search-shortcut {
+    opacity: 0;
+}
+
+.search-shortcut kbd {
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 0.6875rem;
+    font-weight: 500;
+    color: var(--coins-text-muted);
+    background: var(--coins-bg-secondary);
+    border: 1px solid var(--coins-border);
+    border-radius: 4px;
+    padding: 0.125rem 0.375rem;
+    line-height: 1.2;
+}
+
+/* Search Results Dropdown */
+.search-results {
+    position: absolute;
+    top: calc(100% + 0.5rem);
+    left: 0;
+    right: 0;
+    background: var(--coins-surface);
+    border: 1px solid var(--coins-border);
+    border-radius: var(--coins-radius-lg);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(45, 212, 191, 0.1);
+    z-index: 100;
+    overflow: hidden;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-4px);
+    transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
+}
+
+.search-results.visible {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+
+/* Search Type Detection Header */
+.search-type-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.625rem 0.875rem;
+    background: var(--coins-bg-secondary);
+    border-bottom: 1px solid var(--coins-border);
+}
+
+.search-type-icon {
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.search-type-icon.block {
+    background: rgba(96, 165, 250, 0.15);
+    color: var(--coins-info);
+    margin: 0;
+}
+
+.search-type-icon.account {
+    background: rgba(52, 211, 153, 0.15);
+    color: var(--coins-success);
+}
+
+.search-type-icon.tx {
+    background: rgba(251, 191, 36, 0.15);
+    color: var(--coins-warning);
+}
+
+.search-type-icon.unknown {
+    background: rgba(100, 116, 139, 0.15);
+    color: var(--coins-text-muted);
+}
+
+.search-type-label {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--coins-text-secondary);
+}
+
+.search-type-hint {
+    margin-left: auto;
+    font-size: 0.6875rem;
+    color: var(--coins-text-muted);
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+}
+
+/* Search Result Items */
+.search-result-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 0.875rem;
+    cursor: pointer;
+    transition: background var(--coins-transition);
+    border-bottom: 1px solid var(--coins-border-light);
+    height: 66px;
+    box-sizing: border-box;
+}
+
+.search-result-item:last-child {
+    border-bottom: none;
+}
+
+.search-result-item:hover,
+.search-result-item.selected {
+    background: var(--coins-surface-elevated);
+}
+
+.search-result-item.selected {
+    background: rgba(45, 212, 191, 0.08);
+}
+
+.search-result-icon {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--coins-radius);
+    font-size: 0.8125rem;
+    font-weight: 700;
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.search-result-icon.block {
+    background: var(--coins-info);
+    color: var(--coins-bg);
+    margin: 0;
+}
+
+.search-result-icon.account {
+    background: var(--coins-success);
+    color: var(--coins-bg);
+}
+
+.search-result-icon.tx {
+    background: var(--coins-warning);
+    color: var(--coins-bg);
+}
+
+.search-result-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.search-result-title {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--coins-text);
+    margin-bottom: 0.125rem;
+}
+
+.search-result-subtitle {
+    font-size: 0.75rem;
+    color: var(--coins-text-muted);
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.search-result-action {
+    font-size: 0.6875rem;
+    color: var(--coins-text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    flex-shrink: 0;
+    min-width: 20px;
+    min-height: 20px;
+}
+
+.search-result-action kbd {
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 0.625rem;
+    background: var(--coins-bg-secondary);
+    border: 1px solid var(--coins-border);
+    border-radius: 3px;
+    padding: 0.0625rem 0.25rem;
+    display: inline-flex;
+    align-items: center;
+    line-height: 1;
+}
+
+/* Search Help Footer */
+.search-help {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.5rem 0.875rem;
+    background: var(--coins-bg-secondary);
+    border-top: 1px solid var(--coins-border);
+    font-size: 0.6875rem;
+    color: var(--coins-text-muted);
+}
+
+.search-help-item {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+}
+
+.search-help-item code {
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 0.625rem;
+    background: var(--coins-surface);
+    border: 1px solid var(--coins-border);
+    border-radius: 3px;
+    padding: 0.0625rem 0.25rem;
+    color: var(--coins-accent);
+}
+
+/* Loading State */
+.search-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 1rem;
+    color: var(--coins-text-muted);
+    font-size: 0.8125rem;
+}
+
+.search-loading-spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--coins-border);
+    border-top-color: var(--coins-accent);
+    border-radius: 50%;
+    animation: searchSpin 0.8s linear infinite;
+}
+
+@keyframes searchSpin {
+    to { transform: rotate(360deg); }
+}
+
+/* No Results State */
+.search-no-results {
+    padding: 1.25rem;
+    text-align: center;
+}
+
+.search-no-results-icon {
+    font-size: 1.5rem;
+    color: var(--coins-text-muted);
+    margin-bottom: 0.5rem;
+}
+
+.search-no-results-text {
+    font-size: 0.8125rem;
+    color: var(--coins-text-secondary);
+    margin-bottom: 0.25rem;
+}
+
+.search-no-results-hint {
+    font-size: 0.75rem;
+    color: var(--coins-text-muted);
+}
+
+/* Mobile Responsive */
+@media screen and (max-width: 640px) {
+    .explorer-search {
+        max-width: none;
+    }
+
+    .search-shortcut {
+        display: none;
+    }
+
+    .search-help {
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
 }
 
 /* ========================================
@@ -694,6 +1032,14 @@ html, body {
 
 .account-pk:hover {
     background: rgba(45, 212, 191, 0.1);
+}
+
+.account-pk.copyable {
+    cursor: pointer;
+}
+
+.account-pk.copied {
+    background: rgba(52, 211, 153, 0.15);
 }
 
 /* Middle-truncatable public key */

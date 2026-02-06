@@ -6,7 +6,7 @@
     <title>Coins Explorer</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
     <link rel="stylesheet" href="/shared/coins-common.css">
-    <link rel="stylesheet" href="/explorer.css?v=40">
+    <link rel="stylesheet" href="/explorer.css?v=51">
 </head>
 <body>
     <!-- Main Content -->
@@ -52,9 +52,16 @@
                     </div>
                 </div>
                 <div class="explorer-search">
-                    <input class="search-input" type="text" id="global-search"
-                           placeholder="Search address or block..."
-                           onkeypress="if(event.key==='Enter')app.globalSearch()">
+                    <div class="search-container" id="search-container">
+                        <div class="search-input-wrapper">
+                            <span class="search-prefix">/</span>
+                            <input class="search-input" type="text" id="global-search"
+                                   placeholder="Search blocks, accounts, transactions..."
+                                   autocomplete="off" spellcheck="false">
+                            <span class="search-shortcut"><kbd>/</kbd></span>
+                        </div>
+                        <div class="search-results" id="search-results"></div>
+                    </div>
                 </div>
             </div>
 
@@ -145,6 +152,6 @@
         </div>
     </section>
 
-    <script src="/app.js?v=80"></script>
+    <script src="/app.js?v=97"></script>
 </body>
 </html>
