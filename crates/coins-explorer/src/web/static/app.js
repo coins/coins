@@ -24,6 +24,10 @@ class ExplorerApp {
             blocks: new Map()         // height -> { block }
         };
 
+        // Navigation history (one entry per view TYPE, keeps first instance)
+        this.navHistory = [];
+        this.atHistoryEnd = true;  // Are we at the last history entry (vs past it)?
+
         // Initialize
         this.initWebSocket();
         this.fetchNetworkInfo();
@@ -89,7 +93,7 @@ class ExplorerApp {
                 break;
         }
 
-        // Update URL
+        // Update URL and navigation history
         if (pushState) {
             let hash = section;
             if (section === 'block-detail' && params.height !== undefined) {
@@ -99,12 +103,48 @@ class ExplorerApp {
             } else if (section === 'blocks' && params.page) {
                 hash = `blocks/${params.page}`;
             }
-            history.pushState({ section, params }, '', `#${hash}`);
+
+            // History keeps ONE entry per view TYPE (the first visited)
+            // Same type = don't add (keep first), different type = push new entry
+            const currentType = this.navHistory.length > 0 ? this.navHistory[this.navHistory.length - 1].section : null;
+
+            if (section !== currentType) {
+                // Different view type - push new entry
+                this.navHistory.push({ section, params, hash });
+                this.atHistoryEnd = true;  // We're at the new entry
+            } else {
+                // Same view type - don't add, we're now past the history end
+                this.atHistoryEnd = false;
+            }
+
+            history.replaceState({ section, params }, '', `#${hash}`);
         }
     }
 
     goBack() {
-        history.back();
+        if (this.navHistory.length === 0) return;
+
+        if (this.atHistoryEnd) {
+            // We're at the last history entry - pop it and go to previous
+            if (this.navHistory.length > 1) {
+                this.navHistory.pop();
+                const prev = this.navHistory[this.navHistory.length - 1];
+                this.showSection(prev.section, prev.params, false);
+                history.replaceState({ section: prev.section, params: prev.params }, '', `#${prev.hash}`);
+                // Still at history end after popping
+            } else {
+                // Only one entry left - go to overview
+                this.navHistory = [];
+                this.showSection('overview', {}, false);
+                history.replaceState({ section: 'overview', params: {} }, '', '#overview');
+            }
+        } else {
+            // We're past the last history entry - go back to it (don't pop)
+            const last = this.navHistory[this.navHistory.length - 1];
+            this.showSection(last.section, last.params, false);
+            history.replaceState({ section: last.section, params: last.params }, '', `#${last.hash}`);
+            this.atHistoryEnd = true;  // Now we're at the history end
+        }
     }
 
     handlePopState(e) {
@@ -118,7 +158,7 @@ class ExplorerApp {
     handleInitialHash() {
         const hash = window.location.hash.slice(1);
         if (!hash) {
-            this.showSection('overview', {}, false);
+            this.showSection('overview', {}, true);
             return;
         }
 
@@ -126,15 +166,15 @@ class ExplorerApp {
         const section = parts[0];
 
         if (section === 'block' && parts[1]) {
-            this.showSection('block-detail', { height: parseInt(parts[1]) }, false);
+            this.showSection('block-detail', { height: parseInt(parts[1]) }, true);
         } else if (section === 'account' && parts[1]) {
-            this.showSection('account-detail', { pk: parts[1] }, false);
+            this.showSection('account-detail', { pk: parts[1] }, true);
         } else if (section === 'blocks') {
-            this.showSection('blocks', { page: parseInt(parts[1]) || 0 }, false);
+            this.showSection('blocks', { page: parseInt(parts[1]) || 0 }, true);
         } else if (['overview', 'mempool'].includes(section)) {
-            this.showSection(section, {}, false);
+            this.showSection(section, {}, true);
         } else {
-            this.showSection('overview', {}, false);
+            this.showSection('overview', {}, true);
         }
     }
 
