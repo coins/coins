@@ -6,7 +6,7 @@
     <title>Coins Explorer</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
     <link rel="stylesheet" href="/shared/coins-common.css">
-    <link rel="stylesheet" href="/explorer.css?v=39">
+    <link rel="stylesheet" href="/explorer.css?v=40">
 </head>
 <body>
     <!-- Main Content -->
@@ -129,10 +129,22 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Transaction Detail Section -->
+                <div class="explorer-section" id="section-tx-detail">
+                    <div class="section-inner">
+                        <button class="back-btn" onclick="app.goBack()">
+                            <span>&#8592;</span> Back
+                        </button>
+                        <div id="tx-detail-content">
+                            <div class="loading-placeholder">Loading...</div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </section>
 
-    <script src="/app.js?v=77"></script>
+    <script src="/app.js?v=80"></script>
 </body>
 </html>

@@ -742,7 +742,9 @@ html, body {
     padding: 0.75rem;
     align-items: center;
     border-radius: var(--coins-radius);
-    transition: background var(--coins-transition);
+    transition: background var(--coins-transition), box-shadow var(--coins-transition);
+    cursor: pointer;
+    position: relative;
 }
 
 .block-tx-index {
@@ -760,6 +762,7 @@ html, body {
 
 .block-tx-row:hover {
     background: var(--coins-bg-secondary);
+    box-shadow: inset 0 0 0 1px var(--coins-border);
 }
 
 .block-tx-flow {
@@ -1078,11 +1081,19 @@ html, body {
     padding: 0.75rem;
     align-items: center;
     border-radius: var(--coins-radius);
-    transition: background var(--coins-transition);
+    transition: background var(--coins-transition), box-shadow var(--coins-transition);
 }
 
 .tx-table-row:hover {
     background: var(--coins-bg-secondary);
+}
+
+.tx-table-row.clickable {
+    cursor: pointer;
+}
+
+.tx-table-row.clickable:hover {
+    box-shadow: inset 0 0 0 1px var(--coins-border);
 }
 
 .tx-table-row.header {
@@ -1240,6 +1251,103 @@ span.tx-type-badge.sent {
     font-size: 0.8125rem;
     color: var(--coins-text-muted);
     padding: 0 0.5rem;
+}
+
+/* ========================================
+   Transaction Detail
+   ======================================== */
+.tx-detail-card {
+    background: var(--coins-surface);
+    border: 1px solid var(--coins-border);
+    border-radius: var(--coins-radius);
+    padding: 1.5rem;
+}
+
+.tx-detail-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--coins-border);
+}
+
+.tx-detail-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--coins-text);
+}
+
+.tx-detail-index {
+    font-size: 0.875rem;
+    color: var(--coins-text-muted);
+    background: var(--coins-bg-secondary);
+    padding: 0.25rem 0.75rem;
+    border-radius: 999px;
+}
+
+.tx-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1.25rem;
+}
+
+.tx-detail-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+}
+
+.tx-detail-label {
+    font-size: 0.6875rem;
+    font-weight: 500;
+    color: var(--coins-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.tx-detail-value {
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--coins-text);
+}
+
+.tx-detail-value.accent {
+    color: var(--coins-accent);
+}
+
+.tx-detail-value.success {
+    color: var(--coins-success);
+}
+
+.tx-detail-value.clickable {
+    cursor: pointer;
+    transition: color var(--coins-transition);
+}
+
+.tx-detail-value.clickable:hover {
+    color: var(--coins-accent);
+}
+
+.tx-detail-pk {
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 0.875rem;
+    word-break: break-all;
+}
+
+.tx-detail-section {
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--coins-border);
+}
+
+.tx-detail-section-title {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--coins-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 1rem;
 }
 
 /* ========================================

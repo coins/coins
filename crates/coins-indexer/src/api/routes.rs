@@ -161,7 +161,10 @@ async fn get_account_transactions(
 
     // Iterate through all blocks (both finalized and unfinalized)
     for item in state.indexer.blocks.iter() {
-        let (_, value) = item.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let (key, value) = item.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let block_height = u32::from_le_bytes(
+            key.as_ref().try_into().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        );
         let chain_block = coins_indexer::ChainBlock::deserialize(&value, &state.state)
             .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -226,6 +229,8 @@ async fn get_account_transactions(
                 history.push(TransactionWithStatus {
                     tx: tx.clone(),
                     nonce,
+                    block_height,
+                    tx_index: tx_idx as u32,
                     btc_height: chain_block.btc_height,
                     btc_txid: chain_block.btc_txid.to_string(),
                     timestamp,
@@ -239,6 +244,8 @@ async fn get_account_transactions(
                 history.push(TransactionWithStatus {
                     tx: tx.clone(),
                     nonce,
+                    block_height,
+                    tx_index: tx_idx as u32,
                     btc_height: chain_block.btc_height,
                     btc_txid: chain_block.btc_txid.to_string(),
                     timestamp,
@@ -252,6 +259,8 @@ async fn get_account_transactions(
                 history.push(TransactionWithStatus {
                     tx: tx.clone(),
                     nonce,
+                    block_height,
+                    tx_index: tx_idx as u32,
                     btc_height: chain_block.btc_height,
                     btc_txid: chain_block.btc_txid.to_string(),
                     timestamp,
@@ -266,6 +275,8 @@ async fn get_account_transactions(
                 history.push(TransactionWithStatus {
                     tx: tx.clone(),
                     nonce,
+                    block_height,
+                    tx_index: tx_idx as u32,
                     btc_height: chain_block.btc_height,
                     btc_txid: chain_block.btc_txid.to_string(),
                     timestamp,

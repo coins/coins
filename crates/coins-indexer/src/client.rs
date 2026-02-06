@@ -170,6 +170,8 @@ pub struct TransactionWithStatus {
     #[serde(flatten)]
     pub tx: Transaction,
     pub nonce: u32,
+    pub block_height: u32,
+    pub tx_index: u32,
     pub btc_height: u32,
     pub btc_txid: String,
     pub timestamp: u64,
