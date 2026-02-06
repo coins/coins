@@ -97,8 +97,7 @@ class ExplorerApp {
     }
 
     goBack() {
-        const backTo = this.previousSection || 'overview';
-        this.showSection(backTo);
+        history.back();
     }
 
     handlePopState(e) {
