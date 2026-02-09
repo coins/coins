@@ -324,6 +324,27 @@ body {
     transition: left 0.05s ease;
 }
 
+/* Receive token suffix is clickable */
+.receive-token-suffix {
+    pointer-events: auto;
+    cursor: pointer;
+    border-radius: 0.25rem;
+    padding: 0.125rem 0.375rem 0.125rem 0.75rem;
+    transform: translateY(-2px);
+    transition: left 0.05s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.receive-token-suffix:hover {
+    background: var(--coins-surface-hover, rgba(0, 0, 0, 0.05));
+    color: var(--coins-text);
+}
+
+.receive-token-suffix::after {
+    content: ' \25BE';
+    font-size: 0.65em;
+    opacity: 0.6;
+}
+
 .token-selector {
     display: flex;
     flex-direction: column;
@@ -525,6 +546,7 @@ body {
 
 /* Modern Amount Input */
 .amount-input-wrapper {
+    position: relative;
     flex: 1;
     text-align: center;
     padding: 0.75rem 0;
@@ -2162,7 +2184,7 @@ hr {
     width: 100%;
     transform-style: preserve-3d;
     transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1),
-                min-height 0.3s ease;
+                min-height 0.2s ease-out;
 }
 
 .sr-flip-card.flipped {
@@ -2249,7 +2271,7 @@ hr {
 }
 
 #pane-receive {
-    gap: 1rem;
+    gap: 0.5rem;
 }
 
 /* ========================================
@@ -2481,45 +2503,90 @@ hr {
     transform: rotate(180deg);
 }
 
-.receive-token-dropdown {
-    display: none;
-    position: absolute;
-    top: calc(100% + 4px);
-    left: 0;
-    right: 0;
-    z-index: 50;
-    background: var(--coins-surface);
-    border: 1px solid var(--coins-border);
-    border-radius: var(--coins-radius);
-    box-shadow: var(--coins-shadow-lg);
+/* Token Selector - Inline Expandable Panel (expands downward) */
+.receive-token-select {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 0.2s ease-out;
+}
+
+.receive-token-select.open {
+    grid-template-rows: 1fr;
+}
+
+.receive-token-panel {
+    min-height: 0;
     overflow: hidden;
 }
 
-.receive-token-select.open .receive-token-dropdown {
-    display: block;
+.receive-token-panel-inner {
+    background: var(--coins-bg);
+    border: 1px solid var(--coins-border);
+    border-radius: var(--coins-radius-sm);
+    margin-top: 0.25rem;
+    margin-bottom: 0.25rem;
+}
+
+/* Search Section */
+.receive-token-search-wrap {
+    position: relative;
+    padding: 0.625rem;
+    border-bottom: 1px solid var(--coins-border);
+}
+
+.receive-token-search-wrap::before {
+    content: '';
+    position: absolute;
+    left: 1.125rem;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 14px;
+    height: 14px;
+    background: var(--coins-text-muted);
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.3-4.3'/%3E%3C/svg%3E") center/contain no-repeat;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.3-4.3'/%3E%3C/svg%3E") center/contain no-repeat;
+    pointer-events: none;
+    opacity: 0.4;
+    transition: opacity 0.2s ease;
+}
+
+.receive-token-search-wrap:focus-within::before {
+    opacity: 0.8;
+    background: var(--coins-accent);
 }
 
 .receive-token-search {
     width: 100%;
-    border: none;
-    border-bottom: 1px solid var(--coins-border);
-    background: var(--coins-bg-secondary);
+    border: 1px solid var(--coins-border);
+    border-radius: 8px;
+    background: var(--coins-bg);
     color: var(--coins-text);
-    font-size: 0.75rem;
-    padding: 0.5rem 0.75rem;
+    font-size: 0.8125rem;
+    font-weight: 450;
+    letter-spacing: 0.01em;
+    padding: 0.5rem 0.75rem 0.5rem 2.125rem;
     outline: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .receive-token-search::placeholder {
     color: var(--coins-text-muted);
+    opacity: 0.6;
 }
 
 .receive-token-search:focus {
-    background: var(--coins-surface-elevated);
+    border-color: var(--coins-accent);
+    box-shadow: 0 0 0 2px rgba(45, 212, 191, 0.1);
 }
 
+/* Token List - Justified grid */
 .receive-token-list {
-    max-height: 180px;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 0.375rem;
+    padding: 0.625rem;
+    max-height: 160px;
     overflow-y: auto;
     scrollbar-width: thin;
     scrollbar-color: var(--coins-border) transparent;
@@ -2538,47 +2605,62 @@ hr {
     border-radius: 2px;
 }
 
+/* Token Option - Compact chip style */
 .receive-token-option {
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.4rem 0.75rem;
+    justify-content: center;
+    gap: 0.375rem;
+    flex: 1 1 auto;
+    min-width: 5.5rem;
+    padding: 0.3rem 0.5rem;
+    border-radius: 6px;
+    border: 1px solid transparent;
     cursor: pointer;
-    transition: background var(--coins-transition);
+    transition: all 0.12s ease;
     font-size: 0.75rem;
-    color: var(--coins-text);
+    color: var(--coins-text-secondary);
+    background: rgba(30, 41, 59, 0.5);
 }
 
 .receive-token-option:hover {
-    background: var(--coins-bg-secondary);
+    background: var(--coins-surface-elevated);
+    color: var(--coins-text);
+    border-color: var(--coins-border);
 }
 
 .receive-token-option.selected {
-    background: rgba(45, 212, 191, 0.08);
+    background: rgba(45, 212, 191, 0.12);
+    color: var(--coins-text);
+    border-color: rgba(45, 212, 191, 0.3);
 }
 
 .receive-token-option .tok-icon {
+    font-size: 0.875rem;
     font-weight: 600;
     color: var(--coins-accent);
-    width: 1.25rem;
+    width: 1.125rem;
     text-align: center;
     flex-shrink: 0;
 }
 
 .receive-token-option .tok-name {
-    flex: 1;
     font-weight: 500;
+    letter-spacing: 0.01em;
 }
 
 .receive-token-option .tok-owned {
-    font-size: 0.625rem;
-    color: var(--coins-text-muted);
+    font-size: 0.5rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--coins-accent);
+    margin-left: 0.125rem;
 }
 
+/* Divider between owned and other tokens - now a visual break */
 .receive-token-divider {
-    height: 1px;
-    background: var(--coins-border);
-    margin: 0.25rem 0;
+    display: none; /* Hidden in chip layout - owned tokens are highlighted instead */
 }
 
 /* ========================================

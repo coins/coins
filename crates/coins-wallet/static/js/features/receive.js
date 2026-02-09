@@ -53,14 +53,24 @@ export function initSendReceiveTabs() {
 
             updateReceiveQR();
 
+            // Position suffix before flip animation starts (while back face is measured)
+            repositionReceiveTokenSuffix();
+
             requestAnimationFrame(() => {
                 setHeightForFace(faceBack);
                 flipCard.classList.add('flipped');
             });
         } else {
             // Switch to Send
+            // Close token dropdown if open
+            const tokenSelect = document.getElementById('receive-token-select');
+            if (tokenSelect) tokenSelect.classList.remove('open');
+
             flipCard.classList.remove('flipped');
-            setHeightForFace(faceFront);
+            // Wait for flip to start before shrinking height
+            setTimeout(() => {
+                flipCard.style.minHeight = faceFront.offsetHeight + 'px';
+            }, 150);
         }
     }
 
@@ -101,6 +111,7 @@ export function initReceiveTab() {
                 amountInput.value = '';
                 amountInput.inputMode = 'numeric';
             }
+            requestAnimationFrame(repositionReceiveTokenSuffix);
         });
         amountInput.addEventListener('blur', () => {
             if (!amountInput.value.trim()) {
@@ -109,11 +120,13 @@ export function initReceiveTab() {
                 updateReceiveQuickActive('any');
                 onReceiveFieldChange();
             }
+            requestAnimationFrame(repositionReceiveTokenSuffix);
         });
         amountInput.addEventListener('input', () => {
             amountInput.value = amountInput.value.replace(/[^0-9]/g, '');
             updateReceiveQuickActive(amountInput.value);
             onReceiveFieldChange();
+            requestAnimationFrame(repositionReceiveTokenSuffix);
         });
     }
 
@@ -130,6 +143,7 @@ export function initReceiveTab() {
             }
             updateReceiveQuickActive(btn.dataset.amount);
             onReceiveFieldChange();
+            requestAnimationFrame(repositionReceiveTokenSuffix);
         });
     });
 
@@ -206,17 +220,54 @@ function initReceiveExpiryChips() {
 }
 
 /**
+ * Position receive token suffix right after the amount digits
+ */
+export function repositionReceiveTokenSuffix() {
+    const input = document.getElementById('receive-amount');
+    const measure = document.getElementById('receive-amount-measure');
+    const suffix = document.getElementById('receive-token-suffix');
+    if (!input || !measure || !suffix) return;
+
+    // Horizontal: place suffix right after the centered text
+    const text = input.value || input.placeholder || '';
+    measure.textContent = text;
+    const inputRect = input.getBoundingClientRect();
+    const textWidth = measure.offsetWidth;
+    const center = inputRect.left + inputRect.width / 2;
+    const rowRect = input.closest('.amount-row').getBoundingClientRect();
+    const leftPos = center + textWidth / 2 - rowRect.left;
+    suffix.style.left = leftPos + 'px';
+
+    // Vertical: baseline-align
+    const inputStyle = getComputedStyle(input);
+    const helper = document.createElement('div');
+    helper.style.cssText = 'position:absolute;top:-9999px;left:0;display:inline-flex;align-items:baseline;';
+    const bigSpan = document.createElement('span');
+    bigSpan.style.cssText = `font-size:${inputStyle.fontSize};font-weight:${inputStyle.fontWeight};font-family:${inputStyle.fontFamily};line-height:${inputStyle.lineHeight};padding:${inputStyle.padding};`;
+    bigSpan.textContent = text || '0';
+    const smallSpan = document.createElement('span');
+    const suffixStyle = getComputedStyle(suffix);
+    smallSpan.style.cssText = `font-size:${suffixStyle.fontSize};font-weight:${suffixStyle.fontWeight};font-family:${suffixStyle.fontFamily};line-height:1;`;
+    smallSpan.textContent = suffix.textContent;
+    helper.appendChild(bigSpan);
+    helper.appendChild(smallSpan);
+    document.body.appendChild(helper);
+    const delta = smallSpan.getBoundingClientRect().top - bigSpan.getBoundingClientRect().top;
+    document.body.removeChild(helper);
+
+    suffix.style.top = delta + 'px';
+}
+
+/**
  * Initialize receive token selector dropdown
  */
 export function initReceiveTokenSelector() {
     const selectEl = document.getElementById('receive-token-select');
-    const btn = document.getElementById('receive-token-btn');
     const dropdown = document.getElementById('receive-token-dropdown');
     const searchInput = document.getElementById('receive-token-search');
     const listEl = document.getElementById('receive-token-list');
-    const iconEl = document.getElementById('receive-token-icon');
-    const labelEl = document.getElementById('receive-token-label');
-    if (!selectEl || !btn || !dropdown || !listEl) return;
+    const suffixEl = document.getElementById('receive-token-suffix');
+    if (!selectEl || !dropdown || !listEl || !suffixEl) return;
 
     // Build token list: owned tokens first, then the rest of 0-255
     const ownedSet = new Set();
@@ -265,23 +316,58 @@ export function initReceiveTokenSelector() {
     function selectToken(tid) {
         receiveState.selectedTokenId = tid;
         const info = getTokenDisplayInfo(tid);
-        if (iconEl) iconEl.textContent = info.icon;
-        if (labelEl) labelEl.textContent = info.name;
+        if (suffixEl) suffixEl.textContent = `${info.icon} ${info.name}`;
         closeDropdown();
         onReceiveFieldChange();
+        requestAnimationFrame(repositionReceiveTokenSuffix);
     }
 
+    // Store the base height (without panel) for closing
+    let baseHeight = 0;
+
     function openDropdown() {
-        selectEl.classList.add('open');
+        // Render the list first so we can measure it
         renderList('');
-        if (searchInput) { searchInput.value = ''; searchInput.focus(); }
+
+        // Pre-calculate the expanded height and set it immediately
+        const flipCard = document.getElementById('sr-flip-card');
+        const panel = document.getElementById('receive-token-dropdown');
+        const panelInner = panel ? panel.querySelector('.receive-token-panel-inner') : null;
+
+        if (flipCard && panelInner) {
+            // Use current minHeight as base (set by flip animation)
+            baseHeight = parseInt(flipCard.style.minHeight, 10) || 0;
+            // Calculate what the height will be after expansion
+            // panelInner.scrollHeight + margins (0.5rem ≈ 8px) + borders (2px) = +10px
+            const panelHeight = panelInner.scrollHeight + 10;
+            flipCard.style.minHeight = (baseHeight + panelHeight) + 'px';
+        }
+
+        selectEl.classList.add('open');
+        if (searchInput) {
+            searchInput.value = '';
+            // Focus without scrolling
+            setTimeout(() => searchInput.focus({ preventScroll: true }), 50);
+        }
     }
 
     function closeDropdown() {
+        // Only do anything if actually open
+        if (!selectEl.classList.contains('open')) return;
+
+        // Use the stored base height
+        const flipCard = document.getElementById('sr-flip-card');
+
+        if (flipCard && baseHeight > 0 && receiveState.isReceiveMode) {
+            flipCard.style.minHeight = baseHeight + 'px';
+        }
+
         selectEl.classList.remove('open');
     }
 
-    btn.addEventListener('click', function() {
+    // Click on token suffix opens the dropdown
+    suffixEl.addEventListener('click', function(e) {
+        e.stopPropagation();
         if (selectEl.classList.contains('open')) {
             closeDropdown();
         } else {
@@ -303,7 +389,7 @@ export function initReceiveTokenSelector() {
     });
 
     document.addEventListener('click', function(e) {
-        if (!selectEl.contains(e.target)) {
+        if (!selectEl.contains(e.target) && e.target !== suffixEl) {
             closeDropdown();
         }
     });
@@ -311,6 +397,9 @@ export function initReceiveTokenSelector() {
     // Set initial selection
     const initialToken = ownedTokens.length > 0 ? ownedTokens[0] : 0;
     selectToken(initialToken);
+
+    // Initial suffix positioning
+    requestAnimationFrame(repositionReceiveTokenSuffix);
 }
 
 /**

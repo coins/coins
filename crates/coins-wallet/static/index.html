@@ -250,32 +250,28 @@
                                 </h2>
                             </div>
                             <div class="sr-content" id="pane-receive">
-                                <div class="receive-top-row">
-                                    <div class="receive-field-group receive-field-amount">
-                                        <label class="receive-field-label">Amount</label>
-                                        <div class="amount-input-wrapper receive-amount-wrapper">
-                                            <input type="text" class="amount-input-large" id="receive-amount" placeholder="Any" value="Any" autocomplete="off">
-                                            <div class="amount-quick-select">
-                                                <span class="quick-amount receive-quick-amount active" data-amount="any">Any</span>
-                                                <span class="quick-amount receive-quick-amount" data-amount="10">10</span>
-                                                <span class="quick-amount receive-quick-amount" data-amount="100">100</span>
-                                                <span class="quick-amount receive-quick-amount" data-amount="1000">1k</span>
-                                                <span class="quick-amount receive-quick-amount" data-amount="10000">10k</span>
-                                            </div>
-                                        </div>
+                                <div class="amount-input-wrapper">
+                                    <div class="amount-row">
+                                        <input type="text" class="amount-input-large" id="receive-amount" placeholder="Any" value="Any" autocomplete="off">
+                                        <span class="amount-measure" id="receive-amount-measure" aria-hidden="true"></span>
+                                        <span class="amount-token-suffix receive-token-suffix" id="receive-token-suffix">&alpha; Alpha</span>
                                     </div>
-                                    <div class="receive-field-group receive-field-token">
-                                        <label class="receive-field-label">Token</label>
-                                        <div class="receive-token-select" id="receive-token-select">
-                                            <button class="receive-token-selected" id="receive-token-btn" type="button">
-                                                <span class="receive-token-icon" id="receive-token-icon">&alpha;</span>
-                                                <span class="receive-token-name" id="receive-token-label">Alpha</span>
-                                                <span class="receive-token-chevron">&#9662;</span>
-                                            </button>
-                                            <div class="receive-token-dropdown" id="receive-token-dropdown">
-                                                <input class="receive-token-search" id="receive-token-search" type="text" placeholder="Search tokens..." autocomplete="off">
-                                                <div class="receive-token-list" id="receive-token-list"></div>
+                                    <div class="amount-quick-select" id="receive-quick-select">
+                                        <span class="quick-amount receive-quick-amount active" data-amount="any">Any</span>
+                                        <span class="quick-amount receive-quick-amount" data-amount="10">10</span>
+                                        <span class="quick-amount receive-quick-amount" data-amount="100">100</span>
+                                        <span class="quick-amount receive-quick-amount" data-amount="1000">1k</span>
+                                        <span class="quick-amount receive-quick-amount" data-amount="10000">10k</span>
+                                    </div>
+                                </div>
+                                <!-- Inline Token Selector - expands downward -->
+                                <div class="receive-token-select" id="receive-token-select">
+                                    <div class="receive-token-panel" id="receive-token-dropdown">
+                                        <div class="receive-token-panel-inner">
+                                            <div class="receive-token-search-wrap">
+                                                <input class="receive-token-search" id="receive-token-search" type="text" placeholder="Search 256 tokens..." autocomplete="off">
                                             </div>
+                                            <div class="receive-token-list" id="receive-token-list"></div>
                                         </div>
                                     </div>
                                 </div>
