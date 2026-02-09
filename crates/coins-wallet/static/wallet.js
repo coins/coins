@@ -3029,44 +3029,80 @@ function initInvoice() {
 }
 
 // ========================================
-// Send / Receive Tab Switcher
+// Send / Receive Flip Toggle
 // ========================================
 
 window.receiveState = {
-    expiryDrum: { currentOffset: 0, selectedIndex: 0, itemHeight: 22 },
     qrDebounceTimer: null,
     tokenSelectorReady: false,
-    selectedTokenId: 0
+    selectedTokenId: 0,
+    isReceiveMode: false
 };
 
 function initSendReceiveTabs() {
-    const tabSend = document.getElementById('tab-send');
-    const tabReceive = document.getElementById('tab-receive');
-    const paneSend = document.getElementById('pane-send');
-    const paneReceive = document.getElementById('pane-receive');
-    if (!tabSend || !tabReceive || !paneSend || !paneReceive) return;
+    const flipCard = document.getElementById('sr-flip-card');
+    const toggleFront = document.getElementById('sr-toggle-front');
+    const toggleBack = document.getElementById('sr-toggle-back');
+    const faceFront = flipCard ? flipCard.querySelector('.sr-face-front') : null;
+    const faceBack = flipCard ? flipCard.querySelector('.sr-face-back') : null;
+    if (!flipCard) return;
 
-    tabSend.addEventListener('click', () => {
-        tabSend.classList.add('active');
-        tabReceive.classList.remove('active');
-        paneSend.classList.add('active');
-        paneReceive.classList.remove('active');
-    });
+    // Set flip card height to match the currently visible face
+    function setHeightForFace(face) {
+        if (!face) return;
+        // Temporarily ensure face is measurable
+        const origPos = face.style.position;
+        const origVis = face.style.visibility;
+        const origTransform = face.style.transform;
+        face.style.position = 'relative';
+        face.style.visibility = 'visible';
+        face.style.transform = 'none';
 
-    tabReceive.addEventListener('click', () => {
-        tabReceive.classList.add('active');
-        tabSend.classList.remove('active');
-        paneReceive.classList.add('active');
-        paneSend.classList.remove('active');
+        // Force reflow
+        void face.offsetHeight;
 
-        // Lazily populate token drum and generate initial QR
-        // Use rAF to ensure the pane is laid out before rendering QR
-        if (!window.receiveState.tokenSelectorReady) {
-            initReceiveTokenSelector();
-            window.receiveState.tokenSelectorReady = true;
+        const height = face.offsetHeight;
+
+        // Restore
+        face.style.position = origPos;
+        face.style.visibility = origVis;
+        face.style.transform = origTransform;
+
+        flipCard.style.minHeight = height + 'px';
+    }
+
+    // Initial height for front face
+    setTimeout(() => setHeightForFace(faceFront), 100);
+
+    function toggleFlip() {
+        window.receiveState.isReceiveMode = !window.receiveState.isReceiveMode;
+
+        if (window.receiveState.isReceiveMode) {
+            // Switch to Receive
+            // Initialize token selector FIRST if needed (affects height)
+            var needsInit = !window.receiveState.tokenSelectorReady;
+            if (needsInit) {
+                initReceiveTokenSelector();
+                window.receiveState.tokenSelectorReady = true;
+            }
+
+            // Render QR first (sets canvas dimensions, affects height)
+            updateReceiveQR();
+
+            // Wait for DOM to update, then measure and flip
+            requestAnimationFrame(() => {
+                setHeightForFace(faceBack);
+                flipCard.classList.add('flipped');
+            });
+        } else {
+            // Switch to Send - flip and shrink together
+            flipCard.classList.remove('flipped');
+            setHeightForFace(faceFront);
         }
-        requestAnimationFrame(() => updateReceiveQR());
-    });
+    }
+
+    if (toggleFront) toggleFront.addEventListener('click', toggleFlip);
+    if (toggleBack) toggleBack.addEventListener('click', toggleFlip);
 }
 
 function initReceiveTab() {
@@ -3133,25 +3169,44 @@ function initReceiveTab() {
         });
     });
 
-    // Memo badge → expand
+    // Expiry chips
+    initReceiveExpiryChips();
+
+    // Memo badge → expand, with close button
     const memoBadge = document.getElementById('receive-memo-badge');
     const memoInputWrap = document.getElementById('receive-memo-input');
     const memoInput = document.getElementById('receive-memo');
     const memoCount = document.getElementById('receive-memo-count');
+    const memoClose = document.getElementById('receive-memo-close');
 
     if (memoBadge && memoInputWrap && memoInput) {
         memoBadge.addEventListener('click', () => {
             memoBadge.style.display = 'none';
-            memoInputWrap.style.display = '';
+            memoInputWrap.classList.add('visible');
             memoInput.focus();
         });
 
         memoInput.addEventListener('input', () => {
             if (memoCount) {
-                memoCount.textContent = memoInput.value.length + '/255';
+                var len = memoInput.value.length;
+                memoCount.textContent = len + ' / 255';
+                memoCount.classList.toggle('warn', len > 230);
             }
             onReceiveFieldChange();
         });
+
+        if (memoClose) {
+            memoClose.addEventListener('click', () => {
+                memoInput.value = '';
+                if (memoCount) {
+                    memoCount.textContent = '0 / 255';
+                    memoCount.classList.remove('warn');
+                }
+                memoInputWrap.classList.remove('visible');
+                memoBadge.style.display = '';
+                onReceiveFieldChange();
+            });
+        }
     }
 
     // Custom datetime change
@@ -3161,91 +3216,26 @@ function initReceiveTab() {
             onReceiveFieldChange();
         });
     }
-
-    // Init expiry drum
-    initReceiveDrum(
-        'receive-expiry-drum',
-        'receive-expiry-drum-track',
-        window.receiveState.expiryDrum,
-        (item) => {
-            const customExpiry = document.getElementById('receive-custom-expiry');
-            if (item && item.dataset.seconds === 'custom') {
-                if (customExpiry) customExpiry.style.display = '';
-            } else {
-                if (customExpiry) customExpiry.style.display = 'none';
-            }
-            onReceiveFieldChange();
-        }
-    );
 }
 
-function initReceiveDrum(drumId, trackId, stateObj, onChange) {
-    const drum = document.getElementById(drumId);
-    const track = document.getElementById(trackId);
-    if (!drum || !track) return;
+function initReceiveExpiryChips() {
+    const chips = document.querySelectorAll('.receive-expiry-chip');
+    const customExpiry = document.getElementById('receive-custom-expiry');
+    if (!chips.length) return;
 
-    const items = track.querySelectorAll('.receive-drum-item');
-    if (items.length === 0) return;
+    chips.forEach(chip => {
+        chip.addEventListener('click', () => {
+            chips.forEach(c => c.classList.remove('active'));
+            chip.classList.add('active');
 
-    stateObj.itemHeight = items[0].offsetHeight || 22;
-
-    let isDragging = false;
-    let startY = 0;
-    let dragOffset = 0;
-
-    function updateActive(index) {
-        items.forEach((item, i) => item.classList.toggle('active', i === index));
-    }
-
-    updateActive(stateObj.selectedIndex);
-
-    function snapToIndex(index) {
-        index = Math.max(0, Math.min(items.length - 1, index));
-        stateObj.selectedIndex = index;
-        stateObj.currentOffset = -index * stateObj.itemHeight;
-        track.style.transform = 'translateY(' + stateObj.currentOffset + 'px)';
-        updateActive(index);
-        if (onChange) onChange(items[index]);
-    }
-
-    function snapToNearest() {
-        const index = Math.round(-stateObj.currentOffset / stateObj.itemHeight);
-        snapToIndex(index);
-    }
-
-    function handleDragStart(clientY) {
-        isDragging = true;
-        startY = clientY;
-        dragOffset = stateObj.currentOffset;
-        drum.classList.add('grabbing');
-        track.classList.add('dragging');
-    }
-
-    function handleDragMove(clientY) {
-        if (!isDragging) return;
-        const diff = clientY - startY;
-        const maxOffset = 0;
-        const minOffset = -(items.length - 1) * stateObj.itemHeight;
-        stateObj.currentOffset = Math.max(minOffset - 20, Math.min(maxOffset + 20, dragOffset + diff));
-        track.style.transform = 'translateY(' + stateObj.currentOffset + 'px)';
-        const previewIndex = Math.max(0, Math.min(items.length - 1, Math.round(-stateObj.currentOffset / stateObj.itemHeight)));
-        updateActive(previewIndex);
-    }
-
-    function handleDragEnd() {
-        if (!isDragging) return;
-        isDragging = false;
-        drum.classList.remove('grabbing');
-        track.classList.remove('dragging');
-        snapToNearest();
-    }
-
-    drum.addEventListener('mousedown', (e) => { e.preventDefault(); handleDragStart(e.clientY); });
-    document.addEventListener('mousemove', (e) => { handleDragMove(e.clientY); });
-    document.addEventListener('mouseup', () => { handleDragEnd(); });
-    drum.addEventListener('touchstart', (e) => { handleDragStart(e.touches[0].clientY); }, { passive: true });
-    drum.addEventListener('touchmove', (e) => { handleDragMove(e.touches[0].clientY); }, { passive: true });
-    drum.addEventListener('touchend', () => { handleDragEnd(); });
+            if (chip.dataset.seconds === 'custom') {
+                if (customExpiry) customExpiry.classList.add('visible');
+            } else {
+                if (customExpiry) customExpiry.classList.remove('visible');
+            }
+            onReceiveFieldChange();
+        });
+    });
 }
 
 function tokenDisplayInfo(id) {
@@ -3383,21 +3373,18 @@ function buildReceiveUri() {
     // Token from selector
     var tokenId = window.receiveState.selectedTokenId;
 
-    // Expiry from drum
+    // Expiry from chips
     let expires = null;
-    const expiryTrack = document.getElementById('receive-expiry-drum-track');
-    if (expiryTrack) {
-        const activeItem = expiryTrack.querySelector('.receive-drum-item.active');
-        if (activeItem) {
-            const seconds = activeItem.dataset.seconds;
-            if (seconds === 'custom') {
-                const customInput = document.getElementById('receive-custom-datetime');
-                if (customInput && customInput.value) {
-                    expires = Math.floor(new Date(customInput.value).getTime() / 1000);
-                }
-            } else if (seconds && parseInt(seconds, 10) > 0) {
-                expires = Math.floor(Date.now() / 1000) + parseInt(seconds, 10);
+    const activeChip = document.querySelector('.receive-expiry-chip.active');
+    if (activeChip) {
+        const seconds = activeChip.dataset.seconds;
+        if (seconds === 'custom') {
+            const customInput = document.getElementById('receive-custom-datetime');
+            if (customInput && customInput.value) {
+                expires = Math.floor(new Date(customInput.value).getTime() / 1000);
             }
+        } else if (seconds && parseInt(seconds, 10) > 0) {
+            expires = Math.floor(Date.now() / 1000) + parseInt(seconds, 10);
         }
     }
 

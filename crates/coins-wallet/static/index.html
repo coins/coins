@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Coins Wallet</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
-    <link rel="stylesheet" href="/shared/coins-common.css">
+    <link rel="stylesheet" href="/shared/coins-common.css?v=3">
     <script src="https://cdn.jsdelivr.net/npm/qrcode@1.4.4/build/qrcode.min.js"></script>
 </head>
 <body>
@@ -200,118 +200,116 @@
                     </div>
                 </div>
 
-                <!-- Send / Receive Card -->
-                <div class="coins-card mb-4" id="send-card">
-                    <!-- Tab Switcher -->
-                    <div class="send-receive-tabs">
-                        <button class="sr-tab active" data-tab="send" id="tab-send">Send</button>
-                        <button class="sr-tab" data-tab="receive" id="tab-receive">Receive</button>
-                    </div>
-
-                    <!-- Send Pane -->
-                    <div class="sr-pane active" id="pane-send">
-                        <div class="field" style="position:relative">
-                            <div class="recipient-row">
-                                <input class="input" type="text" id="send-recipient" placeholder="Account ID or address" autocomplete="off">
-                                <button class="button is-light addressbook-toggle" id="open-addressbook-btn" title="Address book">
-                                    Contacts
-                                </button>
+                <!-- Send / Receive Card with Flip -->
+                <div class="sr-flip-scene mb-4">
+                    <div class="sr-flip-card" id="sr-flip-card">
+                        <!-- Front Face: Send -->
+                        <div class="coins-card sr-face sr-face-front">
+                            <div class="coins-card-header sr-header" id="sr-toggle-front">
+                                <h2 class="coins-card-title sr-title">
+                                    <svg class="sr-title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M7 17l5 5 5-5M7 7l5-5 5 5"/>
+                                    </svg>
+                                    <span class="sr-title-label active">Send</span>
+                                    <span class="sr-title-sep">/</span>
+                                    <span class="sr-title-label">Receive</span>
+                                </h2>
                             </div>
-                            <div class="recipient-suggestions" id="recipient-suggestions"></div>
-                        </div>
-
-                        <!-- Amount Input with Token Suffix -->
-                        <div class="amount-input-wrapper">
-                            <div class="amount-row">
-                                <input type="text" inputmode="numeric" class="amount-input-large" id="send-amount" placeholder="0" autocomplete="off">
-                                <span class="amount-measure" id="send-amount-measure" aria-hidden="true"></span>
-                                <span class="amount-token-suffix" id="send-token-suffix">&alpha; Alpha</span>
-                            </div>
-                            <div class="amount-quick-select" id="send-quick-select">
-                                <!-- Populated dynamically by JS based on balance -->
-                            </div>
-                        </div>
-
-                        <!-- Hidden fields -->
-                        <input type="hidden" id="send-fee" value="1">
-
-                        <button class="button is-primary is-fullwidth" id="send-tx-btn">
-                            Send
-                        </button>
-
-                        <div id="send-status" class="notification mt-3" style="display: none;"></div>
-                    </div>
-
-                    <!-- Receive Pane -->
-                    <div class="sr-pane" id="pane-receive">
-                        <!-- Top row: Amount + Token side by side -->
-                        <div class="receive-top-row">
-                            <div class="receive-field-group receive-field-amount">
-                                <label class="receive-field-label">Amount</label>
-                                <div class="amount-input-wrapper receive-amount-wrapper">
-                                    <input type="text" class="amount-input-large" id="receive-amount" placeholder="Any" value="Any" autocomplete="off">
-                                    <div class="amount-quick-select">
-                                        <span class="quick-amount receive-quick-amount active" data-amount="any">Any</span>
-                                        <span class="quick-amount receive-quick-amount" data-amount="10">10</span>
-                                        <span class="quick-amount receive-quick-amount" data-amount="100">100</span>
-                                        <span class="quick-amount receive-quick-amount" data-amount="1000">1k</span>
-                                        <span class="quick-amount receive-quick-amount" data-amount="10000">10k</span>
+                            <div class="sr-content" id="pane-send">
+                                <div class="field" style="position:relative">
+                                    <div class="recipient-row">
+                                        <input class="input" type="text" id="send-recipient" placeholder="Account ID or address" autocomplete="off">
+                                        <button class="button is-light addressbook-toggle" id="open-addressbook-btn" title="Address book">Contacts</button>
                                     </div>
+                                    <div class="recipient-suggestions" id="recipient-suggestions"></div>
                                 </div>
-                            </div>
-
-                            <div class="receive-field-group receive-field-token">
-                                <label class="receive-field-label">Token</label>
-                                <div class="receive-token-select" id="receive-token-select">
-                                    <button class="receive-token-selected" id="receive-token-btn" type="button">
-                                        <span class="receive-token-icon" id="receive-token-icon">&alpha;</span>
-                                        <span class="receive-token-name" id="receive-token-label">Alpha</span>
-                                        <span class="receive-token-chevron">&#9662;</span>
-                                    </button>
-                                    <div class="receive-token-dropdown" id="receive-token-dropdown">
-                                        <input class="receive-token-search" id="receive-token-search"
-                                               type="text" placeholder="Search tokens..." autocomplete="off">
-                                        <div class="receive-token-list" id="receive-token-list">
-                                            <!-- Populated by JS -->
-                                        </div>
+                                <div class="amount-input-wrapper">
+                                    <div class="amount-row">
+                                        <input type="text" inputmode="numeric" class="amount-input-large" id="send-amount" placeholder="0" autocomplete="off">
+                                        <span class="amount-measure" id="send-amount-measure" aria-hidden="true"></span>
+                                        <span class="amount-token-suffix" id="send-token-suffix">&alpha; Alpha</span>
                                     </div>
+                                    <div class="amount-quick-select" id="send-quick-select"></div>
                                 </div>
+                                <input type="hidden" id="send-fee" value="1">
+                                <button class="button is-primary is-fullwidth" id="send-tx-btn">Send</button>
+                                <div id="send-status" class="notification mt-3" style="display: none;"></div>
                             </div>
                         </div>
 
-                        <!-- Bottom row: QR left, Expiry+Memo right -->
-                        <div class="receive-bottom-row">
-                            <div class="receive-qr-container" id="receive-qr-container" title="Tap to copy invoice URI">
-                                <canvas id="receive-qr-canvas"></canvas>
-                                <div class="receive-qr-copied" id="receive-qr-copied">Copied!</div>
+                        <!-- Back Face: Receive -->
+                        <div class="coins-card sr-face sr-face-back">
+                            <div class="coins-card-header sr-header" id="sr-toggle-back">
+                                <h2 class="coins-card-title sr-title">
+                                    <svg class="sr-title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M7 17l5 5 5-5M7 7l5-5 5 5"/>
+                                    </svg>
+                                    <span class="sr-title-label">Send</span>
+                                    <span class="sr-title-sep">/</span>
+                                    <span class="sr-title-label active">Receive</span>
+                                </h2>
                             </div>
-
-                            <div class="receive-bottom-fields">
-                                <div class="receive-field-group">
-                                    <label class="receive-field-label">Expires</label>
-                                    <div class="receive-drum" id="receive-expiry-drum">
-                                        <div class="receive-drum-viewport">
-                                            <div class="receive-drum-track" id="receive-expiry-drum-track">
-                                                <div class="receive-drum-item active" data-seconds="0">No expiry</div>
-                                                <div class="receive-drum-item" data-seconds="3600">1 hour</div>
-                                                <div class="receive-drum-item" data-seconds="28800">8 hours</div>
-                                                <div class="receive-drum-item" data-seconds="86400">1 day</div>
-                                                <div class="receive-drum-item" data-seconds="604800">1 week</div>
-                                                <div class="receive-drum-item" data-seconds="custom">Custom...</div>
+                            <div class="sr-content" id="pane-receive">
+                                <div class="receive-top-row">
+                                    <div class="receive-field-group receive-field-amount">
+                                        <label class="receive-field-label">Amount</label>
+                                        <div class="amount-input-wrapper receive-amount-wrapper">
+                                            <input type="text" class="amount-input-large" id="receive-amount" placeholder="Any" value="Any" autocomplete="off">
+                                            <div class="amount-quick-select">
+                                                <span class="quick-amount receive-quick-amount active" data-amount="any">Any</span>
+                                                <span class="quick-amount receive-quick-amount" data-amount="10">10</span>
+                                                <span class="quick-amount receive-quick-amount" data-amount="100">100</span>
+                                                <span class="quick-amount receive-quick-amount" data-amount="1000">1k</span>
+                                                <span class="quick-amount receive-quick-amount" data-amount="10000">10k</span>
                                             </div>
                                         </div>
                                     </div>
-                                    <div class="receive-custom-expiry" id="receive-custom-expiry" style="display:none">
+                                    <div class="receive-field-group receive-field-token">
+                                        <label class="receive-field-label">Token</label>
+                                        <div class="receive-token-select" id="receive-token-select">
+                                            <button class="receive-token-selected" id="receive-token-btn" type="button">
+                                                <span class="receive-token-icon" id="receive-token-icon">&alpha;</span>
+                                                <span class="receive-token-name" id="receive-token-label">Alpha</span>
+                                                <span class="receive-token-chevron">&#9662;</span>
+                                            </button>
+                                            <div class="receive-token-dropdown" id="receive-token-dropdown">
+                                                <input class="receive-token-search" id="receive-token-search" type="text" placeholder="Search tokens..." autocomplete="off">
+                                                <div class="receive-token-list" id="receive-token-list"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="receive-qr-section">
+                                    <div class="receive-qr-frame" id="receive-qr-container" title="Tap to copy invoice URI">
+                                        <canvas id="receive-qr-canvas"></canvas>
+                                        <div class="receive-qr-copied-overlay" id="receive-qr-copied">
+                                            <span class="receive-qr-copied-icon">&#10003;</span>
+                                            <span class="receive-qr-copied-text">Invoice copied</span>
+                                        </div>
+                                    </div>
+                                    <div class="receive-qr-hint">Tap QR to copy invoice</div>
+                                </div>
+                                <div class="receive-divider"></div>
+                                <div class="receive-field-group">
+                                    <label class="receive-field-label">Expires</label>
+                                    <div class="receive-expiry-chips" id="receive-expiry-chips">
+                                        <button class="receive-expiry-chip active" data-seconds="0" type="button">Never</button>
+                                        <button class="receive-expiry-chip" data-seconds="3600" type="button">1 hour</button>
+                                        <button class="receive-expiry-chip" data-seconds="28800" type="button">8 hours</button>
+                                        <button class="receive-expiry-chip" data-seconds="86400" type="button">1 day</button>
+                                        <button class="receive-expiry-chip" data-seconds="604800" type="button">1 week</button>
+                                        <button class="receive-expiry-chip" data-seconds="custom" type="button">Custom</button>
+                                    </div>
+                                    <div class="receive-custom-expiry" id="receive-custom-expiry">
                                         <input type="datetime-local" id="receive-custom-datetime">
                                     </div>
                                 </div>
-
                                 <div class="receive-field-group">
-                                    <span class="receive-memo-badge" id="receive-memo-badge">+ Add memo</span>
-                                    <div class="receive-memo-input" id="receive-memo-input" style="display:none">
-                                        <input class="input is-small" type="text" id="receive-memo"
-                                               placeholder="e.g. Payment for coffee" maxlength="255">
-                                        <span class="receive-memo-count" id="receive-memo-count">0/255</span>
+                                    <button class="receive-memo-badge" id="receive-memo-badge" type="button">+ Add memo</button>
+                                    <div class="receive-memo-input" id="receive-memo-input">
+                                        <input class="input is-small" type="text" id="receive-memo" placeholder="Payment for..." maxlength="255">
+                                        <span class="receive-memo-count" id="receive-memo-count">0 / 255</span>
+                                        <button class="receive-memo-close" id="receive-memo-close" type="button" title="Remove memo">&times;</button>
                                     </div>
                                 </div>
                             </div>
@@ -589,6 +587,6 @@
         </div>
     </div>
 
-    <script src="/wallet.js"></script>
+    <script src="/wallet.js?v=4"></script>
 </body>
 </html>
