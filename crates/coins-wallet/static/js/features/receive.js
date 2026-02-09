@@ -12,33 +12,7 @@ export function initSendReceiveTabs() {
     const flipCard = document.getElementById('sr-flip-card');
     const toggleFront = document.getElementById('sr-toggle-front');
     const toggleBack = document.getElementById('sr-toggle-back');
-    const faceFront = flipCard ? flipCard.querySelector('.sr-face-front') : null;
-    const faceBack = flipCard ? flipCard.querySelector('.sr-face-back') : null;
     if (!flipCard) return;
-
-    // Set flip card height to match the currently visible face
-    function setHeightForFace(face) {
-        if (!face) return;
-        const origPos = face.style.position;
-        const origVis = face.style.visibility;
-        const origTransform = face.style.transform;
-        face.style.position = 'relative';
-        face.style.visibility = 'visible';
-        face.style.transform = 'none';
-
-        void face.offsetHeight;
-
-        const height = face.offsetHeight;
-
-        face.style.position = origPos;
-        face.style.visibility = origVis;
-        face.style.transform = origTransform;
-
-        flipCard.style.minHeight = height + 'px';
-    }
-
-    // Initial height for front face
-    setTimeout(() => setHeightForFace(faceFront), 100);
 
     function toggleFlip() {
         receiveState.isReceiveMode = !receiveState.isReceiveMode;
@@ -57,7 +31,6 @@ export function initSendReceiveTabs() {
             repositionReceiveTokenSuffix();
 
             requestAnimationFrame(() => {
-                setHeightForFace(faceBack);
                 flipCard.classList.add('flipped');
             });
         } else {
@@ -66,11 +39,13 @@ export function initSendReceiveTabs() {
             const tokenSelect = document.getElementById('receive-token-select');
             if (tokenSelect) tokenSelect.classList.remove('open');
 
+            flipCard.classList.add('flipping-to-front');
             flipCard.classList.remove('flipped');
-            // Wait for flip to start before shrinking height
+
+            // Remove transition class after animation completes
             setTimeout(() => {
-                flipCard.style.minHeight = faceFront.offsetHeight + 'px';
-            }, 150);
+                flipCard.classList.remove('flipping-to-front');
+            }, 350);
         }
     }
 
@@ -150,41 +125,24 @@ export function initReceiveTab() {
     // Expiry chips
     initReceiveExpiryChips();
 
-    // Memo badge → expand, with close button
+    // Memo chip → simple toggle
     const memoBadge = document.getElementById('receive-memo-badge');
     const memoInputWrap = document.getElementById('receive-memo-input');
     const memoInput = document.getElementById('receive-memo');
-    const memoCount = document.getElementById('receive-memo-count');
-    const memoClose = document.getElementById('receive-memo-close');
 
     if (memoBadge && memoInputWrap && memoInput) {
         memoBadge.addEventListener('click', () => {
-            memoBadge.style.display = 'none';
-            memoInputWrap.classList.add('visible');
-            memoInput.focus();
+            const isActive = memoBadge.classList.contains('active');
+            memoBadge.classList.toggle('active', !isActive);
+            memoInputWrap.classList.toggle('visible', !isActive);
+            if (!isActive) {
+                memoInput.focus({ preventScroll: true });
+            }
         });
 
         memoInput.addEventListener('input', () => {
-            if (memoCount) {
-                const len = memoInput.value.length;
-                memoCount.textContent = len + ' / 255';
-                memoCount.classList.toggle('warn', len > 230);
-            }
             onReceiveFieldChange();
         });
-
-        if (memoClose) {
-            memoClose.addEventListener('click', () => {
-                memoInput.value = '';
-                if (memoCount) {
-                    memoCount.textContent = '0 / 255';
-                    memoCount.classList.remove('warn');
-                }
-                memoInputWrap.classList.remove('visible');
-                memoBadge.style.display = '';
-                onReceiveFieldChange();
-            });
-        }
     }
 
     // Custom datetime change
@@ -200,7 +158,8 @@ export function initReceiveTab() {
  * Initialize receive expiry chips
  */
 function initReceiveExpiryChips() {
-    const chips = document.querySelectorAll('.receive-expiry-chip');
+    // Exclude memo chip from expiry chips
+    const chips = document.querySelectorAll('.receive-expiry-chip:not(.receive-memo-chip)');
     const customExpiry = document.getElementById('receive-custom-expiry');
     if (!chips.length) return;
 
@@ -322,46 +281,17 @@ export function initReceiveTokenSelector() {
         requestAnimationFrame(repositionReceiveTokenSuffix);
     }
 
-    // Store the base height (without panel) for closing
-    let baseHeight = 0;
-
     function openDropdown() {
-        // Render the list first so we can measure it
         renderList('');
-
-        // Pre-calculate the expanded height and set it immediately
-        const flipCard = document.getElementById('sr-flip-card');
-        const panel = document.getElementById('receive-token-dropdown');
-        const panelInner = panel ? panel.querySelector('.receive-token-panel-inner') : null;
-
-        if (flipCard && panelInner) {
-            // Use current minHeight as base (set by flip animation)
-            baseHeight = parseInt(flipCard.style.minHeight, 10) || 0;
-            // Calculate what the height will be after expansion
-            // panelInner.scrollHeight + margins (0.5rem ≈ 8px) + borders (2px) = +10px
-            const panelHeight = panelInner.scrollHeight + 10;
-            flipCard.style.minHeight = (baseHeight + panelHeight) + 'px';
-        }
-
         selectEl.classList.add('open');
         if (searchInput) {
             searchInput.value = '';
-            // Focus without scrolling
             setTimeout(() => searchInput.focus({ preventScroll: true }), 50);
         }
     }
 
     function closeDropdown() {
-        // Only do anything if actually open
         if (!selectEl.classList.contains('open')) return;
-
-        // Use the stored base height
-        const flipCard = document.getElementById('sr-flip-card');
-
-        if (flipCard && baseHeight > 0 && receiveState.isReceiveMode) {
-            flipCard.style.minHeight = baseHeight + 'px';
-        }
-
         selectEl.classList.remove('open');
     }
 

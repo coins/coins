@@ -287,7 +287,7 @@
                                 </div>
                                 <div class="receive-divider"></div>
                                 <div class="receive-field-group">
-                                    <label class="receive-field-label">Expires</label>
+                                    <label class="receive-field-label">Options</label>
                                     <div class="receive-expiry-chips" id="receive-expiry-chips">
                                         <button class="receive-expiry-chip active" data-seconds="0" type="button">Never</button>
                                         <button class="receive-expiry-chip" data-seconds="3600" type="button">1 hour</button>
@@ -295,17 +295,17 @@
                                         <button class="receive-expiry-chip" data-seconds="86400" type="button">1 day</button>
                                         <button class="receive-expiry-chip" data-seconds="604800" type="button">1 week</button>
                                         <button class="receive-expiry-chip" data-seconds="custom" type="button">Custom</button>
+                                        <button class="receive-expiry-chip receive-memo-chip" id="receive-memo-badge" type="button">+ Memo</button>
                                     </div>
                                     <div class="receive-custom-expiry" id="receive-custom-expiry">
-                                        <input type="datetime-local" id="receive-custom-datetime">
+                                        <div class="receive-custom-expiry-inner">
+                                            <input type="datetime-local" id="receive-custom-datetime">
+                                        </div>
                                     </div>
-                                </div>
-                                <div class="receive-field-group">
-                                    <button class="receive-memo-badge" id="receive-memo-badge" type="button">+ Add memo</button>
                                     <div class="receive-memo-input" id="receive-memo-input">
-                                        <input class="input is-small" type="text" id="receive-memo" placeholder="Payment for..." maxlength="255">
-                                        <span class="receive-memo-count" id="receive-memo-count">0 / 255</span>
-                                        <button class="receive-memo-close" id="receive-memo-close" type="button" title="Remove memo">&times;</button>
+                                        <div class="receive-memo-inner">
+                                            <input class="input is-small" type="text" id="receive-memo" placeholder="Payment for..." maxlength="255">
+                                        </div>
                                     </div>
                                 </div>
                             </div>

@@ -2183,8 +2183,19 @@ hr {
     position: relative;
     width: 100%;
     transform-style: preserve-3d;
-    transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1),
-                min-height 0.2s ease-out;
+    transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    display: grid;
+}
+
+/* Back face uses grid row for smooth height animation */
+.sr-face-back {
+    grid-row: 1;
+    grid-column: 1;
+}
+
+.sr-face-front {
+    grid-row: 1;
+    grid-column: 1;
 }
 
 .sr-flip-card.flipped {
@@ -2199,27 +2210,41 @@ hr {
 }
 
 .sr-face-front {
-    position: relative;
+    grid-row: 1;
+    grid-column: 1;
 }
 
 .sr-face-back {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
+    grid-row: 1;
+    grid-column: 1;
     transform: rotateX(180deg);
+    transition: max-height 0.2s ease-out;
 }
 
 /* Hide non-visible face */
 .sr-flip-card:not(.flipped) .sr-face-back {
     visibility: hidden;
     pointer-events: none;
+    max-height: 0;
+    overflow: hidden;
 }
 
 .sr-flip-card.flipped .sr-face-front {
     visibility: hidden;
     pointer-events: none;
+    max-height: 0;
+    overflow: hidden;
 }
+
+.sr-flip-card.flipped .sr-face-back {
+    max-height: 1000px;
+}
+
+/* Delay height collapse when flipping back to front */
+.sr-flip-card.flipping-to-front .sr-face-back {
+    transition-delay: 0.15s;
+}
+
 
 /* Header styling */
 .sr-header {
@@ -2701,16 +2726,19 @@ hr {
    Receive Custom Expiry
    ======================================== */
 .receive-custom-expiry {
-    margin-top: 0.5rem;
-    overflow: hidden;
-    max-height: 0;
-    opacity: 0;
-    transition: max-height 0.25s ease, opacity 0.2s ease, margin-top 0.2s ease;
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 0.2s ease-out;
 }
 
 .receive-custom-expiry.visible {
-    max-height: 50px;
-    opacity: 1;
+    grid-template-rows: 1fr;
+}
+
+.receive-custom-expiry-inner {
+    min-height: 0;
+    overflow: hidden;
+    padding-top: 0.5rem;
 }
 
 .receive-custom-expiry input {
@@ -2734,79 +2762,61 @@ hr {
 /* ========================================
    Receive Memo Badge & Input
    ======================================== */
-.receive-memo-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-    font-family: inherit;
-    font-size: 0.6875rem;
-    font-weight: 500;
-    color: var(--coins-text-muted);
-    background: transparent;
-    border: 1px dashed var(--coins-border);
-    border-radius: 999px;
-    padding: 0.25rem 0.75rem;
-    cursor: pointer;
-    transition: all var(--coins-transition);
+/* Memo chip - styled like expiry chips, pushed to right */
+.receive-memo-chip {
+    margin-left: auto;
+    border-style: dashed;
 }
 
-.receive-memo-badge:hover {
-    color: var(--coins-accent);
+.receive-memo-chip.active {
+    background: rgba(45, 212, 191, 0.12);
     border-color: var(--coins-accent);
-    background: rgba(45, 212, 191, 0.04);
+    border-style: solid;
+    color: var(--coins-accent);
 }
+
 
 .receive-memo-input {
-    position: relative;
-    display: none;
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 0.2s ease-out;
 }
 
 .receive-memo-input.visible {
-    display: block;
+    grid-template-rows: 1fr;
+}
+
+.receive-memo-inner {
+    min-height: 0;
+    overflow: hidden;
+    padding-top: 0.5rem;
 }
 
 .receive-memo-input .input {
-    padding-right: 3.25rem;
-    font-size: 0.8125rem;
+    width: 100%;
+    font-size: 0.75rem;
+    padding: 0.375rem 2.5rem 0.375rem 0.5rem;
+    border-radius: var(--coins-radius-sm);
+    border: 1.5px solid var(--coins-border);
+    background: var(--coins-bg-secondary);
+    color: var(--coins-text);
+    outline: none;
+    transition: border-color var(--coins-transition), box-shadow var(--coins-transition);
 }
 
-.receive-memo-count {
-    position: absolute;
-    right: 0.625rem;
-    top: 50%;
-    transform: translateY(-50%);
-    font-size: 0.5625rem;
+.receive-memo-input .input:focus {
+    border-color: var(--coins-accent);
+    box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.12);
+}
+
+.receive-memo-input .input::placeholder {
     color: var(--coins-text-muted);
-    pointer-events: none;
 }
 
-.receive-memo-count.warn {
-    color: var(--coins-danger);
-}
-
-.receive-memo-close {
-    position: absolute;
-    right: 0.375rem;
-    top: -0.375rem;
-    width: 1rem;
-    height: 1rem;
-    border-radius: 50%;
-    background: var(--coins-surface-elevated);
-    border: 1px solid var(--coins-border);
-    color: var(--coins-text-muted);
-    font-size: 0.625rem;
-    display: flex;
-    align-items: center;
     justify-content: center;
     cursor: pointer;
     transition: all var(--coins-transition);
     line-height: 1;
-}
-
-.receive-memo-close:hover {
-    background: var(--coins-danger);
-    border-color: var(--coins-danger);
-    color: #fff;
 }
 
 /* ========================================
