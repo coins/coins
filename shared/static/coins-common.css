@@ -61,8 +61,13 @@
 /* ========================================
    Base Styles
    ======================================== */
-body {
+
+/* Prevent white flash on overscroll */
+html, body {
     background-color: var(--coins-bg);
+}
+
+body {
     min-height: 100vh;
     display: flex;
     flex-direction: column;
