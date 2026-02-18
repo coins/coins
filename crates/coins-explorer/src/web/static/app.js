@@ -1043,28 +1043,34 @@ class ExplorerApp {
             const tx = block.sub_block.txs[txIndex];
             const recipientPk = this.bytesToHex(tx.recipient_pk);
 
-            // Build pk to id map from all recipients
-            const pkToId = {};
-            block.sub_block.txs.forEach(t => {
-                const pk = this.bytesToHex(t.recipient_pk);
-                if (t.recipient_account_id !== undefined && t.recipient_account_id !== null) {
-                    pkToId[pk] = t.recipient_account_id;
-                }
-            });
-
-            // Fetch sender account to get their pk
+            // Fetch sender and recipient account info in parallel
             let senderPk = null;
+            let recipientId = null;
+
             try {
-                const senderResponse = await fetch(`/api/v1/accounts/by-id/${tx.sender_id}`);
+                const [senderResponse, recipientResponse] = await Promise.all([
+                    fetch(`/api/v1/accounts/by-id/${tx.sender_id}`),
+                    fetch(`/api/v1/accounts/${recipientPk}`)
+                ]);
+
                 if (senderResponse.ok) {
                     const senderAccount = await senderResponse.json();
                     senderPk = senderAccount.pk;
                 }
+
+                if (recipientResponse.ok) {
+                    const recipientAccount = await recipientResponse.json();
+                    recipientId = recipientAccount.id;
+                }
             } catch (e) {
-                console.warn('Failed to fetch sender account:', e);
+                console.warn('Failed to fetch account info:', e);
             }
 
-            const recipientId = pkToId[recipientPk];
+            // Fall back to recipient_account_id if account lookup failed (for new accounts)
+            if (recipientId === null && tx.recipient_account_id !== undefined && tx.recipient_account_id !== null) {
+                recipientId = tx.recipient_account_id;
+            }
+
             const hasRecipientId = recipientId !== undefined && recipientId !== null;
 
             // Confirmation status
