@@ -7,6 +7,8 @@ class ExplorerApp {
         this.apiBase = '/api/v1';
         this.network = 'regtest';
         this.currentAccountPk = null;
+        this.currentBlockHeight = null;
+        this.currentTxDetail = null;  // { blockHeight, txIndex }
         this.balancesExpanded = false;
         this.secsUntilNextLoop = null;
         this.intervalSecs = 60;
@@ -749,7 +751,19 @@ class ExplorerApp {
                 break;
 
             case 'confirmation_update':
-                if (this.currentSection === 'account-detail' && this.currentAccountPk) {
+                // Invalidate block cache since confirmations changed
+                this.cache.blocks.clear();
+
+                // Refresh current view based on section
+                if (this.currentSection === 'overview') {
+                    this.loadOverview();
+                } else if (this.currentSection === 'blocks') {
+                    this.loadBlocks(this.currentPage);
+                } else if (this.currentSection === 'block-detail' && this.currentBlockHeight !== null) {
+                    this.loadBlockDetail(this.currentBlockHeight);
+                } else if (this.currentSection === 'tx-detail' && this.currentTxDetail) {
+                    this.loadTxDetail(this.currentTxDetail.blockHeight, this.currentTxDetail.txIndex);
+                } else if (this.currentSection === 'account-detail' && this.currentAccountPk) {
                     this.loadAccountDetail(this.currentAccountPk);
                 } else if (this.currentSection === 'mempool') {
                     this.loadMempool();
@@ -902,6 +916,7 @@ class ExplorerApp {
 
     async loadBlockDetail(height) {
         const container = document.getElementById('block-detail-content');
+        this.currentBlockHeight = height;
 
         try {
             const block = await this.fetchAPI(`/blocks/${height}`);
@@ -1013,6 +1028,7 @@ class ExplorerApp {
     async loadTxDetail(blockHeight, txIndex) {
         const container = document.getElementById('tx-detail-content');
         container.innerHTML = '<div class="loading-placeholder">Loading...</div>';
+        this.currentTxDetail = { blockHeight, txIndex };
 
         try {
             // Fetch block data

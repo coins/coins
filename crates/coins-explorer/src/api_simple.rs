@@ -182,9 +182,18 @@ async fn get_latest_block(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     match state.indexer_client.get_latest_block().await {
         Ok(Some(block)) => {
-            serde_json::to_value(block)
-                .map(Json)
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+            let mut block_json = serde_json::to_value(&block)
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+            // Enrich with confirmation data
+            if let Ok(Some(conf_info)) = state.indexer_client.get_block_confirmation(&block.btc_txid).await {
+                if let Some(obj) = block_json.as_object_mut() {
+                    obj.insert("confirmations".to_string(), serde_json::json!(conf_info.confirmations));
+                    obj.insert("finalized".to_string(), serde_json::json!(conf_info.finalized));
+                }
+            }
+
+            Ok(Json(block_json))
         }
         Ok(None) => Err(StatusCode::NOT_FOUND),
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
@@ -197,9 +206,18 @@ async fn get_block(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     match state.indexer_client.get_block_by_height(height).await {
         Ok(Some(block)) => {
-            serde_json::to_value(block)
-                .map(Json)
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+            let mut block_json = serde_json::to_value(&block)
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+            // Enrich with confirmation data
+            if let Ok(Some(conf_info)) = state.indexer_client.get_block_confirmation(&block.btc_txid).await {
+                if let Some(obj) = block_json.as_object_mut() {
+                    obj.insert("confirmations".to_string(), serde_json::json!(conf_info.confirmations));
+                    obj.insert("finalized".to_string(), serde_json::json!(conf_info.finalized));
+                }
+            }
+
+            Ok(Json(block_json))
         }
         Ok(None) => Err(StatusCode::NOT_FOUND),
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
@@ -212,9 +230,23 @@ async fn get_blocks_range(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     match state.indexer_client.get_blocks_range(query.from, query.to).await {
         Ok(blocks) => {
-            serde_json::to_value(blocks)
-                .map(Json)
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+            // Enrich each block with confirmation data
+            let mut enriched_blocks = Vec::new();
+            for block in blocks {
+                let mut block_json = serde_json::to_value(&block)
+                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+                if let Ok(Some(conf_info)) = state.indexer_client.get_block_confirmation(&block.btc_txid).await {
+                    if let Some(obj) = block_json.as_object_mut() {
+                        obj.insert("confirmations".to_string(), serde_json::json!(conf_info.confirmations));
+                        obj.insert("finalized".to_string(), serde_json::json!(conf_info.finalized));
+                    }
+                }
+
+                enriched_blocks.push(block_json);
+            }
+
+            Ok(Json(serde_json::json!(enriched_blocks)))
         }
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
     }
