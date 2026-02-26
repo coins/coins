@@ -1885,10 +1885,19 @@ hr {
     display: flex;
     gap: 0.375rem;
     overflow-x: auto;
+    overflow-y: hidden;
     scrollbar-width: none;
     -ms-overflow-style: none;
     flex: 1;
     min-width: 0;
+    cursor: grab;
+    -webkit-overflow-scrolling: touch;
+    user-select: none;
+}
+
+.activity-token-chips.dragging {
+    cursor: grabbing;
+    scroll-behavior: auto;
 }
 
 .activity-token-chips::-webkit-scrollbar {

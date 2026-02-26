@@ -407,6 +407,66 @@ export function updateTransactionHistory(transactions) {
 }
 
 /**
+ * Initialize drag scrolling for token chips container
+ * @param {HTMLElement} container - The token chips container
+ */
+function initTokenChipsDragScroll(container) {
+    if (!container || container.dataset.dragInitialized) return;
+    container.dataset.dragInitialized = 'true';
+
+    let isDragging = false;
+    let hasDragged = false;
+    let startX = 0;
+    let scrollLeft = 0;
+
+    // Mouse events
+    container.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        hasDragged = false;
+        startX = e.pageX - container.offsetLeft;
+        scrollLeft = container.scrollLeft;
+        container.classList.add('dragging');
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        const x = e.pageX - container.offsetLeft;
+        const diff = Math.abs(x - startX);
+        if (diff > 5) {
+            hasDragged = true;
+            e.preventDefault();
+        }
+        const walk = (x - startX) * 1.5;
+        container.scrollLeft = scrollLeft - walk;
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (isDragging) {
+            isDragging = false;
+            container.classList.remove('dragging');
+        }
+    });
+
+    // Prevent click on chips if we dragged
+    container.addEventListener('click', (e) => {
+        if (hasDragged) {
+            e.stopPropagation();
+            e.preventDefault();
+            hasDragged = false;
+        }
+    }, true);
+
+    // Touch events (native scroll works, but add class for visual feedback)
+    container.addEventListener('touchstart', () => {
+        container.classList.add('dragging');
+    }, { passive: true });
+
+    container.addEventListener('touchend', () => {
+        container.classList.remove('dragging');
+    });
+}
+
+/**
  * Update token filter options based on available tokens
  * @param {Array} transactions - Array of transactions
  */
@@ -436,6 +496,9 @@ export function updateTokenFilterOptions(transactions) {
     }
     container.innerHTML = html;
 
+    // Initialize drag scrolling
+    initTokenChipsDragScroll(container);
+
     container.querySelectorAll('.token-chip').forEach(chip => {
         chip.addEventListener('click', () => {
             const tid = parseInt(chip.dataset.tokenId);
@@ -461,7 +524,8 @@ export function toggleTokenFilter(tid, allTokenIds) {
         activeSet.add(tid);
     }
 
-    if (activeSet.size === 0 || activeSet.size === allTokenIds.length) {
+    // Only reset to null (show all) when all tokens are selected
+    if (activeSet.size === allTokenIds.length) {
         activeSet = null;
     }
 
