@@ -1,0 +1,48 @@
+# Coins Block Explorer Configuration (serve mode / production)
+
+[indexer]
+# URL to indexer service API
+url = "http://localhost:10003"
+# URL to publisher service API (for mempool transactions)
+publisher_url = "http://localhost:10004"
+
+[database]
+# Path to explorer's transaction index database
+tx_index_db = ".data/mutinynet/explorer-tx-index.db"
+
+[bitcoin]
+# Bitcoin RPC connection settings (remote mutinynet node)
+rpc_url = "http://168.119.139.152:38332"
+rpc_user = "bitcoin"
+rpc_pass = "8723nasd0932n"
+network = "signet"
+
+[server]
+# Port for the explorer API and web UI
+api_port = 10002
+
+# Host to bind to
+host = "0.0.0.0"
+
+# CORS allowed origins (empty = allow all)
+cors_origins = []
+
+[cache]
+# Enable in-memory caching
+enabled = true
+
+# Number of blocks to keep in cache
+block_cache_size = 1000
+
+# Account cache time-to-live in seconds
+account_cache_ttl_seconds = 60
+
+# Bitcoin data cache time-to-live in seconds
+bitcoin_cache_ttl_seconds = 10
+
+[updates]
+# Interval for checking new blocks (seconds)
+poll_interval_seconds = 5
+
+# Batch size for initial indexing
+index_batch_size = 100

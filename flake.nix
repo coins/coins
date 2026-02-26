@@ -13,6 +13,19 @@
           inherit system;
           config.allowUnfree = true;
         };
+        commonBuildInputs = with pkgs; [
+            bitcoin
+            rustc
+            cargo
+            pkg-config
+            openssl
+            llvmPackages.lld
+            wasm-pack
+            nodejs_22
+            jq
+            curl
+            lsof
+          ];
       in
       {
         devShells.default = pkgs.mkShell {
@@ -242,6 +255,58 @@
             echo "  mine [count]                         - Mine Bitcoin blocks"
             echo "    Examples: mine        # Mine 1 block"
             echo "              mine 5      # Mine 5 blocks"
+            echo ""
+          '';
+        };
+
+        devShells.serve = pkgs.mkShell {
+          buildInputs = commonBuildInputs ++ (with pkgs; [
+            nginx
+          ]);
+
+          shellHook = ''
+            alias serve-start='bash scripts/serve-start.sh'
+            alias serve-stop='bash scripts/serve-stop.sh'
+
+            serve-status() {
+              local GREEN='\033[0;32m'
+              local RED='\033[0;31m'
+              local NC='\033[0m'
+
+              echo "Serve-mode service status:"
+              echo ""
+
+              for svc_port in "indexer:10003" "publisher:10004" "explorer:10002" "wallet:10001"; do
+                local svc="''${svc_port%%:*}"
+                local port="''${svc_port##*:}"
+                if curl -sf "http://localhost:''${port}/health" > /dev/null 2>&1; then
+                  printf "  %-12s %b\n" "$svc" "''${GREEN}running (port ''${port})''${NC}"
+                else
+                  printf "  %-12s %b\n" "$svc" "''${RED}not running (port ''${port})''${NC}"
+                fi
+              done
+
+              # Check nginx
+              local pidfile=".data/serve/nginx.pid"
+              if [ -f "$pidfile" ] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then
+                printf "  %-12s %b\n" "nginx" "''${GREEN}running (port 80)''${NC}"
+              else
+                printf "  %-12s %b\n" "nginx" "''${RED}not running (port 80)''${NC}"
+              fi
+            }
+
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "  Serve Mode Environment"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
+            echo "Commands:"
+            echo "  serve-start   - Start all services + nginx on port 80"
+            echo "  serve-stop    - Stop all serve-mode services"
+            echo "  serve-status  - Check service health"
+            echo ""
+            echo "URLs (after serve-start):"
+            echo "  http://168.119.139.152/wallet/"
+            echo "  http://168.119.139.152/explorer/"
             echo ""
           '';
         };

@@ -1,0 +1,23 @@
+# Indexer service configuration for serve mode (production)
+
+# Subchain configuration for autonomous block discovery
+subchain = ".data/mutinynet/subchains/subchain_mutinynet.bin"
+wallet_name = "coins-indexer"
+
+[database]
+state_db = ".data/mutinynet/state.db"
+indexer_db = ".data/mutinynet/indexer.db"
+
+[bitcoin]
+rpc_url = "http://168.119.139.152:38332"
+rpc_user = "bitcoin"
+rpc_pass = "8723nasd0932n"
+network = "mutinynet"
+
+[server]
+api_port = 10003
+host = "0.0.0.0"
+
+[genesis]
+genesis_pk = "f0ab15199655d3f279e6b81547d8159315bdb6b1bc3202f43fea6bc59abf6987"
+genesis_balance = 1000000000000

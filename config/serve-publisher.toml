@@ -1,0 +1,34 @@
+# Publisher configuration for serve mode (production)
+
+# Bitcoin RPC configuration (remote mutinynet node)
+rpc_url = "http://168.119.139.152:38332"
+rpc_user = "bitcoin"
+rpc_pass = "8723nasd0932n"
+rpc_wallet = "coins-publisher"
+
+# Subchain file (network-isolated)
+subchain = ".data/mutinynet/subchains/subchain_mutinynet.bin"
+
+# Bitcoin secret key for fee payments (network-isolated)
+keyfile = ".data/mutinynet/keys/publisher_mutinynet_sk.hex"
+
+# BLS secret key for signing sub-blocks (network-isolated)
+bls_keyfile = ".data/mutinynet/keys/publisher_bls_sk.hex"
+
+# Mining interval (60s for signet's ~1 min blocks)
+interval = 60
+
+# Network
+network = "signet"
+
+# Indexer API URL
+indexer_url = "http://localhost:10003"
+
+# API server port
+api_port = 10004
+
+# Publishing configuration
+publish_format = "op_return"
+
+# Fee rate in satoshis per virtual byte (default: 4)
+fee_rate_sat_per_vb = 4
