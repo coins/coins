@@ -96,7 +96,8 @@ function initAmountInput() {
     const sendAmountInput = document.getElementById('send-amount');
     if (sendAmountInput) {
         sendAmountInput.addEventListener('input', repositionTokenSuffix);
-        requestAnimationFrame(repositionTokenSuffix);
+        // Double rAF ensures layout is fully stable before measuring
+        requestAnimationFrame(() => requestAnimationFrame(repositionTokenSuffix));
     }
     // Expose for use by updateSendTokenInfo
     window.repositionTokenSuffix = repositionTokenSuffix;

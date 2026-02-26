@@ -65,42 +65,16 @@ export function updateSendTokenInfo() {
 }
 
 /**
- * Position token suffix right after the amount digits
+ * Update the spacer to match input text - CSS handles all positioning
  */
 export function repositionTokenSuffix() {
     const input = document.getElementById('send-amount');
-    const measure = document.getElementById('send-amount-measure');
-    const suffix = document.getElementById('send-token-suffix');
-    if (!input || !measure || !suffix) return;
+    const spacer = document.getElementById('send-amount-spacer');
+    if (!input || !spacer) return;
 
-    // Horizontal: place suffix right after the centered text
-    const text = input.value || input.placeholder || '';
-    measure.textContent = text;
-    const inputRect = input.getBoundingClientRect();
-    const textWidth = measure.offsetWidth;
-    const center = inputRect.left + inputRect.width / 2;
-    const rowRect = input.closest('.amount-row').getBoundingClientRect();
-    const leftPos = center + textWidth / 2 - rowRect.left;
-    suffix.style.left = leftPos + 'px';
-
-    // Vertical: baseline-align
-    const inputStyle = getComputedStyle(input);
-    const helper = document.createElement('div');
-    helper.style.cssText = 'position:absolute;top:-9999px;left:0;display:inline-flex;align-items:baseline;';
-    const bigSpan = document.createElement('span');
-    bigSpan.style.cssText = `font-size:${inputStyle.fontSize};font-weight:${inputStyle.fontWeight};font-family:${inputStyle.fontFamily};line-height:${inputStyle.lineHeight};padding:${inputStyle.padding};`;
-    bigSpan.textContent = text || '0';
-    const smallSpan = document.createElement('span');
-    const suffixStyle = getComputedStyle(suffix);
-    smallSpan.style.cssText = `font-size:${suffixStyle.fontSize};font-weight:${suffixStyle.fontWeight};font-family:${suffixStyle.fontFamily};line-height:1;`;
-    smallSpan.textContent = suffix.textContent;
-    helper.appendChild(bigSpan);
-    helper.appendChild(smallSpan);
-    document.body.appendChild(helper);
-    const delta = smallSpan.getBoundingClientRect().top - bigSpan.getBoundingClientRect().top;
-    document.body.removeChild(helper);
-
-    suffix.style.top = delta + 'px';
+    // Just sync the spacer text with the input - CSS grid/flexbox handles positioning
+    const text = input.value || input.placeholder || '0';
+    spacer.textContent = text;
 }
 
 /**

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Coins Wallet</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
-    <link rel="stylesheet" href="/shared/coins-common.css?v=4">
+    <link rel="stylesheet" href="/shared/coins-common.css?v=17">
     <script src="https://cdn.jsdelivr.net/npm/qrcode@1.4.4/build/qrcode.min.js"></script>
 </head>
 <body>
@@ -226,8 +226,12 @@
                                 <div class="amount-input-wrapper">
                                     <div class="amount-row">
                                         <input type="text" inputmode="numeric" class="amount-input-large" id="send-amount" placeholder="0" autocomplete="off">
-                                        <span class="amount-measure" id="send-amount-measure" aria-hidden="true"></span>
-                                        <span class="amount-token-suffix" id="send-token-suffix">&alpha; Alpha</span>
+                                        <div class="amount-suffix-container">
+                                            <span class="amount-suffix-wrapper">
+                                                <span class="amount-suffix-spacer" id="send-amount-spacer" aria-hidden="true">0</span>
+                                                <span class="amount-token-suffix" id="send-token-suffix">&alpha; Alpha</span>
+                                            </span>
+                                        </div>
                                     </div>
                                     <div class="amount-quick-select" id="send-quick-select"></div>
                                 </div>
@@ -581,6 +585,6 @@
         </div>
     </div>
 
-    <script type="module" src="/js/main.js"></script>
+    <script type="module" src="/js/main.js?v=5"></script>
 </body>
 </html>

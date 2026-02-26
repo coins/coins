@@ -435,6 +435,9 @@ export function updateBalanceDisplay(account) {
         }
         balanceTokensEl.innerHTML = html;
 
+        // Set selected index immediately so token info is in sync
+        carouselState.selectedIndex = largestBalanceIndex;
+
         setTimeout(() => {
             initBalanceCarousel(largestBalanceIndex);
         }, 50);

@@ -295,9 +295,18 @@ body {
     line-height: 1.5;
 }
 
-/* Amount Row with Token Suffix Overlay */
+/* Amount Row with Token Suffix Overlay - uses grid for stable positioning */
 .amount-row {
-    position: relative;
+    display: grid;
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr;
+    place-items: center;
+    margin-bottom: -0.5rem;
+}
+
+.amount-row > * {
+    grid-column: 1;
+    grid-row: 1;
 }
 
 .amount-row .amount-input-large {
@@ -306,27 +315,51 @@ body {
 }
 
 .amount-measure {
-    position: absolute;
     visibility: hidden;
     pointer-events: none;
     white-space: pre;
+    justify-self: center;
     /* Must match .amount-input-large font metrics exactly */
     font-size: 2rem;
     font-weight: 600;
     letter-spacing: -0.02em;
 }
 
+/* Suffix container - full width, uses text-align to match input centering */
+.amount-suffix-container {
+    width: 100%;
+    text-align: center;
+    pointer-events: none;
+    white-space: nowrap;
+}
+
+/* Wrapper is inline-block so it only takes spacer width, then suffix is positioned after */
+.amount-suffix-wrapper {
+    display: inline-block;
+    position: relative;
+}
+
+.amount-suffix-spacer {
+    /* Matches input font exactly - creates invisible space for text width */
+    display: inline;
+    font-size: 2rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+    visibility: hidden;
+}
+
 .amount-token-suffix {
     position: absolute;
-    top: 0;
-    padding-left: 0.5em;
+    left: 100%;
+    bottom: 0.4em;
+    margin-left: 0.35em;
     font-size: 0.875rem;
     font-weight: 500;
     line-height: 1;
     color: var(--coins-text-muted);
     white-space: nowrap;
     pointer-events: none;
-    transition: left 0.05s ease;
 }
 
 /* Receive token suffix is clickable */
@@ -562,6 +595,7 @@ body {
     text-align: center;
     font-size: 2rem;
     font-weight: 600;
+    line-height: 1.2;
     color: var(--coins-text);
     background: transparent;
     border: none;
