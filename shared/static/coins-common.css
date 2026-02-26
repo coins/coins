@@ -808,6 +808,21 @@ body {
     color: var(--coins-text-muted);
 }
 
+/* Empty balance message */
+.balance-empty-message {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    padding: 1rem 0;
+}
+
+.balance-empty-text {
+    font-size: 1.125rem;
+    font-weight: 500;
+    color: var(--coins-text-muted);
+}
+
 /* Legacy single balance display */
 .balance-hero .balance-amount {
     font-size: 2.5rem;

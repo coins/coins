@@ -25,6 +25,7 @@ import {
     initBalanceCarousel,
     updateBalanceDisplay,
     initCarouselDragHandlers,
+    initCarouselResizeHandler,
     setUpdateSendTokenInfoCallback
 } from './components/BalanceCarousel.js';
 import { initDateDrum, setDateDrumRenderCallback } from './components/DateDrumPicker.js';
@@ -462,6 +463,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initCopyPublicKey();
     initAmountInput();
     initCarouselDragHandlers();
+    initCarouselResizeHandler();
     initDateDrum();
     initInvoice();
     initSendReceiveTabs();

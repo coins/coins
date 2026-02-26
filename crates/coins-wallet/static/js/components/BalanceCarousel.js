@@ -5,6 +5,7 @@ import { greekLetters, greekNames } from '../utils/tokens.js';
 
 // Store update callback
 let updateSendTokenInfoCallback = null;
+let resizeTimeout = null;
 
 /**
  * Set callback for updating send token info
@@ -12,6 +13,52 @@ let updateSendTokenInfoCallback = null;
  */
 export function setUpdateSendTokenInfoCallback(callback) {
     updateSendTokenInfoCallback = callback;
+}
+
+/**
+ * Initialize resize handler to re-center carousel on window resize
+ */
+export function initCarouselResizeHandler() {
+    window.addEventListener('resize', () => {
+        clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(() => {
+            recenterCarousel();
+        }, 100);
+    });
+}
+
+/**
+ * Re-center the carousel on the currently selected item
+ */
+export function recenterCarousel() {
+    const balanceScroll = document.getElementById('balance-scroll');
+    const balanceTokens = document.getElementById('balance-tokens');
+    if (!balanceScroll || !balanceTokens) return;
+
+    const items = balanceTokens.querySelectorAll('.balance-token-item');
+    if (items.length === 0) return;
+
+    const selectedIndex = carouselState.selectedIndex || 0;
+    if (selectedIndex >= items.length) return;
+
+    const containerWidth = balanceScroll.clientWidth;
+    const positions = Array.from(items).map(item => item.offsetLeft);
+    const itemWidths = Array.from(items).map(item => item.offsetWidth);
+
+    const selectedPos = positions[selectedIndex] || 0;
+    const selectedWidth = itemWidths[selectedIndex] || 100;
+    const centerOffset = (containerWidth / 2) - selectedPos - (selectedWidth / 2);
+
+    carouselState.currentOffset = centerOffset;
+
+    // Apply without transition for immediate response
+    balanceTokens.style.transition = 'none';
+    balanceTokens.style.transform = `translateX(${centerOffset}px)`;
+
+    // Re-enable transition after reflow
+    requestAnimationFrame(() => {
+        balanceTokens.style.transition = '';
+    });
 }
 
 /**
@@ -309,6 +356,9 @@ export function updateBalanceDisplay(account) {
                     <div class="balance-token-name">New wallet</div>
                 </div>
             `;
+            setTimeout(() => {
+                initBalanceCarousel(0);
+            }, 50);
         }
         if (balanceAccountEl) balanceAccountEl.textContent = '';
         if (tokenBalancesCard) tokenBalancesCard.style.display = 'none';
@@ -324,6 +374,23 @@ export function updateBalanceDisplay(account) {
 
     carouselState.tokenIds = tokenIds;
     carouselState.balances = balances;
+
+    if (balanceAccountEl) balanceAccountEl.textContent = `Account #${account.id}`;
+
+    // Handle no balances case
+    if (tokenIds.length === 0) {
+        if (balanceTokensEl) {
+            balanceTokensEl.innerHTML = `
+                <div class="balance-empty-message">
+                    <div class="balance-empty-text">No balances yet</div>
+                </div>
+            `;
+            balanceTokensEl.style.transform = '';
+        }
+        if (tokenBalancesCard) tokenBalancesCard.style.display = 'none';
+        if (updateSendTokenInfoCallback) updateSendTokenInfoCallback();
+        return;
+    }
 
     // Find the token with the largest balance
     let largestBalance = 0;
@@ -351,8 +418,6 @@ export function updateBalanceDisplay(account) {
             largestBalanceIndex = idx;
         }
     }
-
-    if (balanceAccountEl) balanceAccountEl.textContent = `Account #${account.id}`;
 
     if (balanceTokensEl) {
         let html = '';
