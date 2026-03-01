@@ -88,6 +88,10 @@
             alias wallet-regtest='INDEXER_URL=http://localhost:8084 PUBLISHER_URL=http://localhost:8080 cargo run --release -p coins-wallet'
             alias wallet-mutinynet='INDEXER_URL=http://localhost:8083 PUBLISHER_URL=http://localhost:8082 cargo run --release -p coins-wallet'
 
+            # Faucet commands
+            alias faucet-regtest='cargo run --release -p coins-faucet -- --config config/faucet-regtest.toml'
+            alias faucet-mutinynet='cargo run --release -p coins-faucet -- --config config/faucet-mutinynet.toml'
+
             # Send tokens between accounts
             # Usage: send <network> <from> <to> [amount] [token_id]
             #    OR: send <network> <from> <invoice_uri> [amount]
@@ -244,6 +248,10 @@
             echo "  wallet-regtest           - Start wallet for regtest"
             echo "  wallet-mutinynet         - Start wallet for mutinynet"
             echo ""
+            echo "Faucet:"
+            echo "  faucet-regtest           - Start faucet for regtest"
+            echo "  faucet-mutinynet         - Start faucet for mutinynet"
+            echo ""
             echo "Transactions:"
             echo "  send <net> <from> <to> [amt] [tkn]   - Send tokens between accounts"
             echo "    from: genesis, alice, bob"
@@ -276,7 +284,7 @@
               echo "Serve-mode service status:"
               echo ""
 
-              for svc_port in "indexer:10003" "publisher:10004" "explorer:10002" "wallet:10001"; do
+              for svc_port in "indexer:10003" "publisher:10004" "explorer:10002" "wallet:10001" "faucet:10005"; do
                 local svc="''${svc_port%%:*}"
                 local port="''${svc_port##*:}"
                 if curl -sf "http://localhost:''${port}/health" > /dev/null 2>&1; then
@@ -307,6 +315,7 @@
             echo "URLs (after serve-start):"
             echo "  http://168.119.139.152/wallet/"
             echo "  http://168.119.139.152/explorer/"
+            echo "  http://168.119.139.152/faucet/"
             echo ""
           '';
         };

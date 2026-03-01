@@ -12,6 +12,7 @@ members = [
     "crates/coins-bitcoin-rpc",
     "crates/coins-wallet",
     "crates/coins-wallet/wasm",
+    "crates/coins-faucet",
 ]
 
 [workspace.package]

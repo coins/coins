@@ -1,0 +1,21 @@
+# Faucet configuration for Mutinynet testnet
+
+[faucet]
+# Path to the genesis secret key file
+secret_key_file = ".data/mutinynet/keys/genesis_sk.hex"
+# Amount of tokens to dispense per claim
+amount_per_claim = 1000
+# Cooldown period between claims (in seconds)
+cooldown_seconds = 60
+
+[server]
+# Port to listen on
+port = 8086
+# Host to bind to
+host = "127.0.0.1"
+
+[services]
+# Indexer service URL
+indexer_url = "http://localhost:8083"
+# Publisher service URL
+publisher_url = "http://localhost:8082"

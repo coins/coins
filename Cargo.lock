@@ -805,6 +805,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "coins-faucet"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ark-bn254 0.4.0",
+ "ark-ff 0.4.2",
+ "axum",
+ "bincode",
+ "clap",
+ "coins-crypto",
+ "coins-types",
+ "hex",
+ "reqwest 0.11.27",
+ "serde",
+ "serde_json",
+ "tokio",
+ "toml",
+ "tower 0.5.2",
+ "tower-http 0.5.2",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "coins-indexer"
 version = "0.1.0"
 dependencies = [

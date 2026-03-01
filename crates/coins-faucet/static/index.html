@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Coins Faucet</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+    <link rel="stylesheet" href="/shared/coins-common.css?v=1">
+    <style>
+        /* Faucet-specific styles */
+        .faucet-container {
+            max-width: 500px;
+            margin: 0 auto;
+        }
+
+        .faucet-header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .faucet-header h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--coins-text);
+            margin-bottom: 0.5rem;
+        }
+
+        .faucet-header p {
+            color: var(--coins-text-secondary);
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1rem;
+            margin-top: 1.5rem;
+        }
+
+        .stat-card {
+            background: var(--coins-surface);
+            border: 1px solid var(--coins-border);
+            border-radius: var(--coins-radius);
+            padding: 1rem;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--coins-accent);
+        }
+
+        .stat-label {
+            font-size: 0.75rem;
+            color: var(--coins-text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .result-message {
+            margin-top: 1rem;
+            padding: 1rem;
+            border-radius: var(--coins-radius);
+            display: none;
+        }
+
+        .result-message.success {
+            display: block;
+            background: var(--coins-success-light);
+            border: 1px solid var(--coins-success);
+            color: var(--coins-success);
+        }
+
+        .result-message.error {
+            display: block;
+            background: var(--coins-danger-light);
+            border: 1px solid var(--coins-danger);
+            color: var(--coins-danger);
+        }
+
+        .address-input {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size: 0.85rem;
+        }
+
+        /* Token selector styles - based on wallet */
+        .token-select-wrapper {
+            position: relative;
+        }
+
+        .token-select-trigger {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.75rem 1rem;
+            background: var(--coins-surface);
+            border: 1px solid var(--coins-border);
+            border-radius: var(--coins-radius);
+            cursor: pointer;
+            transition: var(--coins-transition);
+        }
+
+        .token-select-trigger:hover {
+            border-color: var(--coins-accent);
+        }
+
+        .token-select-trigger .selected-token {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .token-select-trigger .token-icon {
+            font-size: 1.25rem;
+            color: var(--coins-accent);
+        }
+
+        .token-select-trigger .token-name {
+            font-weight: 500;
+            color: var(--coins-text);
+        }
+
+        .token-select-trigger .dropdown-arrow {
+            color: var(--coins-text-muted);
+            transition: transform var(--coins-transition);
+        }
+
+        .token-select-wrapper.open .dropdown-arrow {
+            transform: rotate(180deg);
+        }
+
+        .token-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            margin-top: 0.25rem;
+            background: var(--coins-bg);
+            border: 1px solid var(--coins-border);
+            border-radius: var(--coins-radius);
+            box-shadow: var(--coins-shadow-lg);
+            z-index: 100;
+            display: none;
+        }
+
+        .token-select-wrapper.open .token-dropdown {
+            display: block;
+        }
+
+        .token-search {
+            padding: 0.75rem;
+            border-bottom: 1px solid var(--coins-border);
+        }
+
+        .token-search input {
+            width: 100%;
+            padding: 0.5rem 0.75rem;
+            background: var(--coins-surface);
+            border: 1px solid var(--coins-border);
+            border-radius: var(--coins-radius-sm);
+            color: var(--coins-text);
+            font-size: 0.875rem;
+        }
+
+        .token-search input:focus {
+            outline: none;
+            border-color: var(--coins-accent);
+        }
+
+        .token-list {
+            max-height: 280px;
+            overflow-y: auto;
+            padding: 0.5rem;
+        }
+
+        .token-list::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .token-list::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .token-list::-webkit-scrollbar-thumb {
+            background: var(--coins-border);
+            border-radius: 2px;
+        }
+
+        .token-option {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 0.75rem;
+            border-radius: var(--coins-radius-sm);
+            cursor: pointer;
+            transition: var(--coins-transition);
+        }
+
+        .token-option:hover {
+            background: var(--coins-surface-elevated);
+        }
+
+        .token-option.selected {
+            background: rgba(45, 212, 191, 0.12);
+        }
+
+        .token-option .tok-icon {
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--coins-accent);
+            width: 1.5rem;
+            text-align: center;
+        }
+
+        .token-option .tok-name {
+            font-weight: 500;
+            color: var(--coins-text);
+        }
+
+        .token-option .tok-id {
+            margin-left: auto;
+            font-size: 0.75rem;
+            color: var(--coins-text-muted);
+        }
+    </style>
+</head>
+<body>
+    <section class="section">
+        <div class="faucet-container">
+            <div class="faucet-header">
+                <h1>Coins Faucet</h1>
+                <p>Get testnet tokens for development and testing</p>
+            </div>
+
+            <div class="coins-card">
+                <div class="coins-card-header">
+                    <h2 class="coins-card-title">Claim Tokens</h2>
+                </div>
+
+                <div class="field">
+                    <label class="label">Recipient</label>
+                    <div class="control">
+                        <input
+                            class="input address-input"
+                            type="text"
+                            id="recipient-address"
+                            placeholder="Account number or public key"
+                        >
+                    </div>
+                    <p class="help">Enter an account number (e.g. 0, 1, 2) or 64-char hex public key</p>
+                </div>
+
+                <div class="field">
+                    <label class="label">Token</label>
+                    <div class="token-select-wrapper" id="token-select-wrapper">
+                        <div class="token-select-trigger" id="token-select-trigger">
+                            <div class="selected-token">
+                                <span class="token-icon" id="selected-token-icon"></span>
+                                <span class="token-name" id="selected-token-name"></span>
+                            </div>
+                            <span class="dropdown-arrow">&#9662;</span>
+                        </div>
+                        <div class="token-dropdown" id="token-dropdown">
+                            <div class="token-search">
+                                <input type="text" id="token-search" placeholder="Search 256 tokens..." autocomplete="off">
+                            </div>
+                            <div class="token-list" id="token-list">
+                                <!-- Token options populated by JS -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="field">
+                    <div class="control">
+                        <button class="button is-primary is-fullwidth" id="claim-btn">
+                            Claim Tokens
+                        </button>
+                    </div>
+                </div>
+
+                <div id="result-message" class="result-message"></div>
+            </div>
+
+            <div class="coins-card" style="margin-top: 1.5rem;">
+                <div class="coins-card-header">
+                    <h2 class="coins-card-title">Faucet Stats</h2>
+                </div>
+
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-value" id="amount-per-claim">-</div>
+                        <div class="stat-label">Per Claim</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="cooldown">-</div>
+                        <div class="stat-label">Cooldown</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="total-claims">-</div>
+                        <div class="stat-label">Total Claims</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="faucet-balance">-</div>
+                        <div class="stat-label">Native Balance</div>
+                    </div>
+                </div>
+
+                <div style="margin-top: 1rem;">
+                    <p class="has-text-centered">
+                        <small class="has-text-grey">
+                            Faucet Address: <code id="faucet-address" style="word-break: break-all;">Loading...</code>
+                        </small>
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <script>
+        // Greek letters and names for all 256 tokens
+        const greekLetters = [
+            '\u03B1', '\u03B2', '\u03B3', '\u03B4', '\u03B5', '\u03B6', '\u03B7', '\u03B8', '\u03B9', '\u03BA',
+            '\u03BB', '\u03BC', '\u03BD', '\u03BE', '\u03BF', '\u03C0', '\u03C1', '\u03C3', '\u03C4', '\u03C5',
+            '\u03C6', '\u03C7', '\u03C8', '\u03C9'
+        ];
+        const greekNames = [
+            'Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta', 'Eta', 'Theta', 'Iota', 'Kappa',
+            'Lambda', 'Mu', 'Nu', 'Xi', 'Omicron', 'Pi', 'Rho', 'Sigma', 'Tau', 'Upsilon',
+            'Phi', 'Chi', 'Psi', 'Omega'
+        ];
+
+        function getTokenDisplayInfo(id) {
+            const idx = parseInt(id, 10);
+            if (idx < greekLetters.length) {
+                return { icon: greekLetters[idx], name: greekNames[idx] };
+            }
+            return { icon: '#', name: String(idx) };
+        }
+
+        let selectedTokenId = 0;
+
+        // Token selector functionality
+        function initTokenSelector() {
+            const wrapper = document.getElementById('token-select-wrapper');
+            const trigger = document.getElementById('token-select-trigger');
+            const dropdown = document.getElementById('token-dropdown');
+            const searchInput = document.getElementById('token-search');
+            const listEl = document.getElementById('token-list');
+
+            // Set initial selection
+            updateSelectedToken(0);
+
+            function renderTokenList(filter) {
+                const f = (filter || '').toLowerCase();
+                let html = '';
+
+                for (let i = 0; i < 256; i++) {
+                    const info = getTokenDisplayInfo(i);
+                    const searchText = (info.icon + ' ' + info.name + ' ' + i).toLowerCase();
+
+                    if (f && searchText.indexOf(f) === -1) continue;
+
+                    const selectedClass = i === selectedTokenId ? ' selected' : '';
+                    html += `<div class="token-option${selectedClass}" data-token-id="${i}">
+                        <span class="tok-icon">${info.icon}</span>
+                        <span class="tok-name">${info.name}</span>
+                        <span class="tok-id">#${i}</span>
+                    </div>`;
+                }
+
+                if (!html) {
+                    html = '<div style="padding:1rem;text-align:center;color:var(--coins-text-muted);">No tokens found</div>';
+                }
+
+                listEl.innerHTML = html;
+            }
+
+            function updateSelectedToken(tokenId) {
+                selectedTokenId = tokenId;
+                const info = getTokenDisplayInfo(tokenId);
+                document.getElementById('selected-token-icon').textContent = info.icon;
+                document.getElementById('selected-token-name').textContent = `${info.name} (#${tokenId})`;
+            }
+
+            function openDropdown() {
+                wrapper.classList.add('open');
+                renderTokenList('');
+                searchInput.value = '';
+                setTimeout(() => searchInput.focus(), 50);
+            }
+
+            function closeDropdown() {
+                wrapper.classList.remove('open');
+            }
+
+            trigger.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (wrapper.classList.contains('open')) {
+                    closeDropdown();
+                } else {
+                    openDropdown();
+                }
+            });
+
+            searchInput.addEventListener('input', () => {
+                renderTokenList(searchInput.value);
+            });
+
+            searchInput.addEventListener('click', (e) => {
+                e.stopPropagation();
+            });
+
+            listEl.addEventListener('click', (e) => {
+                const option = e.target.closest('.token-option');
+                if (option && option.dataset.tokenId !== undefined) {
+                    updateSelectedToken(parseInt(option.dataset.tokenId, 10));
+                    closeDropdown();
+                }
+            });
+
+            // Close on click outside
+            document.addEventListener('click', (e) => {
+                if (!wrapper.contains(e.target)) {
+                    closeDropdown();
+                }
+            });
+
+            // Close on Escape
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') {
+                    closeDropdown();
+                }
+            });
+        }
+
+        // Show result message
+        function showResult(success, message) {
+            const el = document.getElementById('result-message');
+            el.className = 'result-message ' + (success ? 'success' : 'error');
+            el.textContent = message;
+        }
+
+        // Clear result message
+        function clearResult() {
+            const el = document.getElementById('result-message');
+            el.className = 'result-message';
+            el.textContent = '';
+        }
+
+        // Format large numbers
+        function formatNumber(num) {
+            if (num >= 1e12) return (num / 1e12).toFixed(1) + 'T';
+            if (num >= 1e9) return (num / 1e9).toFixed(1) + 'B';
+            if (num >= 1e6) return (num / 1e6).toFixed(1) + 'M';
+            if (num >= 1e3) return (num / 1e3).toFixed(1) + 'K';
+            return num.toString();
+        }
+
+        // Load faucet stats
+        async function loadStats() {
+            try {
+                const response = await fetch('/api/stats');
+                if (!response.ok) throw new Error('Failed to fetch stats');
+
+                const stats = await response.json();
+
+                document.getElementById('amount-per-claim').textContent = formatNumber(stats.amount_per_claim);
+                document.getElementById('cooldown').textContent = stats.cooldown_seconds + 's';
+                document.getElementById('total-claims').textContent = formatNumber(stats.total_claims);
+
+                // Get native token balance (token 0)
+                const nativeBalance = stats.balances['0'] || 0;
+                document.getElementById('faucet-balance').textContent = formatNumber(nativeBalance);
+
+                // Show truncated faucet address
+                const addr = stats.faucet_address;
+                document.getElementById('faucet-address').textContent =
+                    addr.substring(0, 8) + '...' + addr.substring(addr.length - 8);
+                document.getElementById('faucet-address').title = addr;
+
+            } catch (error) {
+                console.error('Failed to load stats:', error);
+            }
+        }
+
+        // Validate recipient input
+        function validateRecipient(value) {
+            const trimmed = value.trim();
+            if (!trimmed) return { valid: false, error: 'Please enter a recipient' };
+
+            // Check if it's a numeric account ID
+            if (/^\d+$/.test(trimmed)) {
+                return { valid: true, type: 'account_id' };
+            }
+
+            // Check if it's a 64-char hex public key
+            if (/^[a-fA-F0-9]{64}$/.test(trimmed)) {
+                return { valid: true, type: 'public_key' };
+            }
+
+            return { valid: false, error: 'Must be an account number or 64-char hex public key' };
+        }
+
+        // Claim tokens
+        async function claimTokens() {
+            const recipientInput = document.getElementById('recipient-address');
+            const recipient = recipientInput.value.trim();
+            const claimBtn = document.getElementById('claim-btn');
+
+            clearResult();
+
+            // Validate recipient
+            const validation = validateRecipient(recipient);
+            if (!validation.valid) {
+                showResult(false, validation.error);
+                return;
+            }
+
+            // Disable button and show loading state
+            claimBtn.classList.add('is-loading');
+            claimBtn.disabled = true;
+
+            try {
+                const response = await fetch('/api/claim', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        recipient: recipient,
+                        token_id: selectedTokenId,
+                    }),
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showResult(true, result.message);
+                    loadStats(); // Refresh stats
+                } else {
+                    showResult(false, result.message);
+                }
+            } catch (error) {
+                showResult(false, 'Network error: ' + error.message);
+            } finally {
+                claimBtn.classList.remove('is-loading');
+                claimBtn.disabled = false;
+            }
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            initTokenSelector();
+            loadStats();
+
+            document.getElementById('claim-btn').addEventListener('click', claimTokens);
+
+            // Allow Enter key to submit
+            document.getElementById('recipient-address').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') claimTokens();
+            });
+
+            // Refresh stats every 30 seconds
+            setInterval(loadStats, 30000);
+        });
+    </script>
+</body>
+</html>

@@ -26,7 +26,7 @@ echo ""
 
 # Check for required binaries
 MISSING=0
-for bin in coins-indexer coins-publisher coins-explorer coins-wallet; do
+for bin in coins-indexer coins-publisher coins-explorer coins-wallet coins-faucet; do
     if [ ! -f "target/release/${bin}" ]; then
         echo -e "${RED}✗ Missing target/release/${bin}${NC}"
         MISSING=1
@@ -80,28 +80,28 @@ wait_for_health() {
 }
 
 # ── 1. Start Indexer ──
-echo -e "${YELLOW}[1/5] Starting indexer on port 10003...${NC}"
+echo -e "${YELLOW}[1/6] Starting indexer on port 10003...${NC}"
 ./target/release/coins-indexer --config config/serve-indexer.toml \
     > "${LOG_DIR}/indexer.log" 2>&1 &
 echo $! > "${PID_DIR}/indexer.pid"
 wait_for_health "indexer" "http://localhost:10003/health"
 
 # ── 2. Start Publisher ──
-echo -e "${YELLOW}[2/5] Starting publisher on port 10004...${NC}"
+echo -e "${YELLOW}[2/6] Starting publisher on port 10004...${NC}"
 ./target/release/coins-publisher --config config/serve-publisher.toml \
     > "${LOG_DIR}/publisher.log" 2>&1 &
 echo $! > "${PID_DIR}/publisher.pid"
 wait_for_health "publisher" "http://localhost:10004/health"
 
 # ── 3. Start Explorer ──
-echo -e "${YELLOW}[3/5] Starting explorer on port 10002...${NC}"
+echo -e "${YELLOW}[3/6] Starting explorer on port 10002...${NC}"
 ./target/release/coins-explorer --config config/serve-explorer.toml \
     > "${LOG_DIR}/explorer.log" 2>&1 &
 echo $! > "${PID_DIR}/explorer.pid"
 wait_for_health "explorer" "http://localhost:10002/health"
 
 # ── 4. Start Wallet ──
-echo -e "${YELLOW}[4/5] Starting wallet on port 10001...${NC}"
+echo -e "${YELLOW}[4/6] Starting wallet on port 10001...${NC}"
 WALLET_PORT=10001 \
 INDEXER_URL=http://localhost:10003 \
 PUBLISHER_URL=http://localhost:10004 \
@@ -111,8 +111,15 @@ EXPLORER_URL=http://localhost:10002 \
 echo $! > "${PID_DIR}/wallet.pid"
 wait_for_health "wallet" "http://localhost:10001/health"
 
-# ── 5. Start nginx ──
-echo -e "${YELLOW}[5/5] Starting nginx on ports 80 + 443...${NC}"
+# ── 5. Start Faucet ──
+echo -e "${YELLOW}[5/6] Starting faucet on port 10005...${NC}"
+./target/release/coins-faucet --config config/serve-faucet.toml \
+    > "${LOG_DIR}/faucet.log" 2>&1 &
+echo $! > "${PID_DIR}/faucet.pid"
+wait_for_health "faucet" "http://localhost:10005/health"
+
+# ── 6. Start nginx ──
+echo -e "${YELLOW}[6/6] Starting nginx on ports 80 + 443...${NC}"
 
 # Generate self-signed SSL cert if missing
 SSL_DIR="${SERVE_DIR}/ssl"
@@ -163,6 +170,7 @@ echo ""
 echo -e "${BLUE}URLs:${NC}"
 echo -e "  Wallet:   ${GREEN}https://168.119.139.152/wallet/${NC}"
 echo -e "  Explorer: ${GREEN}https://168.119.139.152/explorer/${NC}"
+echo -e "  Faucet:   ${GREEN}https://168.119.139.152/faucet/${NC}"
 echo -e "  (also available on http, but crypto.subtle requires https)"
 echo ""
 echo -e "${BLUE}Direct ports:${NC}"
@@ -170,6 +178,7 @@ echo -e "  Wallet:    http://localhost:10001"
 echo -e "  Explorer:  http://localhost:10002"
 echo -e "  Indexer:   http://localhost:10003"
 echo -e "  Publisher: http://localhost:10004"
+echo -e "  Faucet:    http://localhost:10005"
 echo ""
 echo -e "${BLUE}Logs:${NC}   ${LOG_DIR}/"
 echo -e "${BLUE}PIDs:${NC}   ${PID_DIR}/"

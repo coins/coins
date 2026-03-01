@@ -27,7 +27,7 @@ else
 fi
 
 # Stop each service by PID file
-for service in wallet explorer publisher indexer; do
+for service in wallet faucet explorer publisher indexer; do
     PIDFILE="${PID_DIR}/${service}.pid"
     if [ -f "$PIDFILE" ]; then
         PID=$(cat "$PIDFILE" 2>/dev/null)
