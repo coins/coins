@@ -21,6 +21,8 @@ pub struct FaucetSigner {
     pub pk: G1,
     /// Account ID (fetched from indexer)
     pub account_id: Option<u32>,
+    /// Locally tracked nonce (accounts for pending txs not yet mined)
+    local_nonce: Option<u32>,
 }
 
 /// Transaction submission request to the publisher.
@@ -72,6 +74,7 @@ impl FaucetSigner {
             sk,
             pk,
             account_id: None,
+            local_nonce: None,
         })
     }
 
@@ -136,7 +139,11 @@ impl FaucetSigner {
         // Fetch current account state to get nonce
         let account = self.fetch_account(client, indexer_url).await?;
         let sender_id = account.id.0;
-        let nonce = account.nonce;
+        // Use the higher of indexer nonce and local nonce to account for pending txs
+        let nonce = match self.local_nonce {
+            Some(local) if local > account.nonce => local,
+            _ => account.nonce,
+        };
 
         // Parse recipient public key
         let recipient = G1::from_hex(recipient_pk)
@@ -198,9 +205,13 @@ impl FaucetSigner {
             recipient = recipient_pk,
             token_id = token_id,
             amount = amount,
+            nonce = nonce,
             response = %body,
             "Transaction submitted successfully"
         );
+
+        // Update local nonce for next transaction
+        self.local_nonce = Some(nonce + 1);
 
         // Return a simple hash (first 16 hex chars of tx)
         Ok(tx_hex[..16].to_string())

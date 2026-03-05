@@ -309,7 +309,7 @@
                 <div style="margin-top: 1rem;">
                     <p class="has-text-centered">
                         <small class="has-text-grey">
-                            Faucet Address: <code id="faucet-address" style="word-break: break-all;">Loading...</code>
+                            Faucet Address: <code id="faucet-address" style="word-break: break-all; cursor: pointer;" onclick="navigator.clipboard.writeText(this.title).then(() => { const el = this; const orig = el.textContent; el.textContent = 'Copied!'; setTimeout(() => { const addr = el.title; el.textContent = addr.slice(0,8) + '...' + addr.slice(-8); }, 1000); })">Loading...</code>
                         </small>
                     </p>
                 </div>
