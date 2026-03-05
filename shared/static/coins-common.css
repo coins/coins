@@ -975,14 +975,23 @@ code, .mono {
     border-radius: var(--coins-radius);
     font-weight: 600;
     transition: all var(--coins-transition);
-    border: none;
+    border: 1px solid var(--coins-border);
     padding: 0.625rem 1.25rem;
     font-size: 0.9375rem;
+    background: var(--coins-surface);
+    color: var(--coins-text-secondary);
+}
+
+.button:hover {
+    background: var(--coins-surface-elevated);
+    border-color: var(--coins-text-muted);
+    color: var(--coins-text);
 }
 
 .button.is-primary {
     background: var(--coins-accent-gradient);
     color: white;
+    border: none;
 }
 
 .button.is-primary:hover {
@@ -1008,25 +1017,34 @@ code, .mono {
 
 .button.is-success {
     background: var(--coins-success);
+    border-color: transparent;
 }
 
 .button.is-warning {
     background: var(--coins-warning);
     color: var(--coins-text);
+    border-color: transparent;
 }
 
 .button.is-danger {
     background: var(--coins-danger);
+    border-color: transparent;
 }
 
 .button.is-danger.is-light {
     background: var(--coins-danger-light);
     color: var(--coins-danger);
-    border: none;
+    border: 1px solid transparent;
+}
+
+.button.is-danger.is-light:hover {
+    background: rgba(248, 113, 113, 0.25);
+    border-color: var(--coins-danger);
 }
 
 .button.is-link {
     background: var(--coins-info);
+    border-color: transparent;
 }
 
 /* Large action buttons for wallet */
@@ -1414,33 +1432,41 @@ code, .mono {
     border-radius: var(--coins-radius-xl);
     overflow: hidden;
     box-shadow: var(--coins-shadow-lg);
+    border: 1px solid var(--coins-border);
 }
 
 .modal-card-head {
-    background: var(--coins-primary-gradient);
-    border-bottom: none;
+    background: var(--coins-surface);
+    border-bottom: 1px solid var(--coins-border);
 }
 
 .modal-card-title {
-    color: white;
+    color: var(--coins-text);
     font-weight: 600;
 }
 
 .modal-card-head .delete {
-    background: rgba(255, 255, 255, 0.2);
+    background: var(--coins-surface-elevated);
+}
+
+.modal-card-head .delete::before,
+.modal-card-head .delete::after {
+    background-color: var(--coins-text-secondary);
 }
 
 .modal-card-head .delete:hover {
-    background: rgba(255, 255, 255, 0.3);
+    background: var(--coins-border);
 }
 
 .modal-card-body {
     padding: 1.5rem;
+    background: var(--coins-surface);
+    color: var(--coins-text);
 }
 
 .modal-card-foot {
-    border-top: 1px solid var(--coins-border-light);
-    background: var(--coins-bg);
+    border-top: 1px solid var(--coins-border);
+    background: var(--coins-surface);
 }
 
 /* ========================================
@@ -1827,15 +1853,6 @@ code {
     color: var(--coins-accent);
 }
 
-.modal-card-body {
-    background: var(--coins-surface);
-    color: var(--coins-text);
-}
-
-.modal-card-foot {
-    background: var(--coins-bg-secondary);
-    border-color: var(--coins-border);
-}
 
 /* ========================================
    Transaction Row (Clickable)
