@@ -13,7 +13,7 @@ import { initWebSocket, checkServiceConnections, setRefreshCallbacks } from './s
 import { startBalancePolling, stopBalancePolling, setPollingCallbacks } from './services/polling.js';
 
 // Features
-import { initInvoice } from './features/invoice.js';
+import { initInvoice, applyPaymentUrl } from './features/invoice.js';
 import { setPendingRenderCallback, refreshPendingTransactions } from './features/pending.js';
 import { renderTransactionHistory, refreshTransactions, initTransactionDetailModal } from './features/transactions.js';
 import { sendTransaction, setSendRefreshCallback, initSendForm } from './features/send.js';
@@ -314,6 +314,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const publicKey = walletApp.getPublicKey();
         updateWalletDisplay(publicKey);
         showScreen('wallet-screen');
+        applyPaymentUrl();
         await refreshBalance();
         await refreshTransactions();
         startBalancePolling();
@@ -369,6 +370,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const publicKey = await walletApp.createWallet(password);
                 updateWalletDisplay(publicKey);
                 showScreen('wallet-screen');
+                applyPaymentUrl();
                 await refreshBalance();
                 await refreshTransactions();
                 startBalancePolling();
@@ -409,6 +411,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const publicKey = await walletApp.importWallet(secretKeyHex, password);
                 updateWalletDisplay(publicKey);
                 showScreen('wallet-screen');
+                applyPaymentUrl();
                 await refreshBalance();
                 await refreshTransactions();
                 startBalancePolling();
@@ -437,6 +440,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const publicKey = await walletApp.unlockWallet(password);
                 updateWalletDisplay(publicKey);
                 showScreen('wallet-screen');
+                applyPaymentUrl();
                 await refreshBalance();
                 await refreshTransactions();
                 startBalancePolling();

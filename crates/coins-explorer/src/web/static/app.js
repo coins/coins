@@ -1417,8 +1417,8 @@ class ExplorerApp {
                 this.secsUntilNextLoop = data.secs_until_next_loop;
                 this.intervalSecs = data.interval_secs || 60;
 
-                // Check fee balance for funding warning
-                if (data.fee_balance_sats === 0) {
+                // Check fee balance for funding warning (< 10000 sats is too low to publish)
+                if (data.fee_balance_sats < 10000) {
                     if (!this.publisherAddress) {
                         try {
                             const addrResp = await fetch('/api/publisher/address');
@@ -1537,8 +1537,8 @@ class ExplorerApp {
             <div class="funding-warning">
                 <div class="funding-warning-icon">!</div>
                 <div class="funding-warning-content">
-                    <div class="funding-warning-title">Publisher has no funds</div>
-                    <div class="funding-warning-text">The publisher cannot create blocks without Bitcoin. Send funds to:</div>
+                    <div class="funding-warning-title">Publisher needs funds</div>
+                    <div class="funding-warning-text">The publisher needs more Bitcoin to cover transaction fees. Send funds to:</div>
                     <div class="funding-warning-address copyable" onclick="app.copyToClipboard('${address}', this)">${address}</div>
                     <a class="funding-warning-faucet" href="${faucetUrl}" target="_blank" rel="noopener">Get testnet coins from faucet &#8599;</a>
                 </div>

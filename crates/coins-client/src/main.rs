@@ -64,7 +64,7 @@ enum Commands {
         /// The token ID to send (0 = native token)
         #[arg(long, default_value = "0")]
         token_id: u16,
-        /// Parse a coins:// invoice URI to pre-fill send parameters
+        /// Parse a payment invoice URI to pre-fill send parameters
         #[arg(long)]
         invoice: Option<String>,
     },
@@ -83,9 +83,9 @@ enum Commands {
         #[arg(long)]
         expires: Option<u64>,
     },
-    /// Parse and display a coins:// invoice URI
+    /// Parse and display a payment invoice URI
     ParseInvoice {
-        /// The coins:// URI to parse
+        /// The payment URI to parse
         uri: String,
     },
 }

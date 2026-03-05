@@ -1,7 +1,11 @@
 /// Invoice / Payment Request module
 ///
-/// Provides a `coins://` URI format for payment requests.
-/// Format: `coins://pay?addr=<hex>&amount=<u32>&token=<u16>&memo=<string>&expires=<unix_ts>`
+/// Payment request URI format:
+/// `https://host/wallet/?pay&addr=<hex>&amount=<u32>&token=<u16>&memo=<string>&expires=<unix_ts>`
+///
+/// The `?pay&addr=...` query string is the canonical part. The wallet JS prepends its own
+/// base URL (`window.location.origin + pathname`) to make it a clickable link.
+/// The CLI produces just the query string portion.
 
 use serde::{Serialize, Deserialize};
 
@@ -23,7 +27,7 @@ pub struct Invoice {
 /// Error type for invoice parsing
 #[derive(Debug, Clone, PartialEq)]
 pub enum InvoiceError {
-    /// URI doesn't start with "coins://pay"
+    /// URI missing `?pay` marker
     InvalidScheme,
     /// Missing required address field
     MissingAddress,
@@ -35,20 +39,17 @@ pub enum InvoiceError {
     InvalidTokenId,
     /// Invalid expiration timestamp
     InvalidExpires,
-    /// Malformed URI
-    MalformedUri,
 }
 
 impl std::fmt::Display for InvoiceError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            InvoiceError::InvalidScheme => write!(f, "URI must start with 'coins://pay'"),
+            InvoiceError::InvalidScheme => write!(f, "URI must contain '?pay&addr=...'"),
             InvoiceError::MissingAddress => write!(f, "Missing required 'addr' parameter"),
             InvoiceError::InvalidAddress => write!(f, "Invalid address: must be a hex string"),
             InvoiceError::InvalidAmount => write!(f, "Invalid amount: must be a positive integer"),
             InvoiceError::InvalidTokenId => write!(f, "Invalid token ID: must be a non-negative integer"),
             InvoiceError::InvalidExpires => write!(f, "Invalid expiration: must be a Unix timestamp"),
-            InvoiceError::MalformedUri => write!(f, "Malformed URI"),
         }
     }
 }
@@ -67,7 +68,9 @@ impl Invoice {
         }
     }
 
-    /// Serialize the invoice to a `coins://` URI string
+    /// Serialize the invoice to a query string: `?pay&addr=<hex>&...`
+    ///
+    /// The wallet JS prepends its base URL to make a full clickable link.
     pub fn to_uri(&self) -> String {
         let mut params = vec![format!("addr={}", self.addr)];
 
@@ -84,18 +87,22 @@ impl Invoice {
             params.push(format!("expires={}", expires));
         }
 
-        format!("coins://pay?{}", params.join("&"))
+        format!("?pay&{}", params.join("&"))
     }
 
-    /// Parse a `coins://` URI string into an Invoice
+    /// Parse a payment URI into an Invoice.
+    ///
+    /// Accepts any string containing `?pay&addr=<hex>`:
+    /// - Full URL: `https://host/wallet/?pay&addr=abc123&amount=100`
+    /// - Query string only: `?pay&addr=abc123&amount=100`
     pub fn from_uri(uri: &str) -> Result<Self, InvoiceError> {
-        // Must start with coins://pay
-        let rest = uri.strip_prefix("coins://pay")
-            .ok_or(InvoiceError::InvalidScheme)?;
+        let qpos = uri.find('?').ok_or(InvoiceError::InvalidScheme)?;
+        let query = &uri[qpos + 1..];
 
-        // Parse query string
-        let query = rest.strip_prefix('?')
-            .ok_or(InvoiceError::MissingAddress)?;
+        // Must contain "pay" marker
+        if !query.split('&').any(|p| p == "pay") {
+            return Err(InvoiceError::InvalidScheme);
+        }
 
         let mut addr = None;
         let mut amount = None;
@@ -104,15 +111,16 @@ impl Invoice {
         let mut expires = None;
 
         for pair in query.split('&') {
-            if pair.is_empty() {
+            if pair.is_empty() || pair == "pay" {
                 continue;
             }
-            let (key, value) = pair.split_once('=')
-                .ok_or(InvoiceError::MalformedUri)?;
+            let (key, value) = match pair.split_once('=') {
+                Some(kv) => kv,
+                None => continue,
+            };
 
             match key {
                 "addr" => {
-                    // Validate hex
                     if value.is_empty() || !value.chars().all(|c| c.is_ascii_hexdigit()) {
                         return Err(InvoiceError::InvalidAddress);
                     }
@@ -212,6 +220,7 @@ mod tests {
     fn test_invoice_roundtrip_minimal() {
         let inv = Invoice::new("abcdef1234567890".to_string());
         let uri = inv.to_uri();
+        assert_eq!(uri, "?pay&addr=abcdef1234567890");
         let parsed = Invoice::from_uri(&uri).unwrap();
         assert_eq!(inv, parsed);
     }
@@ -240,22 +249,19 @@ mod tests {
             expires: None,
         };
         let uri = inv.to_uri();
-        assert_eq!(uri, "coins://pay?addr=abc123&amount=100&memo=Coffee");
+        assert_eq!(uri, "?pay&addr=abc123&amount=100&memo=Coffee");
     }
 
     #[test]
-    fn test_parse_minimal_uri() {
-        let inv = Invoice::from_uri("coins://pay?addr=abc123").unwrap();
+    fn test_parse_query_string() {
+        let inv = Invoice::from_uri("?pay&addr=abc123").unwrap();
         assert_eq!(inv.addr, "abc123");
         assert_eq!(inv.amount, None);
-        assert_eq!(inv.token_id, None);
-        assert_eq!(inv.memo, None);
-        assert_eq!(inv.expires, None);
     }
 
     #[test]
-    fn test_parse_full_uri() {
-        let inv = Invoice::from_uri("coins://pay?addr=abc123&amount=100&token=0&memo=Coffee&expires=1738600000").unwrap();
+    fn test_parse_full_http_url() {
+        let inv = Invoice::from_uri("https://example.com/wallet/?pay&addr=abc123&amount=100&token=0&memo=Coffee&expires=1738600000").unwrap();
         assert_eq!(inv.addr, "abc123");
         assert_eq!(inv.amount, Some(100));
         assert_eq!(inv.token_id, Some(0));
@@ -264,33 +270,41 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_localhost_url() {
+        let inv = Invoice::from_uri("http://localhost:8085/?pay&addr=abc123&amount=50").unwrap();
+        assert_eq!(inv.addr, "abc123");
+        assert_eq!(inv.amount, Some(50));
+    }
+
+    #[test]
     fn test_invalid_scheme() {
-        assert_eq!(Invoice::from_uri("http://pay?addr=abc123"), Err(InvoiceError::InvalidScheme));
+        assert_eq!(Invoice::from_uri("no-question-mark"), Err(InvoiceError::InvalidScheme));
+        assert_eq!(Invoice::from_uri("http://example.com/?addr=abc123"), Err(InvoiceError::InvalidScheme));
     }
 
     #[test]
     fn test_missing_address() {
-        assert_eq!(Invoice::from_uri("coins://pay?amount=100"), Err(InvoiceError::MissingAddress));
+        assert_eq!(Invoice::from_uri("?pay&amount=100"), Err(InvoiceError::MissingAddress));
     }
 
     #[test]
     fn test_invalid_address() {
-        assert_eq!(Invoice::from_uri("coins://pay?addr=xyz!@#"), Err(InvoiceError::InvalidAddress));
+        assert_eq!(Invoice::from_uri("?pay&addr=xyz!@#"), Err(InvoiceError::InvalidAddress));
     }
 
     #[test]
     fn test_invalid_amount() {
-        assert_eq!(Invoice::from_uri("coins://pay?addr=abc123&amount=notanumber"), Err(InvoiceError::InvalidAmount));
+        assert_eq!(Invoice::from_uri("?pay&addr=abc123&amount=notanumber"), Err(InvoiceError::InvalidAmount));
     }
 
     #[test]
     fn test_invalid_token_id() {
-        assert_eq!(Invoice::from_uri("coins://pay?addr=abc123&token=notanumber"), Err(InvoiceError::InvalidTokenId));
+        assert_eq!(Invoice::from_uri("?pay&addr=abc123&token=notanumber"), Err(InvoiceError::InvalidTokenId));
     }
 
     #[test]
     fn test_invalid_expires() {
-        assert_eq!(Invoice::from_uri("coins://pay?addr=abc123&expires=notanumber"), Err(InvoiceError::InvalidExpires));
+        assert_eq!(Invoice::from_uri("?pay&addr=abc123&expires=notanumber"), Err(InvoiceError::InvalidExpires));
     }
 
     #[test]
@@ -311,17 +325,15 @@ mod tests {
 
     #[test]
     fn test_expiration_check() {
-        // Past timestamp - should be expired
         let inv = Invoice {
             addr: "abc123".to_string(),
             amount: None,
             token_id: None,
             memo: None,
-            expires: Some(1000000000), // Year 2001
+            expires: Some(1000000000),
         };
         assert!(inv.is_expired());
 
-        // Far future timestamp - should not be expired
         let inv2 = Invoice {
             addr: "abc123".to_string(),
             amount: None,
@@ -331,20 +343,14 @@ mod tests {
         };
         assert!(!inv2.is_expired());
 
-        // No expiration - should never be expired
         let inv3 = Invoice::new("abc123".to_string());
         assert!(!inv3.is_expired());
     }
 
     #[test]
     fn test_unknown_params_ignored() {
-        let inv = Invoice::from_uri("coins://pay?addr=abc123&unknown=value&amount=50").unwrap();
+        let inv = Invoice::from_uri("?pay&addr=abc123&unknown=value&amount=50").unwrap();
         assert_eq!(inv.addr, "abc123");
         assert_eq!(inv.amount, Some(50));
-    }
-
-    #[test]
-    fn test_malformed_uri() {
-        assert_eq!(Invoice::from_uri("coins://pay?badparam"), Err(InvoiceError::MalformedUri));
     }
 }

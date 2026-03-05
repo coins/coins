@@ -4,32 +4,25 @@ import { walletApp } from '../core/WalletApp.js';
 import { showSendStatus } from '../ui/notifications.js';
 
 /**
- * Parse a coins:// URI into its components
- * @param {string} uri - The coins:// URI to parse
+ * Parse a payment URL into its components.
+ * Expects a URL containing ?pay&addr=<hex>&...
+ * @param {string} uri - The URL to parse
  * @returns {Object|null} Parsed invoice data or null if invalid
  */
 export function parseCoinsUri(uri) {
-    if (!uri.startsWith('coins://pay')) return null;
-    const rest = uri.slice('coins://pay'.length);
-    if (!rest.startsWith('?')) return null;
-    const query = rest.slice(1);
-    const params = {};
-    for (const pair of query.split('&')) {
-        if (!pair) continue;
-        const eq = pair.indexOf('=');
-        if (eq < 0) continue;
-        const key = pair.slice(0, eq);
-        const value = pair.slice(eq + 1);
-        params[key] = decodeURIComponent(value);
+    try {
+        const url = new URL(uri, window.location.origin);
+        if (!url.searchParams.has('pay') || !url.searchParams.has('addr')) return null;
+        return {
+            addr: url.searchParams.get('addr'),
+            amount: url.searchParams.has('amount') ? parseInt(url.searchParams.get('amount'), 10) : null,
+            token_id: url.searchParams.has('token') ? parseInt(url.searchParams.get('token'), 10) : null,
+            memo: url.searchParams.get('memo') || null,
+            expires: url.searchParams.has('expires') ? parseInt(url.searchParams.get('expires'), 10) : null,
+        };
+    } catch {
+        return null;
     }
-    if (!params.addr) return null;
-    return {
-        addr: params.addr,
-        amount: params.amount ? parseInt(params.amount, 10) : null,
-        token_id: params.token ? parseInt(params.token, 10) : null,
-        memo: params.memo || null,
-        expires: params.expires ? parseInt(params.expires, 10) : null,
-    };
 }
 
 /**
@@ -42,12 +35,44 @@ export function parseCoinsUri(uri) {
  * @returns {string} The generated URI
  */
 export function generateCoinsUri(addr, amount, token_id, memo, expires) {
-    let uri = `coins://pay?addr=${addr}`;
+    // Use the wallet's own HTTP URL so links are clickable in browsers.
+    // Works in dev (http://localhost:8085/) and behind nginx (/wallet/).
+    const base = window.location.origin + window.location.pathname;
+    let uri = `${base}?pay&addr=${addr}`;
     if (amount) uri += `&amount=${amount}`;
     if (token_id !== undefined && token_id !== null) uri += `&token=${token_id}`;
     if (memo) uri += `&memo=${encodeURIComponent(memo)}`;
     if (expires) uri += `&expires=${expires}`;
     return uri;
+}
+
+/**
+ * Check if the current page URL contains payment parameters (?pay&addr=...).
+ * If so, prefill the send form and clean the URL.
+ */
+export function applyPaymentUrl() {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has('pay') || !params.has('addr')) return;
+
+    const recipientInput = document.getElementById('send-recipient');
+    if (recipientInput) recipientInput.value = params.get('addr');
+
+    const amount = params.get('amount');
+    if (amount) {
+        const amountInput = document.getElementById('send-amount');
+        if (amountInput) amountInput.value = amount;
+    }
+
+    const expires = params.get('expires');
+    if (expires) {
+        const now = Math.floor(Date.now() / 1000);
+        if (now > parseInt(expires, 10)) {
+            showSendStatus('Warning: This invoice has expired', true);
+        }
+    }
+
+    // Clean the URL so it doesn't re-apply on refresh
+    window.history.replaceState({}, '', window.location.pathname);
 }
 
 /**
@@ -130,12 +155,12 @@ export function initInvoice() {
         });
     }
 
-    // Detect coins:// URI paste in recipient field
+    // Detect payment URL paste in recipient field
     const recipientInput = document.getElementById('send-recipient');
     if (recipientInput) {
         recipientInput.addEventListener('input', () => {
             const val = recipientInput.value.trim();
-            if (val.startsWith('coins://pay')) {
+            if (val.startsWith('http')) {
                 const inv = parseCoinsUri(val);
                 if (inv) {
                     recipientInput.value = inv.addr;

@@ -251,16 +251,27 @@ impl Engine {
         );
 
         // Dispatch based on publish mode
-        match &self.publish_mode {
+        let result = match &self.publish_mode {
             PublishMode::Single(format) => {
-                self.publish_single(&compressed_bytes, anchor_tx, fee_utxo, *format, sub_block, nonces).await?;
+                self.publish_single(&compressed_bytes, anchor_tx, fee_utxo.clone(), *format, sub_block, nonces).await
             }
             PublishMode::Dual { primary, secondary } => {
-                self.publish_dual(&compressed_bytes, anchor_tx, fee_utxo, *primary, *secondary, sub_block, nonces).await?;
+                self.publish_dual(&compressed_bytes, anchor_tx, fee_utxo.clone(), *primary, *secondary, sub_block, nonces).await
             }
-        }
+        };
 
-        Ok(())
+        match result {
+            Ok(()) => Ok(()),
+            Err(e) if e.to_string().contains("fee exceeds UTXO value") || e.to_string().contains("fee UTXO value too low") => {
+                tracing::warn!(
+                    utxo_value_sats = fee_utxo.value.to_sat(),
+                    compressed_size = compressed_bytes.len(),
+                    "Cannot publish: fee UTXO too small. Fund the publisher's Bitcoin address and retry."
+                );
+                Ok(())
+            }
+            Err(e) => Err(e),
+        }
     }
 
     /// Publish a sub-block using a single format
