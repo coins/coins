@@ -20,6 +20,9 @@ class ExplorerApp {
             websocket: false
         };
 
+        // Publisher address cache
+        this.publisherAddress = null;
+
         // Data cache for instant navigation (invalidated on new block)
         this.cache = {
             accounts: new Map(),      // pk -> { account, allTxs, pkToId }
@@ -1413,13 +1416,33 @@ class ExplorerApp {
                 this.serviceStatus.publisher = true;
                 this.secsUntilNextLoop = data.secs_until_next_loop;
                 this.intervalSecs = data.interval_secs || 60;
+
+                // Check fee balance for funding warning
+                if (data.fee_balance_sats === 0) {
+                    if (!this.publisherAddress) {
+                        try {
+                            const addrResp = await fetch('/api/publisher/address');
+                            if (addrResp.ok) {
+                                const addrData = await addrResp.json();
+                                this.publisherAddress = addrData.address;
+                            }
+                        } catch (e) {}
+                    }
+                    if (this.publisherAddress) {
+                        this.showFundingWarning(this.publisherAddress);
+                    }
+                } else {
+                    this.hideFundingWarning();
+                }
             } else {
                 this.serviceStatus.publisher = false;
                 this.secsUntilNextLoop = null;
+                this.hideFundingWarning();
             }
         } catch (e) {
             this.serviceStatus.publisher = false;
             this.secsUntilNextLoop = null;
+            this.hideFundingWarning();
         }
 
         this.updateStatusIndicator();
@@ -1504,6 +1527,28 @@ class ExplorerApp {
         if (this.secsUntilNextLoop > 0) {
             this.secsUntilNextLoop--;
         }
+    }
+
+    showFundingWarning(address) {
+        const container = document.getElementById('publisher-funding-warning');
+        if (!container) return;
+        const faucetUrl = `https://faucet.mutinynet.com/?address=${encodeURIComponent(address)}`;
+        container.innerHTML = `
+            <div class="funding-warning">
+                <div class="funding-warning-icon">!</div>
+                <div class="funding-warning-content">
+                    <div class="funding-warning-title">Publisher has no funds</div>
+                    <div class="funding-warning-text">The publisher cannot create blocks without Bitcoin. Send funds to:</div>
+                    <div class="funding-warning-address copyable" onclick="app.copyToClipboard('${address}', this)">${address}</div>
+                    <a class="funding-warning-faucet" href="${faucetUrl}" target="_blank" rel="noopener">Get testnet coins from faucet &#8599;</a>
+                </div>
+            </div>
+        `;
+    }
+
+    hideFundingWarning() {
+        const container = document.getElementById('publisher-funding-warning');
+        if (container) container.innerHTML = '';
     }
 
     // ========================================

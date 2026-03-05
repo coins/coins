@@ -577,6 +577,87 @@ html, body {
 }
 
 /* ========================================
+   Funding Warning Banner
+   ======================================== */
+.funding-warning {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 1rem 1.25rem;
+    margin-bottom: 1rem;
+    background: rgba(251, 191, 36, 0.08);
+    border: 1px solid rgba(251, 191, 36, 0.3);
+    border-radius: var(--coins-radius-xl);
+}
+
+.funding-warning-icon {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--coins-warning);
+    color: var(--coins-bg);
+    border-radius: 50%;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    flex-shrink: 0;
+    margin-top: 0.125rem;
+}
+
+.funding-warning-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.funding-warning-title {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--coins-warning);
+    margin-bottom: 0.25rem;
+}
+
+.funding-warning-text {
+    font-size: 0.8125rem;
+    color: var(--coins-text-secondary);
+    margin-bottom: 0.5rem;
+}
+
+.funding-warning-address {
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 0.75rem;
+    color: var(--coins-text);
+    background: var(--coins-bg-secondary);
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--coins-radius);
+    cursor: pointer;
+    transition: background var(--coins-transition);
+    word-break: break-all;
+    margin-bottom: 0.5rem;
+}
+
+.funding-warning-address:hover {
+    background: rgba(251, 191, 36, 0.12);
+}
+
+.funding-warning-address.copied {
+    background: rgba(52, 211, 153, 0.15);
+}
+
+.funding-warning-faucet {
+    display: inline-block;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--coins-warning);
+    text-decoration: none;
+    transition: color var(--coins-transition);
+}
+
+.funding-warning-faucet:hover {
+    color: var(--coins-text);
+}
+
+/* ========================================
    Stats Strip
    ======================================== */
 .stats-strip {

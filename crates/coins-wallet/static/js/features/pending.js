@@ -42,7 +42,13 @@ export function startPendingCountdown() {
         return;
     }
 
-    // Fetch initial publisher status
+    // Set an optimistic default immediately so renders see "Broadcasting"
+    // before the async fetch resolves with the real value
+    if (pendingCountdownSecs === null || pendingCountdownSecs <= 0) {
+        setPendingCountdownSecs(30);
+    }
+
+    // Fetch real value from publisher (will update in-place)
     fetchPublisherCountdown();
 
     // Update every second
@@ -51,7 +57,7 @@ export function startPendingCountdown() {
             setPendingCountdownSecs(pendingCountdownSecs - 1);
             updatePendingCountdownDisplay();
         } else {
-            // Countdown reached 1 or below - transition to "Broadcasting"
+            // Countdown reached 0 - publisher loop should run now
             setPendingCountdownSecs(0);
             updatePendingCountdownDisplay();
             // Start polling for actual status from API
@@ -146,11 +152,11 @@ export function updatePendingCountdownDisplay() {
     const pendingTags = document.querySelectorAll('.pending-tag');
     pendingTags.forEach(el => {
         if (pendingCountdownSecs !== null && pendingCountdownSecs > 0) {
-            el.innerHTML = `Broadcast in <span class="pending-countdown">${pendingCountdownSecs}s</span>`;
+            el.innerHTML = `Publishing in <span class="pending-countdown">${pendingCountdownSecs}s</span>`;
+            el.className = 'conf-badge publishing pending-tag';
         } else {
-            el.innerHTML = 'Broadcasting';
-            el.classList.remove('is-warning');
-            el.classList.add('is-info');
+            el.innerHTML = 'Publishing';
+            el.className = 'conf-badge publishing pending-tag';
         }
     });
 }

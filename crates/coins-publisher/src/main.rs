@@ -135,6 +135,8 @@ async fn main() -> anyhow::Result<()> {
     // Create app state (fee_addr will be set after engine initialization)
     let fee_addr_shared = Arc::new(std::sync::Mutex::new(String::new()));
     let last_loop_time = Arc::new(std::sync::Mutex::new(None));
+    let fee_balance_sats = Arc::new(std::sync::Mutex::new(0u64));
+    let fee_utxo_count = Arc::new(std::sync::Mutex::new(0usize));
     let app_state = AppState {
         indexer: indexer_client.clone(),
         mempool: Arc::new(std::sync::Mutex::new(Vec::new())),
@@ -142,6 +144,8 @@ async fn main() -> anyhow::Result<()> {
         recently_broadcast: Arc::new(std::sync::Mutex::new(Vec::new())),
         interval_secs: config.interval,
         last_loop_time: last_loop_time.clone(),
+        fee_balance_sats: fee_balance_sats.clone(),
+        fee_utxo_count: fee_utxo_count.clone(),
     };
     let router = router(app_state.clone());
     let api_addr = format!("0.0.0.0:{}", config.api_port);
@@ -226,6 +230,8 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let total_sats: bitcoin::Amount = engine.fee_utxos.iter().map(|u| u.value).sum();
+    if let Ok(mut v) = fee_balance_sats.lock() { *v = total_sats.to_sat(); }
+    if let Ok(mut v) = fee_utxo_count.lock() { *v = engine.fee_utxos.len(); }
     tracing::info!(
         publisher_address = %engine.fee_addr,
         total_sats = %total_sats,
@@ -247,6 +253,11 @@ async fn main() -> anyhow::Result<()> {
         engine.refresh_anchor().await?;
         tracing::debug!("Anchor refreshed");
         engine.refresh_fee_utxos().await?;
+        {
+            let sats: bitcoin::Amount = engine.fee_utxos.iter().map(|u| u.value).sum();
+            if let Ok(mut v) = fee_balance_sats.lock() { *v = sats.to_sat(); }
+            if let Ok(mut v) = fee_utxo_count.lock() { *v = engine.fee_utxos.len(); }
+        }
         tracing::debug!("Fee UTXOs refreshed");
         engine.try_mine_subblock().await?;
         tracing::debug!("Sub-block mining attempt finished");

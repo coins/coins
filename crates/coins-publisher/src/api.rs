@@ -21,6 +21,10 @@ pub struct AppState {
     pub interval_secs: u64,
     /// Time when the last publisher loop iteration started
     pub last_loop_time: Arc<Mutex<Option<Instant>>>,
+    /// Cached fee balance in satoshis
+    pub fee_balance_sats: Arc<Mutex<u64>>,
+    /// Cached fee UTXO count
+    pub fee_utxo_count: Arc<Mutex<usize>>,
 }
 
 async fn get_account_by_pk(Path(pk_hex): Path<String>, State(app_state): State<AppState>) -> impl IntoResponse {
@@ -381,6 +385,10 @@ struct StatusResponse {
     secs_until_next_loop: Option<u64>,
     /// Number of transactions waiting in mempool
     mempool_size: usize,
+    /// Publisher fee balance in satoshis
+    fee_balance_sats: u64,
+    /// Number of fee UTXOs
+    fee_utxo_count: usize,
 }
 
 async fn get_status(State(state): State<AppState>) -> impl IntoResponse {
@@ -406,11 +414,16 @@ async fn get_status(State(state): State<AppState>) -> impl IntoResponse {
         Err(_) => (None, None),
     };
 
+    let fee_balance_sats = state.fee_balance_sats.lock().map(|v| *v).unwrap_or(0);
+    let fee_utxo_count = state.fee_utxo_count.lock().map(|v| *v).unwrap_or(0);
+
     Json(StatusResponse {
         interval_secs: state.interval_secs,
         secs_since_last_loop,
         secs_until_next_loop,
         mempool_size,
+        fee_balance_sats,
+        fee_utxo_count,
     }).into_response()
 }
 

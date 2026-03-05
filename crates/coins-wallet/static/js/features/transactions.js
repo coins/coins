@@ -102,15 +102,17 @@ export function renderTransactionHistory() {
     const pendingCountdownSecs = getPendingCountdownSecs();
 
     // Filter out local pending transactions that are now:
-    // 1. In API pending (we'll show API version instead)
+    // 1. In API pending with status beyond 'publishing' (we'll show API version instead)
     // 2. Confirmed in the indexer
+    // Keep local pending while API still says 'publishing' — our local display
+    // (with countdown) is more informative during that phase.
     const stillLocalPending = localPendingTxs.filter(pending => {
-        // Check if in API pending (match by sender_pk + nonce)
-        const inApiPending = apiPendingTxs.some(api =>
+        // Check if in API pending with a status beyond 'publishing'
+        const apiMatch = apiPendingTxs.find(api =>
             api.sender_pk === pending.sender_pk &&
             api.nonce === pending.nonce
         );
-        if (inApiPending) return false;
+        if (apiMatch && apiMatch.status !== 'publishing') return false;
 
         // Check if confirmed
         const isConfirmed = confirmedTxs.some(confirmed =>
@@ -122,8 +124,19 @@ export function renderTransactionHistory() {
     });
     setPendingTransactions(stillLocalPending);
 
-    // Filter out API pending transactions that are confirmed (finalized ones)
+    // Filter out API pending transactions that:
+    // 1. Are still 'publishing' and have a local pending counterpart (avoid duplicates)
+    // 2. Are confirmed/finalized
     const stillApiPending = apiPendingTxs.filter(pending => {
+        // If still 'publishing' and we have a local pending for it, skip (local shows the countdown)
+        if (pending.status === 'publishing') {
+            const hasLocal = stillLocalPending.some(local =>
+                local.sender_pk === pending.sender_pk &&
+                local.nonce === pending.nonce
+            );
+            if (hasLocal) return false;
+        }
+
         // Keep if not finalized
         if (!pending.finalized) return true;
 
@@ -157,9 +170,9 @@ export function renderTransactionHistory() {
 
         let tagHtml;
         if (pendingCountdownSecs !== null && pendingCountdownSecs > 0) {
-            tagHtml = `<span class="conf-badge confirming pending-tag">Broadcast in <span class="pending-countdown">${pendingCountdownSecs}s</span></span>`;
+            tagHtml = `<span class="conf-badge publishing pending-tag">Publishing in <span class="pending-countdown">${pendingCountdownSecs}s</span></span>`;
         } else {
-            tagHtml = `<span class="conf-badge broadcasting pending-tag">Broadcasting</span>`;
+            tagHtml = `<span class="conf-badge publishing pending-tag">Publishing</span>`;
         }
         html += `
             <div class="transaction-item clickable pending-tx">
