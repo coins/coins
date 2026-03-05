@@ -256,8 +256,12 @@
                                 <div class="amount-input-wrapper">
                                     <div class="amount-row">
                                         <input type="text" class="amount-input-large" id="receive-amount" placeholder="Any" value="Any" autocomplete="off">
-                                        <span class="amount-measure" id="receive-amount-measure" aria-hidden="true"></span>
-                                        <span class="amount-token-suffix receive-token-suffix" id="receive-token-suffix">&alpha; Alpha</span>
+                                        <div class="amount-suffix-container">
+                                            <span class="amount-suffix-wrapper">
+                                                <span class="amount-suffix-spacer" id="receive-amount-spacer" aria-hidden="true">Any</span>
+                                                <span class="amount-token-suffix receive-token-suffix" id="receive-token-suffix">&alpha; Alpha</span>
+                                            </span>
+                                        </div>
                                     </div>
                                     <div class="amount-quick-select" id="receive-quick-select">
                                         <span class="quick-amount receive-quick-amount active" data-amount="any">Any</span>
