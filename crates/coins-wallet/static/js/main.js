@@ -13,7 +13,6 @@ import { initWebSocket, checkServiceConnections, setRefreshCallbacks } from './s
 import { startBalancePolling, stopBalancePolling, setPollingCallbacks } from './services/polling.js';
 
 // Features
-import { initAddressBook } from './features/addressBook.js';
 import { initInvoice } from './features/invoice.js';
 import { setPendingRenderCallback, refreshPendingTransactions } from './features/pending.js';
 import { renderTransactionHistory, refreshTransactions, initTransactionDetailModal } from './features/transactions.js';
@@ -470,7 +469,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     initSendReceiveTabs();
     initReceiveTab();
     initRecipientSuggestions();
-    initAddressBook();
     initSendForm();
     initTransactionDetailModal();
     initBackupModal();

@@ -219,7 +219,6 @@
                                 <div class="field" style="position:relative">
                                     <div class="recipient-row">
                                         <input class="input" type="text" id="send-recipient" placeholder="Account ID or address" autocomplete="off">
-                                        <button class="button is-light addressbook-toggle" id="open-addressbook-btn" title="Address book">Contacts</button>
                                     </div>
                                     <div class="recipient-suggestions" id="recipient-suggestions"></div>
                                 </div>
@@ -545,42 +544,6 @@
             </section>
             <footer class="modal-card-foot">
                 <button class="button" id="close-invoice-btn">Close</button>
-            </footer>
-        </div>
-    </div>
-
-    <!-- Address Book Modal -->
-    <div id="addressbook-modal" class="modal">
-        <div class="modal-background"></div>
-        <div class="modal-card">
-            <header class="modal-card-head">
-                <p class="modal-card-title">Address Book</p>
-                <button class="delete" aria-label="close" id="close-addressbook-modal"></button>
-            </header>
-            <section class="modal-card-body">
-                <div class="field">
-                    <input class="input" type="text" id="addressbook-search" placeholder="Search contacts...">
-                </div>
-                <div id="addressbook-list">
-                    <!-- Contacts will be rendered here -->
-                </div>
-                <hr>
-                <div id="addressbook-add-form">
-                    <h3 class="section-heading" style="margin-bottom: 0.75rem;">Add Contact</h3>
-                    <div class="field">
-                        <input class="input" type="text" id="addressbook-new-label" placeholder="Label (e.g. Alice)">
-                    </div>
-                    <div class="field">
-                        <input class="input is-family-monospace" type="text" id="addressbook-new-address" placeholder="Public key (hex)">
-                    </div>
-                    <div class="field">
-                        <button class="button is-primary is-small" id="addressbook-add-btn">Add Contact</button>
-                    </div>
-                    <div id="addressbook-error" class="notification is-danger is-light" style="display: none;"></div>
-                </div>
-            </section>
-            <footer class="modal-card-foot">
-                <button class="button" id="close-addressbook-btn">Close</button>
             </footer>
         </div>
     </div>

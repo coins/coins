@@ -2,7 +2,6 @@
 
 import { currentTransactions } from '../core/state.js';
 import { escapeHtml } from '../utils/dom.js';
-import { getAddressBook } from '../features/addressBook.js';
 
 /**
  * Initialize recipient input suggestions
@@ -17,18 +16,7 @@ export function initRecipientSuggestions() {
         const results = [];
         const seen = new Set();
 
-        // 1. Saved contacts
-        const contacts = getAddressBook();
-        for (const c of contacts) {
-            if (c.label.toLowerCase().includes(q) || c.address.toLowerCase().includes(q)) {
-                if (!seen.has(c.address)) {
-                    seen.add(c.address);
-                    results.push({ label: c.label, address: c.address });
-                }
-            }
-        }
-
-        // 2. Previous recipients from transaction history
+        // Previous recipients from transaction history
         const txs = currentTransactions || [];
         for (const tx of txs) {
             if (tx.direction === 'outgoing' && tx.recipient_pk) {

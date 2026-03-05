@@ -3,7 +3,6 @@
 import { walletApp } from '../core/WalletApp.js';
 import { carouselState, clearRefreshCaches } from '../core/state.js';
 import { showSendStatus, hideSendStatus, showSendAnimation } from '../ui/notifications.js';
-import { getAddressBook, saveAddressBook } from './addressBook.js';
 import { addPendingTransaction } from './pending.js';
 
 // Store refresh callback
@@ -70,54 +69,12 @@ export async function sendTransaction() {
             nonce: result.usedNonce
         });
 
-        // Store recipient before clearing form
-        const sentTo = recipient;
-
         // Clear form
         recipientEl.value = '';
         amountEl.value = '';
 
         // Refresh balance
         if (refreshBalanceCallback) await refreshBalanceCallback();
-
-        // After animation (1200ms), prompt to save contact if not already in address book
-        setTimeout(() => {
-            const contacts = getAddressBook();
-            const alreadySaved = contacts.some(c => c.address === sentTo);
-            if (!alreadySaved) {
-                const statusEl = document.getElementById('send-status');
-                if (statusEl) {
-                    const shortAddr = sentTo.length > 16
-                        ? sentTo.slice(0, 8) + '...' + sentTo.slice(-6)
-                        : sentTo;
-                    statusEl.innerHTML = `
-                        <div class="save-contact-prompt">
-                            <span>Save <strong>${shortAddr}</strong> as contact?</span>
-                            <div style="display:flex;gap:0.5rem;margin-top:0.5rem">
-                                <input class="input is-small" type="text" id="save-contact-name"
-                                       placeholder="Contact name" style="flex:1">
-                                <button class="button is-primary is-small" id="save-contact-btn">Save</button>
-                                <button class="button is-light is-small" id="dismiss-contact-btn">Dismiss</button>
-                            </div>
-                        </div>`;
-                    statusEl.className = 'notification mt-3 is-info';
-                    statusEl.style.display = 'block';
-
-                    document.getElementById('save-contact-btn')?.addEventListener('click', () => {
-                        const name = document.getElementById('save-contact-name')?.value.trim();
-                        if (name) {
-                            const contacts = getAddressBook();
-                            contacts.push({ label: name, address: sentTo });
-                            saveAddressBook(contacts);
-                        }
-                        statusEl.style.display = 'none';
-                    });
-                    document.getElementById('dismiss-contact-btn')?.addEventListener('click', () => {
-                        statusEl.style.display = 'none';
-                    });
-                }
-            }
-        }, 1200);
 
     } catch (error) {
         console.error('Send transaction failed:', error);
