@@ -367,8 +367,7 @@ body {
     pointer-events: auto;
     cursor: pointer;
     border-radius: 0.25rem;
-    padding: 0.125rem 0.375rem 0.125rem 0.75rem;
-    transform: translate(-0.2em, 0.2em);
+    padding: 0.125rem 0.375rem 0.125rem 0.375rem;
     transition: background 0.15s ease, color 0.15s ease;
 }
 
