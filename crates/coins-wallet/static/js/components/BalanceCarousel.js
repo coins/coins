@@ -2,10 +2,49 @@
 
 import { carouselState } from '../core/state.js';
 import { greekLetters, greekNames } from '../utils/tokens.js';
+import { walletApp } from '../core/WalletApp.js';
 
 // Store update callback
 let updateSendTokenInfoCallback = null;
 let resizeTimeout = null;
+let cachedFaucetUrl = null;
+
+async function showFaucetCta() {
+    const container = document.getElementById('faucet-cta');
+    if (!container) return;
+
+    const pk = walletApp.getPublicKey();
+    if (!pk) return;
+
+    // Fetch faucet URL once
+    if (!cachedFaucetUrl) {
+        try {
+            const resp = await fetch('/api/faucet-url');
+            if (resp.ok) {
+                const data = await resp.json();
+                cachedFaucetUrl = data.url;
+            }
+        } catch (e) {}
+    }
+    if (!cachedFaucetUrl) return;
+
+    const faucetLink = `${cachedFaucetUrl}?address=${encodeURIComponent(pk)}`;
+    container.innerHTML = `
+        <div class="faucet-cta">
+            <div class="faucet-cta-text">Get free testnet tokens to start using your wallet</div>
+            <a class="faucet-cta-button" href="${faucetLink}" target="_blank" rel="noopener">Open Faucet</a>
+        </div>
+    `;
+    container.style.display = '';
+}
+
+function hideFaucetCta() {
+    const container = document.getElementById('faucet-cta');
+    if (container) {
+        container.style.display = 'none';
+        container.innerHTML = '';
+    }
+}
 
 /**
  * Set callback for updating send token info
@@ -364,6 +403,7 @@ export function updateBalanceDisplay(account) {
         if (tokenBalancesCard) tokenBalancesCard.style.display = 'none';
         carouselState.tokenIds = ['0'];
         carouselState.balances = { '0': 0 };
+        showFaucetCta();
         return;
     }
 
@@ -389,8 +429,11 @@ export function updateBalanceDisplay(account) {
         }
         if (tokenBalancesCard) tokenBalancesCard.style.display = 'none';
         if (updateSendTokenInfoCallback) updateSendTokenInfoCallback();
+        showFaucetCta();
         return;
     }
+
+    hideFaucetCta();
 
     // Find the token with the largest balance
     let largestBalance = 0;

@@ -556,6 +556,13 @@
 
             document.getElementById('claim-btn').addEventListener('click', claimTokens);
 
+            // Prefill recipient from query param (e.g. ?address=abc123)
+            const params = new URLSearchParams(window.location.search);
+            const prefillAddress = params.get('address');
+            if (prefillAddress) {
+                document.getElementById('recipient-address').value = prefillAddress;
+            }
+
             // Allow Enter key to submit
             document.getElementById('recipient-address').addEventListener('keypress', (e) => {
                 if (e.key === 'Enter') claimTokens();

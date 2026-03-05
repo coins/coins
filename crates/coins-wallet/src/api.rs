@@ -44,6 +44,8 @@ pub struct AppState {
     pub publisher_url: String,
     /// Explorer service URL
     pub explorer_url: String,
+    /// Faucet URL (for linking from wallet UI)
+    pub faucet_url: String,
 }
 
 /// Extended application state with WebSocket support
@@ -65,6 +67,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/publisher/status", get(get_publisher_status))
         .route("/api/pending-transactions", get(get_pending_transactions))
         .route("/api/explorer/health", get(get_explorer_health))
+        .route("/api/faucet-url", get(get_faucet_url))
         .with_state(state)
 }
 
@@ -333,6 +336,11 @@ async fn get_explorer_health(State(state): State<AppState>) -> impl IntoResponse
             (StatusCode::BAD_GATEWAY, "Failed to connect to explorer").into_response()
         }
     }
+}
+
+/// Return the configured faucet URL
+async fn get_faucet_url(State(state): State<AppState>) -> impl IntoResponse {
+    Json(serde_json::json!({ "url": state.faucet_url })).into_response()
 }
 
 /// WebSocket handler for live updates

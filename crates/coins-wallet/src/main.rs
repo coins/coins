@@ -24,6 +24,8 @@ struct Config {
     publisher_url: String,
     /// Explorer service URL
     explorer_url: String,
+    /// Faucet URL (for linking to faucet from wallet UI)
+    faucet_url: String,
 }
 
 impl Config {
@@ -39,6 +41,8 @@ impl Config {
                 .unwrap_or_else(|_| "http://127.0.0.1:8082".to_string()),
             explorer_url: env::var("EXPLORER_URL")
                 .unwrap_or_else(|_| "http://127.0.0.1:3000".to_string()),
+            faucet_url: env::var("FAUCET_URL")
+                .unwrap_or_else(|_| "http://127.0.0.1:8086".to_string()),
         }
     }
 }
@@ -65,6 +69,7 @@ async fn main() -> anyhow::Result<()> {
     info!("Indexer URL: {}", config.indexer_url);
     info!("Publisher URL: {}", config.publisher_url);
     info!("Explorer URL: {}", config.explorer_url);
+    info!("Faucet URL: {}", config.faucet_url);
 
     // Create WebSocket broadcast channel
     let (ws_tx, _) = broadcast::channel::<WsMessage>(100);
@@ -76,6 +81,7 @@ async fn main() -> anyhow::Result<()> {
         indexer_url: config.indexer_url.clone(),
         publisher_url: config.publisher_url.clone(),
         explorer_url: config.explorer_url.clone(),
+        faucet_url: config.faucet_url.clone(),
     };
 
     // Spawn background task to monitor indexer and explorer for changes

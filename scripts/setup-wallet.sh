@@ -23,6 +23,7 @@ WASM_DIR="${PROJECT_ROOT}/crates/coins-wallet/wasm"
 WALLET_PORT="${WALLET_PORT:-8085}"
 INDEXER_URL="${INDEXER_URL:-http://localhost:8083}"
 PUBLISHER_URL="${PUBLISHER_URL:-http://localhost:8082}"
+FAUCET_URL="${FAUCET_URL:-http://localhost:8086}"
 
 cd "$PROJECT_ROOT"
 
@@ -68,11 +69,13 @@ echo -e "${YELLOW}[3/3] Starting wallet server...${NC}"
 export WALLET_PORT="${WALLET_PORT}"
 export INDEXER_URL="${INDEXER_URL}"
 export PUBLISHER_URL="${PUBLISHER_URL}"
+export FAUCET_URL="${FAUCET_URL}"
 
 echo -e "${BLUE}Configuration:${NC}"
 echo -e "  Port: ${WALLET_PORT}"
 echo -e "  Indexer: ${INDEXER_URL}"
 echo -e "  Publisher: ${PUBLISHER_URL}"
+echo -e "  Faucet: ${FAUCET_URL}"
 echo ""
 
 if [ "$DEV_MODE" = true ]; then

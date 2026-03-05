@@ -295,6 +295,40 @@ body {
     line-height: 1.5;
 }
 
+/* Faucet CTA for new/empty wallets */
+.faucet-cta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.875rem 1rem;
+    margin-bottom: 1rem;
+    background: rgba(45, 212, 191, 0.08);
+    border: 1px solid rgba(45, 212, 191, 0.25);
+    border-radius: var(--coins-radius);
+}
+
+.faucet-cta-text {
+    font-size: 0.8125rem;
+    color: var(--coins-text-secondary);
+}
+
+.faucet-cta-button {
+    flex-shrink: 0;
+    padding: 0.5rem 1rem;
+    background: var(--coins-accent);
+    color: var(--coins-bg);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    border-radius: var(--coins-radius);
+    text-decoration: none;
+    transition: opacity var(--coins-transition);
+}
+
+.faucet-cta-button:hover {
+    opacity: 0.85;
+}
+
 /* Amount Row with Token Suffix Overlay - uses grid for stable positioning */
 .amount-row {
     display: grid;
