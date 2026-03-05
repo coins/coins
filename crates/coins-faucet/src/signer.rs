@@ -193,6 +193,10 @@ impl FaucetSigner {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
+            // Reset local nonce so next attempt re-syncs from indexer.
+            // This handles publisher restarts where the mempool is cleared
+            // but our local_nonce is still ahead.
+            self.local_nonce = None;
             return Err(anyhow!(
                 "Publisher returned error {}: {}",
                 status,
