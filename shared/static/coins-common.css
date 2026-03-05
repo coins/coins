@@ -1950,13 +1950,17 @@ hr {
 }
 
 /* Activity Filters */
+.activity-header {
+    position: relative;
+    justify-content: flex-start;
+}
+
 .activity-filters {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    padding: 0.5rem 0.75rem;
-    border-bottom: 1px solid var(--coins-border-light);
-    position: relative;
+    margin-left: auto;
+    overflow: hidden;
 }
 
 .activity-token-chips {
@@ -1966,7 +1970,7 @@ hr {
     overflow-y: hidden;
     scrollbar-width: none;
     -ms-overflow-style: none;
-    flex: 1;
+    flex: 0 1 auto;
     min-width: 0;
     cursor: grab;
     -webkit-overflow-scrolling: touch;

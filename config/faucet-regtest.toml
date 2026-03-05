@@ -19,3 +19,5 @@ host = "127.0.0.1"
 indexer_url = "http://localhost:8084"
 # Publisher service URL
 publisher_url = "http://localhost:8080"
+# Explorer URL (user-facing, for linking from the faucet UI)
+explorer_url = "http://localhost:3000"

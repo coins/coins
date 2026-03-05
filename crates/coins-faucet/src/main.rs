@@ -71,6 +71,9 @@ struct ServicesConfig {
     indexer_url: String,
     /// Publisher service URL
     publisher_url: String,
+    /// Explorer URL (user-facing, for linking from the faucet UI)
+    #[serde(default = "default_explorer_url")]
+    explorer_url: String,
 }
 
 fn default_amount() -> u32 {
@@ -84,6 +87,9 @@ fn default_port() -> u16 {
 }
 fn default_host() -> String {
     "127.0.0.1".to_string()
+}
+fn default_explorer_url() -> String {
+    "http://127.0.0.1:3000".to_string()
 }
 
 #[tokio::main]
@@ -154,6 +160,7 @@ async fn main() -> Result<()> {
         signer: Arc::new(RwLock::new(signer)),
         indexer_url: config.services.indexer_url,
         publisher_url: config.services.publisher_url,
+        explorer_url: config.services.explorer_url,
         amount_per_claim: config.faucet.amount_per_claim,
         cooldown: Duration::from_secs(config.faucet.cooldown_seconds),
         claim_times: Arc::new(RwLock::new(HashMap::new())),

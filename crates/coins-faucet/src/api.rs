@@ -30,6 +30,8 @@ pub struct AppState {
     pub indexer_url: String,
     /// Publisher service URL
     pub publisher_url: String,
+    /// Explorer URL (user-facing, for linking from the faucet UI)
+    pub explorer_url: String,
     /// Amount of tokens to dispense per claim
     pub amount_per_claim: u32,
     /// Cooldown period between claims for the same address
@@ -83,6 +85,8 @@ pub struct StatsResponse {
     pub amount_per_claim: u32,
     /// Cooldown in seconds
     pub cooldown_seconds: u64,
+    /// Explorer URL for linking to transactions
+    pub explorer_url: String,
 }
 
 /// Create the API router with all faucet endpoints.
@@ -300,5 +304,6 @@ async fn stats(State(state): State<AppState>) -> impl IntoResponse {
         total_claims,
         amount_per_claim: state.amount_per_claim,
         cooldown_seconds: state.cooldown.as_secs(),
+        explorer_url: state.explorer_url.clone(),
     })
 }

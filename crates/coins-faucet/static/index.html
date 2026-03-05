@@ -434,11 +434,17 @@
             });
         }
 
+        let explorerUrl = null;
+
         // Show result message
-        function showResult(success, message) {
+        function showResult(success, message, html) {
             const el = document.getElementById('result-message');
             el.className = 'result-message ' + (success ? 'success' : 'error');
-            el.textContent = message;
+            if (html) {
+                el.innerHTML = html;
+            } else {
+                el.textContent = message;
+            }
         }
 
         // Clear result message
@@ -472,6 +478,11 @@
                 // Get native token balance (token 0)
                 const nativeBalance = stats.balances['0'] || 0;
                 document.getElementById('faucet-balance').textContent = formatNumber(nativeBalance);
+
+                // Cache explorer URL
+                if (stats.explorer_url) {
+                    explorerUrl = stats.explorer_url;
+                }
 
                 // Show truncated faucet address
                 const addr = stats.faucet_address;
@@ -536,7 +547,12 @@
                 const result = await response.json();
 
                 if (result.success) {
-                    showResult(true, result.message);
+                    let html = result.message;
+                    if (explorerUrl) {
+                        const link = explorerUrl.replace(/\/+$/, '') + '/#mempool';
+                        html += `<br><a href="${link}" target="_blank" rel="noopener" style="color: inherit; text-decoration: underline;">View in Explorer</a>`;
+                    }
+                    showResult(true, null, html);
                     loadStats(); // Refresh stats
                 } else {
                     showResult(false, result.message);
