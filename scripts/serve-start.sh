@@ -127,7 +127,7 @@ WALLET_PORT=10001 \
 INDEXER_URL=http://localhost:10003 \
 PUBLISHER_URL=http://localhost:10004 \
 EXPLORER_URL=http://localhost:10002 \
-FAUCET_URL=http://localhost:10005 \
+FAUCET_URL=/faucet \
     ./target/release/coins-wallet \
     > "${LOG_DIR}/wallet.log" 2>&1 &
 echo $! > "${PID_DIR}/wallet.pid"
