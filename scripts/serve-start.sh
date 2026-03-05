@@ -22,6 +22,27 @@ echo -e "${BLUE}   Coins Serve Mode${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo ""
 
+# ── Bootstrap serve data from mutinynet ──
+
+MUTINYNET_DIR="${PROJECT_ROOT}/.data/mutinynet"
+
+if [ ! -d "${SERVE_DIR}/keys" ] || [ ! -d "${SERVE_DIR}/subchains" ]; then
+    if [ ! -d "$MUTINYNET_DIR" ]; then
+        echo -e "${RED}✗ No mutinynet data found. Run setup-mutinynet.sh first.${NC}"
+        exit 1
+    fi
+    echo -e "${YELLOW}Bootstrapping serve data from mutinynet...${NC}"
+    mkdir -p "${SERVE_DIR}/keys" "${SERVE_DIR}/subchains"
+    cp "${MUTINYNET_DIR}/keys/genesis_sk.hex" "${SERVE_DIR}/keys/"
+    cp "${MUTINYNET_DIR}/keys/publisher_mutinynet_sk.hex" "${SERVE_DIR}/keys/"
+    cp "${MUTINYNET_DIR}/keys/publisher_bls_sk.hex" "${SERVE_DIR}/keys/"
+    cp -P "${MUTINYNET_DIR}/subchains/subchain_mutinynet.bin" "${SERVE_DIR}/subchains/"
+    # Copy the actual subchain file the symlink points to
+    cp "$(readlink -f "${MUTINYNET_DIR}/subchains/subchain_mutinynet.bin")" "${SERVE_DIR}/subchains/"
+    echo -e "${GREEN}✓ Serve data bootstrapped${NC}"
+    echo ""
+fi
+
 # ── Pre-checks ──
 
 # Check for required binaries

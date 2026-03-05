@@ -1,12 +1,12 @@
 # Indexer service configuration for serve mode (production)
 
 # Subchain configuration for autonomous block discovery
-subchain = ".data/mutinynet/subchains/subchain_mutinynet.bin"
-wallet_name = "coins-indexer"
+subchain = ".data/serve/subchains/subchain_mutinynet.bin"
+wallet_name = "coins-indexer-serve"
 
 [database]
-state_db = ".data/mutinynet/state.db"
-indexer_db = ".data/mutinynet/indexer.db"
+state_db = ".data/serve/state.db"
+indexer_db = ".data/serve/indexer.db"
 
 [bitcoin]
 rpc_url = "http://168.119.139.152:38332"

@@ -7,13 +7,13 @@ rpc_pass = "8723nasd0932n"
 rpc_wallet = "coins-publisher"
 
 # Subchain file (network-isolated)
-subchain = ".data/mutinynet/subchains/subchain_mutinynet.bin"
+subchain = ".data/serve/subchains/subchain_mutinynet.bin"
 
 # Bitcoin secret key for fee payments (network-isolated)
-keyfile = ".data/mutinynet/keys/publisher_mutinynet_sk.hex"
+keyfile = ".data/serve/keys/publisher_mutinynet_sk.hex"
 
 # BLS secret key for signing sub-blocks (network-isolated)
-bls_keyfile = ".data/mutinynet/keys/publisher_bls_sk.hex"
+bls_keyfile = ".data/serve/keys/publisher_bls_sk.hex"
 
 # Mining interval (60s for signet's ~1 min blocks)
 interval = 60

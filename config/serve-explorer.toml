@@ -8,7 +8,7 @@ publisher_url = "http://localhost:10004"
 
 [database]
 # Path to explorer's transaction index database
-tx_index_db = ".data/mutinynet/explorer-tx-index.db"
+tx_index_db = ".data/serve/explorer-tx-index.db"
 
 [bitcoin]
 # Bitcoin RPC connection settings (remote mutinynet node)
