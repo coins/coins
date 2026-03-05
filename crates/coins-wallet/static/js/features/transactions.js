@@ -157,9 +157,9 @@ export function renderTransactionHistory() {
 
         let tagHtml;
         if (pendingCountdownSecs !== null && pendingCountdownSecs > 0) {
-            tagHtml = `<span class="tag is-warning is-light pending-tag">Broadcast in <span class="pending-countdown">${pendingCountdownSecs}s</span></span>`;
+            tagHtml = `<span class="conf-badge confirming pending-tag">Broadcast in <span class="pending-countdown">${pendingCountdownSecs}s</span></span>`;
         } else {
-            tagHtml = `<span class="tag is-info is-light pending-tag">Broadcasting</span>`;
+            tagHtml = `<span class="conf-badge broadcasting pending-tag">Broadcasting</span>`;
         }
         html += `
             <div class="transaction-item clickable pending-tx">
@@ -190,17 +190,17 @@ export function renderTransactionHistory() {
 
         let statusHtml;
         if (tx.status === 'publishing') {
-            statusHtml = '<span class="tag is-warning is-light">Publishing</span>';
+            statusHtml = '<span class="conf-badge publishing">Publishing</span>';
         } else if (tx.status === 'broadcasting') {
-            statusHtml = '<span class="tag is-info is-light">Broadcasting</span>';
+            statusHtml = '<span class="conf-badge broadcasting">Broadcasting</span>';
         } else if (tx.status === 'unconfirmed') {
             if (tx.confirmations > 0) {
-                statusHtml = `<span class="tag is-warning is-light">${tx.confirmations} conf</span>`;
+                statusHtml = `<span class="conf-badge confirming">${tx.confirmations} confirmation${tx.confirmations !== 1 ? 's' : ''}</span>`;
             } else {
-                statusHtml = '<span class="tag is-info is-light">Unconfirmed</span>';
+                statusHtml = '<span class="conf-badge unconfirmed">Unconfirmed</span>';
             }
         } else {
-            statusHtml = '<span class="tag is-info is-light">Pending</span>';
+            statusHtml = '<span class="conf-badge pending">Pending</span>';
         }
 
         html += `
@@ -249,11 +249,11 @@ export function renderTransactionHistory() {
 
         let statusHtml;
         if (tx.finalized) {
-            statusHtml = '<span class="tag is-success is-light">Finalized</span>';
+            statusHtml = '<span class="conf-badge finalized">Finalized</span>';
         } else if (tx.confirmations > 0) {
-            statusHtml = `<span class="tag is-warning is-light">${tx.confirmations} conf</span>`;
+            statusHtml = `<span class="conf-badge confirming">${tx.confirmations} confirmation${tx.confirmations !== 1 ? 's' : ''}</span>`;
         } else {
-            statusHtml = '<span class="tag is-info is-light">Unconfirmed</span>';
+            statusHtml = '<span class="conf-badge unconfirmed">Unconfirmed</span>';
         }
 
         html += `
@@ -351,11 +351,11 @@ export function showTransactionDetail(tx) {
     const statusEl = document.getElementById('tx-detail-status');
     if (statusEl) {
         if (tx.finalized) {
-            statusEl.innerHTML = '<span class="tag is-success">Finalized</span>';
+            statusEl.innerHTML = '<span class="conf-badge finalized">Finalized</span>';
         } else if (tx.confirmations > 0) {
-            statusEl.innerHTML = `<span class="tag is-warning">${tx.confirmations} confirmation${tx.confirmations !== 1 ? 's' : ''} (${tx.confirmations_remaining} more needed)</span>`;
+            statusEl.innerHTML = `<span class="conf-badge confirming">${tx.confirmations} confirmation${tx.confirmations !== 1 ? 's' : ''} (${tx.confirmations_remaining} more needed)</span>`;
         } else {
-            statusEl.innerHTML = '<span class="tag is-info">Pending</span>';
+            statusEl.innerHTML = '<span class="conf-badge pending">Pending</span>';
         }
     }
 

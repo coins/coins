@@ -1156,6 +1156,64 @@ code, .mono {
     color: var(--coins-primary);
 }
 
+/* Confirmation Badge Pills (shared between wallet and explorer) */
+.conf-badge {
+    font-size: 0.6875rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 999px;
+    font-weight: 500;
+    white-space: nowrap;
+    display: inline-block;
+}
+
+.conf-badge.finalized,
+.conf-badge.confirmed {
+    background: var(--coins-success-light);
+    color: var(--coins-success);
+}
+
+.conf-badge.confirming {
+    background: var(--coins-warning-light);
+    color: var(--coins-warning);
+}
+
+.conf-badge.pending,
+.conf-badge.unconfirmed {
+    background: var(--coins-info-light);
+    color: var(--coins-info);
+}
+
+.conf-badge.publishing,
+.conf-badge.broadcasting {
+    background: var(--coins-info-light);
+    color: var(--coins-info);
+}
+
+/* Transaction Status Badge (for pending tx statuses) */
+.tx-status-badge {
+    font-size: 0.6875rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 999px;
+    font-weight: 500;
+    white-space: nowrap;
+    display: inline-block;
+}
+
+.tx-status-badge.publishing {
+    background: var(--coins-info-light);
+    color: var(--coins-info);
+}
+
+.tx-status-badge.broadcasting {
+    background: rgba(139, 92, 246, 0.15);
+    color: #a78bfa;
+}
+
+.tx-status-badge.unconfirmed {
+    background: var(--coins-warning-light);
+    color: var(--coins-warning);
+}
+
 /* Transaction direction badges */
 .tx-sent {
     color: var(--coins-danger);

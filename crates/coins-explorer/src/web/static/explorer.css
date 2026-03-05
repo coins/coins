@@ -778,23 +778,7 @@ html, body {
     gap: 0.5rem;
 }
 
-.conf-badge {
-    font-size: 0.6875rem;
-    padding: 0.25rem 0.5rem;
-    border-radius: 999px;
-    font-weight: 500;
-    white-space: nowrap;
-}
-
-.conf-badge.confirmed {
-    background: var(--coins-success-light);
-    color: var(--coins-success);
-}
-
-.conf-badge.pending {
-    background: var(--coins-warning-light);
-    color: var(--coins-warning);
-}
+/* conf-badge styles are in coins-common.css */
 
 /* ========================================
    Empty State
@@ -922,28 +906,7 @@ html, body {
     white-space: nowrap;
 }
 
-.tx-status-badge {
-    font-size: 0.6875rem;
-    padding: 0.25rem 0.5rem;
-    border-radius: 999px;
-    font-weight: 500;
-    white-space: nowrap;
-}
-
-.tx-status-badge.publishing {
-    background: var(--coins-info-light);
-    color: var(--coins-info);
-}
-
-.tx-status-badge.broadcasting {
-    background: rgba(139, 92, 246, 0.15);
-    color: #a78bfa;
-}
-
-.tx-status-badge.unconfirmed {
-    background: var(--coins-warning-light);
-    color: var(--coins-warning);
-}
+/* tx-status-badge styles are in coins-common.css */
 
 /* ========================================
    Block Detail
