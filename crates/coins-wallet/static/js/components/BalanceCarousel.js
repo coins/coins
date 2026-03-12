@@ -9,7 +9,7 @@ let updateSendTokenInfoCallback = null;
 let resizeTimeout = null;
 let cachedFaucetUrl = null;
 
-async function showFaucetCta() {
+async function showFaucetCta(customMessage) {
     const container = document.getElementById('faucet-cta');
     if (!container) return;
 
@@ -28,10 +28,11 @@ async function showFaucetCta() {
     }
     if (!cachedFaucetUrl) return;
 
+    const message = customMessage || 'Get free testnet tokens to start using your wallet';
     const faucetLink = `${cachedFaucetUrl}?address=${encodeURIComponent(pk)}`;
     container.innerHTML = `
         <div class="faucet-cta">
-            <div class="faucet-cta-text">Get free testnet tokens to start using your wallet</div>
+            <div class="faucet-cta-text">${message}</div>
             <a class="faucet-cta-button" href="${faucetLink}" target="_blank" rel="noopener">Open Faucet</a>
         </div>
     `;
@@ -433,7 +434,15 @@ export function updateBalanceDisplay(account) {
         return;
     }
 
-    hideFaucetCta();
+    // Show faucet CTA if send amount exceeds balance (e.g. from an invoice URL)
+    const sendAmountEl = document.getElementById('send-amount');
+    const sendAmount = sendAmountEl ? parseInt(sendAmountEl.value.replace(/,/g, ''), 10) || 0 : 0;
+    const maxBalance = Math.max(...tokenIds.map(id => balances[id] || 0));
+    if (sendAmount > 0 && sendAmount > maxBalance) {
+        showFaucetCta('Not enough tokens to complete this payment');
+    } else {
+        hideFaucetCta();
+    }
 
     // Find the token with the largest balance
     let largestBalance = 0;
